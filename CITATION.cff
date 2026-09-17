@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use GRIBS in research, please cite the software using this metadata."
+title: "GRIBS: General Rocket Internal Ballistics Solver"
+type: software
+authors:
+  - family-names: "Kurokawa"
+    given-names: "Hikaru"
+version: "0.1.0-alpha"
+date-released: "2026-09-17"
+license: MIT
+repository-code: "https://github.com/Team-TSA/GRIBS"
+abstract: "A Python lumped-parameter internal-ballistics solver for educational and research use."
+keywords:
+  - internal ballistics
+  - scientific computing
+  - numerical simulation
+  - Python

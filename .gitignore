@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+results/
+output/
+*.log
+
+# Internal or restricted documentation
+GRIBS_technical_manual.pdf
+internal/

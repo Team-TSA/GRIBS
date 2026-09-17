@@ -1,0 +1,8 @@
+{
+  "n_burn": 0.5,
+  "eps_nozzle": 1.0,
+  "unchoked_policy": "switch",
+  "method": "LSODA",
+  "rtol": 1e-09,
+  "blowdown": true
+}
