@@ -88,7 +88,10 @@ from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
 G0 = 9.80665                      # standard gravity [m/s^2]
-_TRAPZ = getattr(np, "trapezoid", np.trapz)
+
+_TRAPZ = getattr(np, "trapezoid", None)
+if _TRAPZ is None:
+    _TRAPZ = np.trapz
 
 
 # ==============================================================================
