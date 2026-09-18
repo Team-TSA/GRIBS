@@ -1,17 +1,42 @@
 cff-version: 1.2.0
-message: "If you use GRIBS in research, please cite the software using this metadata."
-title: "GRIBS: General Rocket Internal Ballistics Solver"
+
+message: >-
+  If you use GRIBS in research, analysis, or software development,
+  please cite the software using this metadata.
+
+title: >-
+  GRIBS: JSON-Configured Solid Rocket Motor
+  Internal-Ballistics Simulator
+
 type: software
+
+version: "0.3.1-alpha"
+
+date-released: "2026-09-18"
+
 authors:
   - family-names: "Kurokawa"
     given-names: "Hikaru"
-version: "0.1.0-alpha"
-date-released: "2026-09-17"
-license: MIT
+
 repository-code: "https://github.com/Team-TSA/GRIBS"
-abstract: "A Python lumped-parameter internal-ballistics solver for educational and research use."
+
+url: "https://github.com/Team-TSA/GRIBS"
+
+license: MIT
+
 keywords:
   - internal ballistics
-  - scientific computing
+  - solid rocket motor
+  - rocket propulsion
+  - thermochemistry
+  - NASA CEA
   - numerical simulation
   - Python
+
+abstract: >-
+  GRIBS is a JSON-configured solid rocket motor internal-ballistics
+  simulator. It includes grain regression, unsteady chamber-pressure
+  calculation, nozzle-flow modeling, thrust calculation, optional
+  erosive burning, optional throat erosion, and post-burnout blowdown.
+  GRIBS supports an external NASA CEA thermochemistry backend and a
+  manually configured pressure-dependent property-fit backend.

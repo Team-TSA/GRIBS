@@ -1,25 +1,27 @@
-# Security and safety-related defect reporting
+# Security Policy
 
 ## Supported versions
 
-Until the first stable release, only the latest release is supported.
+GRIBS is currently alpha software. Security fixes are applied to the latest development line when practical.
 
-## Private reporting
+## Reporting a vulnerability
 
-Do not publicly disclose a vulnerability or numerical defect that could plausibly cause materially unsafe interpretation of results. Use GitHub private vulnerability reporting for this repository, or contact the maintainers through the Organization's designated private channel.
+Please do not disclose a suspected security vulnerability in a public Issue.
+
+Report the vulnerability privately to the repository maintainers through GitHub's private vulnerability reporting feature, if enabled. If private reporting is unavailable, contact the maintainers through a private channel listed by the Team-TSA organization.
 
 Include:
 
-- affected version or commit hash
+- affected version or commit
 - operating system and Python version
-- complete input configuration with sensitive information removed
-- expected and observed behavior
-- minimal reproducible example
-- relevant output summaries and traceback
-- an assessment of whether published results may be affected
+- reproduction steps
+- potential impact
+- suggested mitigation, if available
 
-Do not include hazardous operational instructions or confidential test data in a public issue.
+Do not include passwords, personal access tokens, SSH private keys, proprietary propellant data, export-controlled information, or third-party software that cannot be redistributed.
 
-## Scope
+## Scope notes
 
-Reports may concern dependency vulnerabilities, secret exposure, unsafe file handling, silent numerical failure, invalid physical states accepted without warning, misleading outputs, or reproducibility failures.
+GRIBS invokes an external executable when the `cea2` backend is selected. Users must obtain the executable and databases from a trusted source, verify file integrity, and understand that executing an untrusted binary can compromise the host system.
+
+Configuration files should also be treated as untrusted input. Review JSON files before use, especially paths selecting executables, data directories, cache directories, and output directories.
