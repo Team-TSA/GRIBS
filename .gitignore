@@ -23,3 +23,25 @@ output/
 # Internal or restricted documentation
 GRIBS_technical_manual.pdf
 internal/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# GRIBS outputs
+results/
+result/
+*.log
+
+# Local NASA CEA runtime and databases
+fcea2
+fcea2.exe
+FCEA2.exe
+thermo.lib
+trans.lib
+
+# Editors and operating systems
+.vscode/
+.DS_Store
+Thumbs.db
