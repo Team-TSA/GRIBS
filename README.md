@@ -1,26 +1,46 @@
 # GRIBS
 
-GRIBS is a JSON-configured internal-ballistics simulator for solid rocket motors. It models cylindrical-bore grain regression, unsteady chamber pressure, choked and unchoked nozzle flow, optional flow separation, optional erosive burning, optional throat erosion, and post-burnout blowdown.
+GRIBS is a JSON-configured transient internal-ballistics simulator for solid rocket motors. It models cylindrical-bore grain regression, unsteady chamber pressure, choked and unchoked nozzle flow, optional flow separation, optional erosive burning, optional throat erosion, and post-burnout blowdown.
 
-> **Release status:** `v0.3.1-alpha` is a pre-release. Results must be independently validated before engineering or experimental use.
+**Current release:** v0.4.3-alpha  
+**Release status:** Pre-release. Results must be independently validated before engineering or experimental use.
 
 ## Highlights
 
 - Complete user configuration through `gribs_config.json`
-- Optional external NASA CEA thermochemistry backend
-- Manual pressure-dependent property correlations when CEA is not used
+- Direct integration with the official NASA CEA Python package through `import cea`
+- Transitional support for an external `fcea2` executable
+- Explicit thermochemistry backend selection with no silent fallback
+- Pressure-dependent chamber properties tabulated and interpolated with PCHIP in `ln(p)`
 - Constituent-density-based propellant mixture-density calculation
 - Packing-fraction correction for bulk propellant density
-- Script-relative file discovery for Visual Studio Code Run compatibility
 - Numerical self-tests before production calculations
 - PNG, CSV, text, and JSON outputs
-- Configuration provenance and derived inputs recorded in `summary.json`
+- Detailed configuration, environment, cache, and thermochemistry provenance in `summary.json`
+- Optional theoretical CEA rocket-performance diagnostics for comparison only
+
+## What changed from the v0.3 series
+
+The v0.4 series retains the established GRIBS unsteady internal-ballistics, grain-regression, burn-rate, nozzle-flow, throat-erosion, and blowdown models. The main changes are in thermochemistry integration, configuration validation, reproducibility, diagnostics, and provenance reporting.
+
+- Added the recommended `cea_python` backend using the official NASA CEA Python package.
+- Renamed the external executable backend from `cea2` to `cea_legacy_executable`.
+- Removed the manual `legacy_fit` gas-property backend.
+- Made thermochemistry backend selection explicit and mandatory.
+- Standardized bulk propellant density calculation from constituent mass fractions, constituent solid densities, and packing fraction.
+- Added stronger thermochemistry cache identity and validation.
+- Added strict JSON validation, including rejection of unknown keys.
+- Added optional theoretical CEA `c*`, `Cf`, and `Isp` diagnostics for comparison only.
+- Added `--backend`, `--validate-config`, `--dump-thermo`, `--no-cache`, and `--version` command-line options.
+- Expanded execution and thermochemistry provenance in `summary.json`.
+
+The update from the supplied v0.4.2-alpha implementation to v0.4.3-alpha changes version identifiers and corrects comments and user-facing documentation. It does not change the core calculation logic.
 
 ## Repository files
 
 ```text
 GRIBS/
-├── GRIBS_v0.3.1-alpha.py
+├── GRIBS_v0.4.3-alpha.py
 ├── gribs_config.json
 ├── requirements.txt
 ├── README.md
@@ -32,7 +52,7 @@ GRIBS/
 └── .gitignore
 ```
 
-External NASA CEA files are not included.
+External CEA runtime files are not distributed by GRIBS.
 
 ## Requirements
 
@@ -40,34 +60,53 @@ External NASA CEA files are not included.
 - NumPy
 - SciPy
 - Matplotlib
+- Official NASA CEA Python package, API version 3.0 or later, for the recommended `cea_python` backend
 
-Install Python dependencies with:
+Create and activate a virtual environment, then install the dependencies:
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Check the installed packages:
+
+```bash
+python -m pip check
+python -c "import numpy, scipy, matplotlib, cea; print(cea.__version__)"
 ```
 
 ## Quick start
 
-Place `GRIBS_v0.3.1-alpha.py` and `gribs_config.json` in the same directory, then run:
+Place `GRIBS_v0.4.3-alpha.py` and `gribs_config.json` in the same directory.
+
+Validate the configuration without initializing CEA:
 
 ```bash
-python3 GRIBS_v0.3.1-alpha.py
+python GRIBS_v0.4.3-alpha.py --config gribs_config.json --validate-config
 ```
 
-An alternative complete configuration can be selected with:
+Run the numerical self-tests:
 
 ```bash
-python3 GRIBS_v0.3.1-alpha.py --config another_config.json
+python GRIBS_v0.4.3-alpha.py --config gribs_config.json --selftest
 ```
 
-Run numerical self-tests only with:
+Run the simulation:
 
 ```bash
-python3 GRIBS_v0.3.1-alpha.py --selftest
+python GRIBS_v0.4.3-alpha.py --config gribs_config.json
 ```
 
-The default `gribs_config.json` path is resolved relative to the Python file, so the program can be started with Visual Studio Code Run even when the terminal working directory differs from the source directory.
+Display the program version:
+
+```bash
+python GRIBS_v0.4.3-alpha.py --version
+```
+
+The default configuration path is resolved relative to the Python file. This allows the program to be started with the Visual Studio Code Run command even when the terminal working directory differs from the source directory.
 
 ## Configuration
 
@@ -82,35 +121,88 @@ All standard user inputs are stored in `gribs_config.json`. The main sections ar
 - `solver`
 - `output`
 
-Field names include SI units where applicable. Users should edit the JSON file rather than the runtime `Config` dataclass in the Python source.
+Field names include SI units where applicable. Edit the JSON configuration rather than the runtime `Config` dataclass in the Python source.
 
-### Thermochemistry backend selection
+The current configuration schema is:
 
-Use external NASA CEA:
+```json
+{
+  "schema_version": "0.4.3-alpha"
+}
+```
+
+The v0.4 schema is not a drop-in replacement for a v0.3 configuration.
+
+## Thermochemistry backend selection
+
+The backend must be selected explicitly. GRIBS does not choose a default backend and does not silently substitute another backend if the selected backend is unavailable.
+
+### Recommended: official NASA CEA Python package
 
 ```json
 {
   "thermochemistry": {
-    "backend": "cea2"
+    "backend": "cea_python"
   }
 }
 ```
 
-Use manually supplied pressure-dependent correlations:
+The `cea_python` backend:
+
+- imports the official package as `cea`
+- performs HP equilibrium calculations through the Python API
+- does not launch an external executable
+- does not require `thermo.lib` or `trans.lib` beside the GRIBS script
+- records package, library, database, and cache provenance
+
+Install the backend with:
+
+```bash
+python -m pip install "cea>=3.0"
+```
+
+Official NASA CEA project:
+
+- https://github.com/nasa/CEA
+- https://nasa.github.io/cea/
+
+### Transitional: external CEA executable
 
 ```json
 {
   "thermochemistry": {
-    "backend": "legacy_fit"
+    "backend": "cea_legacy_executable"
   }
 }
 ```
 
-### CEA2 mode
+The `cea_legacy_executable` backend retains the v0.3 external `fcea2` workflow for regression comparison during the v0.4 alpha series. It requires a compatible executable and thermodynamic database files.
 
-When `thermochemistry.backend` is `cea2`, GRIBS reads the reactant names, mass percentages, constituent densities, and initial temperatures from the `propellant.reactants` array.
+When using this backend, place the following files in the same directory as the selected GRIBS Python file unless alternative paths are configured:
 
-Each reactant entry has the following form:
+```text
+fcea2
+thermo.lib
+trans.lib
+```
+
+On Linux, the executable may require permission:
+
+```bash
+chmod +x fcea2
+```
+
+NASA CEA is not developed, maintained, or distributed by the GRIBS project. Users are responsible for obtaining compatible CEA software and databases from an authorized source and complying with the applicable terms.
+
+### Removed backend
+
+The v0.3 `legacy_fit` backend is no longer supported. GRIBS v0.4 does not use manually fitted pressure correlations as a substitute for CEA.
+
+## Propellant composition and bulk density
+
+Reactant names, mass percentages, constituent solid densities, and initial temperatures are read from `propellant.reactants`.
+
+Example:
 
 ```json
 {
@@ -123,16 +215,16 @@ Each reactant entry has the following form:
 
 Requirements:
 
-- Reactant names must match names available in the user's compatible CEA thermodynamic database.
+- Reactant names must exist in the thermochemistry database used by the selected backend.
 - `wt_percent` values must sum to 100.
-- Every `density_kg_m3` value must be positive and must represent the relevant solid constituent density.
+- Every `density_kg_m3` value must be positive and represent the relevant solid constituent density.
 - Every `temperature_K` value must be positive.
 - `packing_fraction` must satisfy `0 < packing_fraction <= 1`.
 
 GRIBS calculates the ideal additive-volume mixture density as:
 
 ```text
-rho_ideal = 1 / sum(w_i / rho_i)
+rho_ideal = 1 / sum_i(w_i / rho_i)
 ```
 
 The bulk propellant density used by the internal-ballistics model is:
@@ -141,66 +233,15 @@ The bulk propellant density used by the internal-ballistics model is:
 rho_p = rho_ideal * packing_fraction
 ```
 
+Equivalently:
+
+```text
+rho_p = packing_fraction / sum_i(w_i / rho_i)
+```
+
+CEA combustion-product gas density is never used as the solid propellant density.
+
 This mixing rule is an approximation. Constituent interaction, processing, porosity, phase changes, and non-additive volume effects may require measured bulk-density data or a more specialized model.
-
-### External NASA CEA dependency
-
-> [!IMPORTANT]
-> The external NASA CEA executable and database files are not included in this repository or release.
-
-The legacy CEA runtime currently expected by the `cea2` backend uses these compatible local files:
-
-- `fcea2`
-- `thermo.lib`
-- `trans.lib`
-
-Place the files beside the GRIBS Python file:
-
-```text
-GRIBS/
-├── GRIBS_v0.3.1-alpha.py
-├── gribs_config.json
-├── fcea2
-├── thermo.lib
-├── trans.lib
-└── results/
-```
-
-On Linux, the executable may require permission:
-
-```bash
-chmod +x fcea2
-```
-
-NASA CEA is not developed, maintained, or distributed by the GRIBS project. Users are responsible for obtaining compatible CEA software and databases from an authorized source and for complying with all applicable license, redistribution, usage, and export-control requirements.
-
-Official NASA CEA project:
-
-- https://github.com/nasa/CEA
-- https://nasa.github.io/cea/installation.html
-
-GRIBS uses CEA HP equilibrium calculations to construct pressure-dependent chamber-gas properties. GRIBS retains its own unsteady chamber, burn-rate, grain-regression, nozzle-flow, thrust, and blowdown models.
-
-### Legacy-fit mode
-
-The `legacy_fit` backend does not require `fcea2`, `thermo.lib`, or `trans.lib`.
-
-The following quantities are supplied manually in `thermochemistry.legacy_fit`:
-
-- propellant density
-- gas-constant correlation coefficients
-- chamber-temperature correlation coefficients
-- specific-heat-ratio correlation coefficients
-
-The implemented correlations are:
-
-```text
-R(p)     = R_a + R_b * ln(p / 1e5)
-T0(p)    = eta_T0 * [T_a + T_b * ln(p / 1e5)]
-gamma(p) = g_a + g_b * ln(p / 1e5)
-```
-
-The example coefficients are formulation-specific and must not be assumed valid for other propellants.
 
 ## Inputs not determined by CEA
 
@@ -219,6 +260,32 @@ CEA equilibrium calculations do not determine all solid-propellant motor inputs.
 
 These inputs should be based on appropriate material data, experiments, calibration, or validated references.
 
+## CEA theoretical rocket diagnostics
+
+When enabled for `cea_python`, GRIBS can report theoretical CEA rocket-performance values, including theoretical `c*`, `Cf`, and `Isp`.
+
+These values are for comparison only. They are not fed back into the GRIBS unsteady internal-ballistics or nozzle-flow calculations. They must not be confused with the GRIBS effective quantities `cstar_eff_m_s`, `CF_eff`, and `Isp_s`.
+
+## Command-line options
+
+```text
+--config FILE          Select a complete JSON configuration file
+--backend NAME         Override the configured thermochemistry backend for one run
+--selftest             Run numerical self-tests only
+--validate-config      Validate the JSON configuration and exit
+--dump-thermo FILE     Write the chamber-property table and exit
+--no-cache             Force rebuilding of the chamber-property table
+--version              Display the GRIBS version
+```
+
+Example thermochemistry-table export:
+
+```bash
+python GRIBS_v0.4.3-alpha.py \
+  --config gribs_config.json \
+  --dump-thermo thermo_table.json
+```
+
 ## Outputs
 
 The default output directory is `results/`. Output names are configurable in `gribs_config.json`.
@@ -229,33 +296,34 @@ results/
 ├── time_history.csv
 ├── summary.txt
 ├── summary.json
-└── cea_cache/
+└── thermo_cache/
 ```
 
 - `ballistics.png`: combined publication-style result figure
 - `time_history.csv`: sampled time history
 - `summary.txt`: human-readable result summary
-- `summary.json`: original configuration, resolved runtime inputs, derived values, and results
-- `cea_cache/`: reusable pressure-dependent CEA property tables
+- `summary.json`: configuration, resolved runtime inputs, derived values, environment information, thermochemistry provenance, diagnostics, and results
+- `thermo_cache/`: reusable pressure-dependent chamber-property tables
 
 ## Validation status
 
-For the `v0.3.1-alpha` release:
+For v0.4.3-alpha:
 
 - Python syntax compilation was checked.
-- The unified JSON configuration loader was exercised.
-- The `legacy_fit` path completed the numerical self-tests, simulation, post-processing, and all four primary output files.
-- CEA2 operation was developed against the external legacy `fcea2` workflow with eight assigned pressure points per batch and 81 total pressure-grid points.
-- External CEA runtime files are not included, so users must validate CEA compatibility in the target environment.
+- JSON syntax validation was checked.
+- `--version` reports `GRIBS 0.4.3-alpha`.
+- `--validate-config` accepts the supplied v0.4.3-alpha configuration.
+- The full program runs numerical self-tests before each production calculation.
+- Full numerical behavior must be validated in the user's target environment with the selected CEA backend and installed dependency versions.
 
 ## Known limitations
 
-- This is alpha software and is not certified for safety-critical use.
+- This is alpha-stage research software and is not certified for safety-critical use.
 - Chemical equilibrium does not model finite-rate chemistry.
 - The additive-volume density rule is an approximation.
 - Burn-rate and erosive-burning coefficients are empirical inputs.
-- CEA compatibility depends on the user's external executable and databases.
-- The current CEA integration expects the legacy interactive executable and plot-file workflow.
+- The external executable backend depends on the user's compatible executable and database files.
+- Theoretical CEA rocket diagnostics do not replace GRIBS results.
 - Model outputs are not substitutes for static firing tests, material characterization, or independent review.
 
 ## License
@@ -264,9 +332,7 @@ GRIBS is licensed under the MIT License.
 
 Copyright (c) 2026 Hikaru Kurokawa.
 
-The GRIBS license applies only to files distributed by the GRIBS project.
-External NASA CEA software and databases are not included in this repository
-and remain subject to their respective terms.
+The GRIBS license applies only to files distributed by the GRIBS project. External NASA CEA software and databases are not included in this repository and remain subject to their respective terms.
 
 ## Citation
 

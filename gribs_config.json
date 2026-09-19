@@ -1,7 +1,13 @@
 {
-  "schema_version": "0.3.0-alpha",
+  "schema_version": "0.4.3-alpha",
+  "notes": [
+    "GRIBS v0.4.3-alpha configuration.",
+    "ACTION REQUIRED: set thermochemistry.backend explicitly to 'cea_python' (official NASA CEA Python package, recommended) or 'cea_legacy_executable' (external fcea2 executable).  It is intentionally left empty here: GRIBS has no default backend, never substitutes another one, and stops with an actionable message until this choice is made.",
+    "The v0.3 backends 'cea2' and 'legacy_fit' are not accepted: 'legacy_fit' was removed in v0.4.0-alpha and 'cea2' is renamed to 'cea_legacy_executable'.",
+    "The bulk propellant density is always rho_p = packing_fraction / sum_i(w_i/density_i); it is not a configuration setting any more."
+  ],
   "propellant": {
-    "description": "Reactant names must match thermo.lib; wt_percent must sum to 100. density_kg_m3 is the solid constituent density at the relevant temperature. The program uses rho_mix = 1/sum(w_i/rho_i), then multiplies by packing_fraction. Verify nominal densities before engineering use.",
+    "description": "Solid-propellant formulation as a mass-fraction mixture. reactant name must exist in the thermochemistry database of the selected backend; wt_percent must sum to 100. density_kg_m3 is the solid constituent density. The bulk density is rho_p = packing_fraction / sum_i(w_i/rho_i) (additive-volume model) and is completely independent of any CEA combustion-product (gas) density. NOTE (v0.4): in the official NASA CEA database the bare name 'C' denotes gaseous atomic carbon (h ~ +59.67 MJ/kg at 298.15 K) while 'C(gr)' is graphite; 'C' is retained here unchanged from the v0.3 formulation - see README.md and VALIDATION_REPORT.md before changing it.",
     "packing_fraction": 1.0,
     "reactants": [
       {
@@ -68,36 +74,39 @@
     "duration_s": 0.0
   },
   "thermochemistry": {
-    "backend": "cea2",
+    "backend": "cea_python",
     "temperature_efficiency": 1.0,
     "outside_range_policy": "clamp",
     "pressure_range": {
       "minimum_Pa": 100000.0,
       "maximum_Pa": 8000000.0
     },
-    "cea2": {
+    "pressure_points": 81,
+    "cea_python": {
+      "ions": false,
+      "transport": false,
+      "trace": 1e-10,
+      "products_from_reactants": true,
+      "product_species": [],
+      "omit_species": [],
+      "insert_species": [],
+      "molecular_weight": "gas_phase_M",
+      "smooth_truncation": false,
+      "truncation_width": -1.0,
+      "rocket_diagnostics": true,
+      "cache_enabled": true,
+      "rebuild_cache": false,
+      "cache_directory": ""
+    },
+    "cea_legacy_executable": {
       "executable": "fcea2",
       "data_directory": "",
-      "cache_directory": "",
-      "pressure_points": 81,
       "timeout_s": 120.0,
+      "batch_size": 8,
+      "trace": 1e-10,
+      "cache_enabled": true,
       "rebuild_cache": false,
-      "trace": 1e-10
-    },
-    "legacy_fit": {
-      "propellant_density_kg_m3": 1769.91,
-      "gas_constant": {
-        "intercept_J_kgK": 385.984,
-        "log_pressure_slope_J_kgK": -4.0059
-      },
-      "temperature": {
-        "intercept_K": 2980.31,
-        "log_pressure_slope_K": 115.009
-      },
-      "gamma": {
-        "intercept": 1.11488,
-        "log_pressure_slope": 0.0052542
-      }
+      "cache_directory": ""
     }
   },
   "solver": {
