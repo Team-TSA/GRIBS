@@ -56,7 +56,7 @@ External CEA runtime files are not distributed by GRIBS.
 
 ## Requirements
 
-- Python 3.10 or later is recommended
+- Python 3.11 or later is recommended
 - NumPy
 - SciPy
 - Matplotlib
