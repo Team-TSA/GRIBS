@@ -2,12 +2,26 @@ import importlib.util
 from dataclasses import asdict
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "GRIBS.py"
+ROOT = Path(__file__).resolve().parents[1]
+MODULE_FILES = sorted(ROOT.glob("GRIBS_v*.py"))
+
+if len(MODULE_FILES) != 1:
+    raise RuntimeError(
+        f"Expected exactly one GRIBS_v*.py file, found {len(MODULE_FILES)}: "
+        f"{[path.name for path in MODULE_FILES]}"
+    )
+
+MODULE_PATH = MODULE_FILES[0]
 spec = importlib.util.spec_from_file_location("gribs", MODULE_PATH)
+
+if spec is None or spec.loader is None:
+    raise ImportError(f"Could not load GRIBS module from {MODULE_PATH}")
+
 gribs = importlib.util.module_from_spec(spec)
+
 import sys
+
 sys.modules[spec.name] = gribs
-assert spec.loader is not None
 spec.loader.exec_module(gribs)
 
 
