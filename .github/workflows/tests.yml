@@ -21,5 +21,5 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -r requirements-dev.txt
-      - run: python GRIBS.py --selftest
+      - run: python "$(find . -maxdepth 1 -type f -name 'GRIBS_v*.py' | sort -V | tail -n 1)" --selftest
       - run: pytest -q
