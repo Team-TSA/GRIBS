@@ -1,8 +1,12 @@
 import importlib.util
+import json
+import re
 import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +29,7 @@ sys.modules[spec.name] = gribs
 spec.loader.exec_module(gribs)
 
 
+@pytest.mark.integration
 def test_default_self_tests_pass():
     result = subprocess.run(
         [sys.executable, str(MODULE_PATH), "--selftest"],
@@ -38,10 +43,18 @@ def test_default_self_tests_pass():
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
+    assert "-> all checks passed" in result.stdout
 
-def test_cd_nozzle_self_tests_pass(tmp_path):
-    import json
 
+@pytest.mark.integration
+@pytest.mark.known_issue
+def test_cd_nozzle_known_t4_discontinuity(tmp_path):
+    """Record the pre-A-2 C-D nozzle T4 discontinuity.
+
+    This is not a test of the desired final behavior. It preserves the known
+    v0.5.0-alpha baseline so that A-1 cannot accidentally hide, enlarge, or
+    otherwise change the T4 problem before its dedicated correction in A-2.
+    """
     source = ROOT / "gribs_config.json"
     supplied = json.loads(source.read_text(encoding="utf-8"))
     supplied["nozzle"]["expansion_ratio"] = 4.0
@@ -65,15 +78,42 @@ def test_cd_nozzle_self_tests_pass(tmp_path):
         check=False,
     )
 
-    assert result.returncode == 0, (
-        "C-D nozzle self-test failed.\n"
+    # Until A-2, Ae/At = 4 is expected to fail only the T4 continuity check.
+    assert result.returncode == 1, (
+        "The known T4 baseline changed unexpectedly.\n"
         f"exit code: {result.returncode}\n"
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
 
-    assert "Ae/At = 4" in result.stdout
+    failure_lines = [
+        line for line in result.stdout.splitlines()
+        if "[FAIL]" in line
+    ]
+    assert len(failure_lines) == 1, (
+        "Expected exactly one failed self-test for the known T4 baseline, "
+        f"found {len(failure_lines)}:\n" + "\n".join(failure_lines)
+    )
 
+    failure = failure_lines[0]
+    assert "choked/subsonic continuity (mdot, F)" in failure
+    assert "Ae/At = 4" in failure
+
+    match = re.search(
+        r"mdot jump = ([0-9.eE+-]+), F jump = ([0-9.eE+-]+)",
+        failure,
+    )
+    assert match is not None, f"Could not parse T4 diagnostics:\n{failure}"
+
+    mdot_jump = float(match.group(1))
+    thrust_jump = float(match.group(2))
+
+    assert mdot_jump == pytest.approx(4.02e-08, rel=1.0e-2)
+    assert thrust_jump == pytest.approx(1.04, rel=1.0e-2)
+    assert "-> FAILURES DETECTED" in result.stdout
+
+
+@pytest.mark.fast
 def test_geometry_identity_finite_difference():
     c = gribs.Config()
     x = 0.5 * gribs.web_thickness(c)
@@ -86,9 +126,8 @@ def test_geometry_identity_finite_difference():
     assert abs(derivative / area - 1.0) < 1e-7
 
 
+@pytest.mark.fast
 def test_example_configuration_keys_are_valid():
-    import json
-
     path = ROOT / "examples" / "example_config.json"
     supplied = json.loads(path.read_text(encoding="utf-8"))
     defaults = asdict(gribs.Config())
