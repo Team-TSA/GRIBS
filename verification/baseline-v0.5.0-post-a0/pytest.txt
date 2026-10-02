@@ -1,0 +1,84 @@
+.F..                                                                     [100%]
+=================================== FAILURES ===================================
+________________________ test_cd_nozzle_self_tests_pass ________________________
+
+tmp_path = PosixPath('/tmp/pytest-of-hikaru-kurokawa/pytest-3/test_cd_nozzle_self_tests_pass0')
+
+    def test_cd_nozzle_self_tests_pass(tmp_path):
+        import json
+    
+        source = ROOT / "gribs_config.json"
+        supplied = json.loads(source.read_text(encoding="utf-8"))
+        supplied["nozzle"]["expansion_ratio"] = 4.0
+    
+        config_path = tmp_path / "gribs_config_eps4.json"
+        config_path.write_text(
+            json.dumps(supplied, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "--config",
+                str(config_path),
+                "--selftest",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    
+>       assert result.returncode == 0, (
+            "C-D nozzle self-test failed.\n"
+            f"exit code: {result.returncode}\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
+E       AssertionError: C-D nozzle self-test failed.
+E         exit code: 1
+E         stdout:
+E         GRIBS v0.5.0-alpha  (schema 0.5.0-alpha)
+E         thermochemistry backend : cea_python
+E           two-phase model       : homogeneous_equilibrium  (ACTIVE: total product mass conserved, EOS on the gas phase)
+E           nozzle entrainment    : complete (no particle slip)
+E           condensed volume      : neglected
+E           official CEA package  : 3.3.4 at /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py
+E           CEA library version   : 3.3.4
+E           equilibrium           : HP (assigned enthalpy and pressure)
+E           property table        : 1 - 80 bar, 81 points, eta_T0 = 1, policy = clamp
+E           cache file            : /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_496fe2fad88c70ea2c8c4b55.json
+E           cache reused          : True
+E           ideal mixture density : 1769.307366 kg/m3
+E           packing fraction      : 1.000000
+E           bulk rho_p used       : 1769.307366 kg/m3
+E         Self-tests  (thermochemistry backend: cea_python, two-phase mode: homogeneous_equilibrium)
+E           [PASS] analytic vs numerical dTheta/dp                max rel. err = 5.39e-10 (tol 1e-05)
+E           [PASS] geometry consistency dVg/dx = Ab               max rel. err = 2.62e-10
+E           [PASS] area-Mach inversion round trip                 max rel. err = 1.33e-15
+E           [FAIL] choked/subsonic continuity (mdot, F)           Ae/At = 4, mdot jump = 4.02e-08, F jump = 1.04e+00
+E           [PASS] closed-form choked thrust identity             max rel. err = 4.44e-16
+E           [PASS] finite initial derivatives                     dp/dt = +6.128e+07 Pa/s, r = 3.130e-04 m/s
+E           [PASS] chamber-property table physical                81 points, T0 = 3171.7-3836.5 K, gamma = 1.1154-1.1431
+E           [PASS] phase fractions sum to 1 (table)               max |Yg+Yc-1| = 0.00e+00 (tol 1e-12)
+E           [PASS] phase fractions physical (table)               Yg in [0.997962, 1], Yc in [0, 0.00203794]
+E           [PASS] Psi = Yg*Rg*T0 (table + interpolator)          stored-vs-product rel. err = 0.00e+00, node interp err = 0.00e+00
+E           [PASS] analytic vs numerical dPsi/dp                  max rel. err = 7.15e-10 (tol 1e-05)
+E           [PASS] pressure factor 1 - p*Psi'/Psi > 0             min D(p) = 0.967670
+E           [PASS] single-phase limit: model B == Theta model     Psi err = 0.00e+00, dPsi err = 0.00e+00, rhs err = 0.00e+00 (tol 1e-12)
+E           [PASS] nozzle decomposition mdot_total = gas + condensed max rel. err = 1.49e-16
+E           [PASS] no-condensed compatibility (hom. vs legacy run) summary/trajectory rel. err = 0.00e+00 (tol 1e-9)
+E           -> FAILURES DETECTED
+E         
+E         
+E         stderr:
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/bin/python', '/home/hikaru-kurokawa/Rocket/GRIBS-...ibility (hom. vs legacy run) summary/trajectory rel. err = 0.00e+00 (tol 1e-9)\n  -> FAILURES DETECTED\n\n", stderr='').returncode
+
+tests/test_gribs.py:68: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_gribs.py::test_cd_nozzle_self_tests_pass - AssertionError: ...
+1 failed, 3 passed in 14.32s
+pytest exit=1

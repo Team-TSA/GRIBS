@@ -1,0 +1,142 @@
+GRIBS v0.5.0-alpha  (schema 0.5.0-alpha)
+thermochemistry backend : cea_python
+  two-phase model       : homogeneous_equilibrium  (ACTIVE: total product mass conserved, EOS on the gas phase)
+  nozzle entrainment    : complete (no particle slip)
+  condensed volume      : neglected
+  official CEA package  : 3.3.4 at /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py
+  CEA library version   : 3.3.4
+  equilibrium           : HP (assigned enthalpy and pressure)
+  property table        : 1 - 80 bar, 81 points, eta_T0 = 1, policy = clamp
+  cache file            : /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_496fe2fad88c70ea2c8c4b55.json
+  cache reused          : True
+  ideal mixture density : 1769.307366 kg/m3
+  packing fraction      : 1.000000
+  bulk rho_p used       : 1769.307366 kg/m3
+Self-tests  (thermochemistry backend: cea_python, two-phase mode: homogeneous_equilibrium)
+  [PASS] analytic vs numerical dTheta/dp                max rel. err = 5.39e-10 (tol 1e-05)
+  [PASS] geometry consistency dVg/dx = Ab               max rel. err = 2.62e-10
+  [PASS] area-Mach inversion round trip                 max rel. err = 1.33e-15
+  [PASS] choked/subsonic continuity (mdot, F)           Ae/At = 1, mdot jump = 1.97e-09, F jump = 3.79e-09
+  [PASS] closed-form choked thrust identity             max rel. err = 4.44e-16
+  [PASS] finite initial derivatives                     dp/dt = +6.128e+07 Pa/s, r = 3.130e-04 m/s
+  [PASS] chamber-property table physical                81 points, T0 = 3171.7-3836.5 K, gamma = 1.1154-1.1431
+  [PASS] phase fractions sum to 1 (table)               max |Yg+Yc-1| = 0.00e+00 (tol 1e-12)
+  [PASS] phase fractions physical (table)               Yg in [0.997962, 1], Yc in [0, 0.00203794]
+  [PASS] Psi = Yg*Rg*T0 (table + interpolator)          stored-vs-product rel. err = 0.00e+00, node interp err = 0.00e+00
+  [PASS] analytic vs numerical dPsi/dp                  max rel. err = 7.15e-10 (tol 1e-05)
+  [PASS] pressure factor 1 - p*Psi'/Psi > 0             min D(p) = 0.967670
+  [PASS] single-phase limit: model B == Theta model     Psi err = 0.00e+00, dPsi err = 0.00e+00, rhs err = 0.00e+00 (tol 1e-12)
+  [PASS] nozzle decomposition mdot_total = gas + condensed max rel. err = 1.49e-16
+  [PASS] no-condensed compatibility (hom. vs legacy run) summary/trajectory rel. err = 0.00e+00 (tol 1e-9)
+  -> all checks passed
+
+Running the internal-ballistics simulation ...
+Post-run conservation tests
+  [PASS] total mass conservation (final)                mt0 + m_gen = 6.003219353e-02 kg vs m_out + mt = 6.003219353e-02 kg (rel. err = 2.37e-11)
+  [PASS] EOS mass vs balance mass (history)             max rel. err = 4.54e-07 (tol 1e-06)
+  -> all checks passed
+
+
+==============================================================================
+SOLID ROCKET MOTOR - INTERNAL BALLISTICS SUMMARY
+GRIBS v0.5.0-alpha   (schema 0.5.0-alpha)
+==============================================================================
+
+[ configuration ]
+  propellant      rho_p = 1769.31 kg/m3,  r = 0.7 mm/s x (p0/1 MPa)^0.5
+                  sigma_p = 0 1/K, T_grain = 294 K, erosive alpha = 0
+  grain           Ri0 = 3.000 mm, Rp = 12.000 mm, Lp0 = 80.000 mm, end faces = 1
+                  web = 9.000 mm, propellant mass = 60.031 g, Vg0 = 6.790 cm3
+  nozzle          Rt0 = 1.500 mm, At0 = 7.0686e-06 m2, Ae/At = 1, Cd = 1, eta_F = 1
+  environment     pa = 101.325 kPa, p0(0) = 200.000 kPa
+
+[ thermochemistry ]
+  backend                          : cea_python
+  property range                   : 1 - 80 bar (100000 - 8e+06 Pa)
+  official CEA package version     : 3.3.4 (library 3.3.4)
+  official CEA module path         : /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py
+  equilibrium formulation          : HP (assigned enthalpy and pressure)
+  ideal mixture density            : 1769.307366 kg/m3
+  packing fraction                 : 1.000000
+  bulk propellant density          : 1769.307366 kg/m3
+  cache key                        : 496fe2fad88c70ea2c8c4b55
+  cache file                       : /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_496fe2fad88c70ea2c8c4b55.json
+  cache reused                     : True
+  property policy                  : clamp
+  values outside property range    : False (0 sample points, 0.000 %)
+  pressure range visited           : 101376 - 3.16809e+06 Pa
+  CEA theoretical comparison only (never used by the GRIBS model):
+    cea_theoretical_cstar_m_s      : 1886.354
+    cea_theoretical_cf             : 0.65210
+    cea_theoretical_isp_s          : 125.4352
+    cea_theoretical_isp_vacuum_s   : 236.9025
+    evaluation                     : throat (converging nozzle, Ae/At = 1) at p_c = 1.423595 MPa
+    GRIBS effective c*             : 1883.522 m/s
+    GRIBS effective CF             : 1.16156
+    GRIBS effective Isp            : 223.3906 s
+    note: both sets are reported side by side for context.  The CEA
+          station values follow the conventions of the official package
+          (throat c* is the theoretical characteristic velocity and the
+          throat Cf equals v_e/c*), while cstar_eff_m_s, CF_eff and Isp_s
+          are GRIBS results that include the pressure-thrust term of the
+          unsteady nozzle model; they are not expected to be equal and are
+          never substituted for one another.
+
+[ two-phase model (homogeneous equilibrium, model B) ]
+  model                            : homogeneous_equilibrium  (ACTIVE)
+  chamber EOS                      : p0*Vg = mt*Yg(p)*Rg(p)*T0(p) = mt*Psi(p)
+  conserved chamber mass           : TOTAL product mass mt = m_gas + m_condensed
+  max condensed fraction (run)     : 0.002019 [-]
+  mean condensed fraction (burn)   : 0.000110 [-]
+  condensed fraction at MEOP       : 0.000000 [-]
+  Yc over the property table       : 0.000000 - 0.002038 [-]
+  min (1 - p*Psi'/Psi) on table    : 0.967670 [-]  (must be > 0)
+  nozzle entrainment assumption    : complete entrainment: mdot_total = mdot_gas_ref / Yg_chamber; both phases leave with the same exit velocity (particle slip NOT modelled; momentum thrust may be overestimated for large condensed fractions)
+  condensed volume assumption      : condensed-phase volume neglected against the chamber free volume; the gas phase occupies Vg
+  NOTE: particle slip is NOT modelled; the complete-entrainment momentum
+        term can overestimate the thrust for propellants with a large
+        condensed fraction.  eta_F may additionally lump two-phase losses.
+        These results are NOT experimentally validated - independent
+        validation is required before any engineering use.
+
+[ initial balance ]
+  initial nozzle regime            : choked
+  choking-limit chamber pressure   : 174.418 kPa
+  mdot_gen(0) = 1.070142e-03 kg/s
+  mdot_out(0) = 7.708026e-04 kg/s   ->  chamber fills (pressure rises)
+
+[ events ]
+  burnout   : 11.236042 s
+  burning phase terminated by      : burnout
+  blowdown phase terminated by     : ambient
+
+[ performance ]
+  web burn time                    : 11.236042 s
+  total computed duration          : 11.263476 s
+  max chamber pressure (MEOP)      : 3.168092 MPa at t = 11.236042 s
+  min chamber pressure (burning)   : 0.200000 MPa at t = 0.000000 s
+  mean chamber pressure (burning)  : 1.423595 MPa
+  max thrust                       : 26.9011 N at t = 11.236042 s
+  mean thrust (burning)            : 11.6885 N
+  impulse, burning phase           : 131.3327 N.s
+  impulse, blowdown                : 0.1784 N.s
+  total impulse                    : 131.5111 N.s
+  effective specific impulse       : 223.39 s
+  effective c*                     : 1883.52 m/s
+  effective thrust coefficient CF  : 1.16156
+  Kn = Ab/At  (start/max/end)      : 273.3 / 757.3 / 757.3
+  final throat radius              : 1.50000 mm
+  nozzle regimes visited           : choked, subsonic
+
+[ verification ]
+  propellant mass balance error    : 3.047e-10
+  total-mass (EOS vs balance) error: 4.543e-07
+  property-range extrapolation used: False   (policy = clamp)
+==============================================================================
+
+Output files
+  /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/ballistics.png
+  /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/time_history.csv
+  /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/summary.txt
+  /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/summary.json
+full-run exit=0
