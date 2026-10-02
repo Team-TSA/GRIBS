@@ -2831,7 +2831,7 @@ SINGLE_PHASE_LIMIT_TOLERANCE = 1.0e-12
 
 
 def self_tests(c: Config, verbose=True) -> bool:
-    """Numerical self-tests executed before every production run.
+    """Numerical self-tests executed explicitly with ``--selftest``.
 
     All v0.4.3-alpha tests are kept unchanged (T1-T7); the two-phase model
     adds T8-T15 (see the test names).  Post-simulation conservation tests run
@@ -4728,10 +4728,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.selftest:
         return 0 if self_tests(cfg) else 1
-
-    if not self_tests(cfg):
-        print("Self-tests failed; aborting before the production run.")
-        return 1
 
     print("Running the internal-ballistics simulation ...")
     try:
