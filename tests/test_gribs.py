@@ -39,6 +39,40 @@ def test_default_self_tests_pass():
         f"stderr:\n{result.stderr}"
     )
 
+def test_cd_nozzle_self_tests_pass(tmp_path):
+    import json
+
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"]["expansion_ratio"] = 4.0
+
+    config_path = tmp_path / "gribs_config_eps4.json"
+    config_path.write_text(
+        json.dumps(supplied, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(MODULE_PATH),
+            "--config",
+            str(config_path),
+            "--selftest",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, (
+        "C-D nozzle self-test failed.\n"
+        f"exit code: {result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+
+    assert "Ae/At = 4" in result.stdout
 
 def test_geometry_identity_finite_difference():
     c = gribs.Config()

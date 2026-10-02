@@ -1,23 +1,67 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GRIBS v0.4.3-alpha
+GRIBS v0.5.0-alpha
 ================================================================================
 JSON-CONFIGURED INTERNAL BALLISTICS OF A SOLID ROCKET MOTOR
   Grain    : cylindrical bore + N burning end face(s) (outer surface inhibited)
   Nozzle   : converging (Ae = At) or converging-diverging (Ae/At > 1)
-  Chamber  : unsteady mass/state equation with pressure-dependent gas properties
+  Chamber  : unsteady mass/state equation, HOMOGENEOUS EQUILIBRIUM TWO-PHASE
+             model B: the conserved chamber mass is the TOTAL product mass
+             (gas + condensed), the equation of state acts on the gas phase only
 
 --------------------------------------------------------------------------------
-GOVERNING MODEL  (unchanged since v0.3.1-alpha)
+GOVERNING MODEL  (two-phase model B, new in v0.5.0-alpha)
 --------------------------------------------------------------------------------
-  Equation of state in the chamber        :  p0 * Vg = m_g * Theta(p0),
-                                             Theta = R(p0) * T0(p0)
-  Differentiating and substituting
-      dVg/dt = Ab * r ,  dm_g/dt = mdot_gen - mdot_out
-  gives the pressure equation used here (valid for any nozzle regime):
+  Chamber composition at every tabulated pressure comes from the CEA HP
+  equilibrium and is split, with the official CEA phase information, into
+      Yg(p)  gas-phase mass fraction      (sum of the gas-species mass fractions)
+      Yc(p)  condensed mass fraction      (sum of the condensed-species mass
+                                           fractions),  Yg + Yc = 1
+  The conserved chamber mass is the TOTAL product mass  mt = mg + mc  with
+      mg = Yg(p)*mt ,  mc = Yc(p)*mt .
+  The condensed phase volume is neglected against the chamber free volume, so
+  the gas phase occupies Vg and the equation of state is
 
-      dp0/dt = [ Theta*(mdot_gen - mdot_out) - p0*Ab*r ] / [ Vg*(1 - p0*Theta'/Theta) ]
+      p0 * Vg = mt * Yg(p) * Rg(p) * T0(p)  =  mt * Psi(p),
+      Psi(p) = Yg(p) * Rg(p) * T0(p)          [J/kg]   (gas-phase R and T only)
+
+  Differentiating  p0*Vg = mt*Psi(p0)  exactly in time,
+      Vg*dp0/dt + p0*dVg/dt = Psi*dmt/dt + mt*dPsi/dp*dp0/dt ,
+  and substituting  mt = p0*Vg/Psi ,  dVg/dt = Ab*r ,
+  dmt/dt = mdot_gen_total - mdot_out_total  gives the pressure equation used
+  here (valid for any nozzle regime):
+
+      dp0/dt = [ Psi*(mdot_gen_total - mdot_out_total) - p0*Ab*r ]
+               / [ Vg*(1 - p0*Psi'/Psi) ]
+
+  During blowdown (r = 0, Ab = 0, mdot_gen_total = 0):
+      dp0/dt = - Psi*mdot_out_total / [ Vg*(1 - p0*Psi'/Psi) ]
+
+  The pressure dependence of Yg(p) (equilibrium condensation / re-vaporization)
+  enters the ODE through Psi'(p); dPsi/dp is the ANALYTIC derivative of the
+  PCHIP interpolator of Psi in ln(p), never a finite difference.
+
+  Two-phase assumptions (explicit, see summary outputs):
+    * gas and condensed phase are in local thermochemical equilibrium and share
+      one representative temperature (the CEA HP equilibrium temperature);
+    * the phases are homogeneously mixed in the chamber (no settling, no wall
+      deposition, no slag, no particle-size distribution);
+    * the condensed volume is negligible against the chamber free volume;
+    * the nozzle flow is the "complete entrainment" first approximation: the
+      gas-phase choked reference flow divided by the chamber gas mass fraction,
+      both phases leaving with the SAME exit velocity (no particle slip, no
+      non-equilibrium nozzle chemistry);
+    * no separate energy equation: T0 = eta_T0 * T_CEA(p) as before;
+    * results are NOT experimentally validated - independent validation is
+      required before any engineering use.
+
+  LEGACY SINGLE-PHASE MODE (regression comparison only):
+      two_phase_model.mode = "single_phase_legacy" reproduces the v0.4.3-alpha
+      chamber model exactly (Yg := 1, Psi := Theta = R*T0, total flow = gas
+      reference flow).  It is retained ONLY for regression comparison; it still
+      feeds the full generated product mass into a gas-only equation of state,
+      which is inconsistent whenever Yc > 0.
 
   Geometry (exactly consistent: dVg/dx = Ab is verified numerically)
       Ri = Ri0 + x ,  Lp = Lp0 - N_end*x
@@ -29,13 +73,25 @@ GOVERNING MODEL  (unchanged since v0.3.1-alpha)
       r0 = a*(p0/p_ref)^n * exp(sigma_p*(T_grain - T_ref))
       r  = r0 + alpha*G^0.8/D_h^0.2 * exp(-beta*rho_p*r/G)
 
-  Nozzle (isentropic, discharge coefficient Cd, thrust efficiency eta_F)
-      choked      :  mdot = Cd*At*p0*sqrt(g/(R*T0))*(2/(g+1))^((g+1)/(2(g-1)))
-                     exit Mach from the area-Mach relation (Ae/At)
-      unchoked    :  pe = pa, subsonic exit Mach from the pressure ratio
-                     (this branch is *continuous* with the choked branch)
-      separated   :  Summerfield criterion pe < f_sep*pa (only for Ae/At > 1)
-      thrust      :  F = eta_F*mdot*ve + (pe - pa)*Ae_effective
+  Nozzle (isentropic GAS-PHASE reference flow, discharge coefficient Cd, thrust
+  efficiency eta_F; two-phase mass split by the chamber composition)
+      gas reference flow:
+        choked      :  mdot_gas_ref = Cd*At*p0*sqrt(g/(R*T0))
+                                   *(2/(g+1))^((g+1)/(2(g-1)))
+        unchoked    :  pe = pa, subsonic exit Mach from the pressure ratio
+                       (this branch is *continuous* with the choked branch)
+        separated   :  Summerfield criterion pe < f_sep*pa (only for Ae/At > 1)
+      homogeneous-equilibrium mode (standard, complete entrainment):
+        mdot_total     = mdot_gas_ref / Yg_chamber
+        mdot_gas       = Yg_chamber * mdot_total
+        mdot_condensed = Yc_chamber * mdot_total
+      single-phase legacy mode:  mdot_total = mdot_gas = mdot_gas_ref (Yg = 1)
+      thrust (complete velocity equilibrium, particle slip neglected):
+        F = eta_F*mdot_total*ve + (pe - pa)*Ae_effective
+      NOTE: with complete entrainment the momentum term can OVERESTIMATE the
+      thrust of propellants with a large condensed fraction (real particles lag
+      the gas); eta_F may additionally lump two-phase losses - avoid double
+      correction.
 
   Throat erosion :  dRt/dt = C_ero*(p0/p_ref)^m_ero  (Ae is held fixed)
 
@@ -67,15 +123,26 @@ THERMOCHEMISTRY BACKENDS  (v0.4)
 
   Both backends build a pressure-indexed chamber-property table, cache it as
   reproducible JSON, and interpolate it with PCHIP in ln(p) - including an
-  analytic derivative of Theta = R*T used by the ODE pressure equation.
+  analytic derivative of Psi = Yg*R*T0 (two-phase mode) and of Theta = R*T0
+  (single-phase legacy mode) used by the ODE pressure equation.
+
+  Gas / condensed mass fractions are taken from the OFFICIAL CEA phase
+  information: the product species list of the mixture is ordered gas species
+  first, then condensed species (``EqSolver.num_gas`` / ``num_condensed``), and
+  ``EqSolution.mass_fractions`` is summed over each block.  Yc is NEVER
+  estimated from the molecular-weight difference M vs MW.  The legacy fcea2
+  backend cannot provide the phase split from its .plt output and is therefore
+  restricted to the single-phase legacy mode, with an explicit error otherwise.
 
 --------------------------------------------------------------------------------
 NUMERICS
 --------------------------------------------------------------------------------
-  State y = [p0, x, Rt, m_out, Impulse, m_gen] integrated with solve_ivp
-  (LSODA/BDF/Radau, dense output, tight tolerances).  Quadratures for impulse
-  and integrated masses are carried as ODE states, so they inherit the solver
-  error control instead of relying on post-hoc trapezoidal sums.
+  State y = [p0, x, Rt, m_out_total, Impulse, m_gen_total] integrated with
+  solve_ivp (LSODA/BDF/Radau, dense output, tight tolerances).  The integrated
+  mass quadratures are TOTAL product masses (gas + condensed) in the
+  homogeneous-equilibrium mode.  Quadratures for impulse and integrated masses
+  are carried as ODE states, so they inherit the solver error control instead of
+  relying on post-hoc trapezoidal sums.
   Root-finding events capture: burnout, choking loss/recovery, ambient pressure.
   A set of numerical self-tests is executed before every production run.
 
@@ -104,6 +171,13 @@ STATUS / LIMITATIONS
     clearly-named diagnostic and never feeds the GRIBS results.
   * CEA does not provide burn-rate coefficients; the Saint-Robert inputs remain
     empirical user data.
+  * The two-phase model is a homogeneous-equilibrium approximation: no particle
+    slip, no particle-size distribution, no wall deposition/slag, no separate
+    condensed-phase energy equation, instantaneous chemical equilibrium, and
+    the HP equilibrium temperature is used as a function of pressure only.
+  * The initial chamber gas is assumed to be equilibrium products of the main
+    propellant; an initial fill of air or igniter gas of a different
+    composition is not represented exactly by the single-composition model.
   * Results require independent validation before any engineering use.
 ================================================================================
 """
@@ -144,11 +218,28 @@ from scipy.interpolate import PchipInterpolator
 # 0. PROGRAM IDENTITY AND CONSTANTS
 # ==============================================================================
 PROGRAM_NAME = "GRIBS"
-PROGRAM_VERSION = "0.4.3-alpha"
-SCHEMA_VERSION = "0.4.3-alpha"
+PROGRAM_VERSION = "0.4.4-alpha"
+SCHEMA_VERSION = "0.4.4-alpha"
 #: Schema string of the pre-migration configuration; used only by the explicit
 #: v0.3 -> v0.4 migration helper (never for normal operation).
 LEGACY_SCHEMA_VERSION = "0.3.0-alpha"
+#: Schema string of the v0.4.3 single-phase configuration; used only by the
+#: explicit v0.4.3 -> v0.4.4 migration helper (never for normal operation).
+PRE_TWO_PHASE_SCHEMA_VERSION = "0.4.3-alpha"
+
+#: Chamber two-phase model: conserved mass = total product mass (gas +
+#: condensed), EOS acts on the gas phase through Psi = Yg*Rg*T0 (standard).
+TWO_PHASE_HOMOGENEOUS = "homogeneous_equilibrium"
+#: Chamber model identical to GRIBS v0.4.3-alpha (Yg := 1, Psi := Theta): the
+#: full generated product mass feeds a gas-only EOS.  Kept ONLY as an isolated
+#: regression-comparison pathway; inconsistent whenever condensed products exist.
+TWO_PHASE_SINGLE_LEGACY = "single_phase_legacy"
+KNOWN_TWO_PHASE_MODES = (TWO_PHASE_HOMOGENEOUS, TWO_PHASE_SINGLE_LEGACY)
+#: The only condensed-volume treatment implemented (declared in the schema).
+TWO_PHASE_CONDENSED_VOLUME_CHOICES = ("neglected",)
+#: The only nozzle two-phase treatment implemented (declared in the schema):
+#: complete entrainment - both phases leave with the same velocity.
+TWO_PHASE_NOZZLE_ENTRAINMENT_CHOICES = ("complete",)
 
 BACKEND_CEA_PYTHON = "cea_python"
 BACKEND_CEA_LEGACY_EXECUTABLE = "cea_legacy_executable"
@@ -180,6 +271,11 @@ CEA_TESTED_API_VERSION = (3, 3)
 #: Universal gas constant used for R = Ru/M  [J/(kmol K)].
 #: Verified at runtime against ``cea.R`` for the official backend.
 R_UNIVERSAL = 8314.51
+#: Rounding-level tolerance for phase mass fractions.  Yg or Yc may overshoot
+#: [0, 1] by at most this absolute amount (double rounding of CEA values that
+#: are exactly 0 or 1); such an overshoot is corrected by projection.  Anything
+#: larger is a ThermochemistryError, never a silent wide clip.
+_PHASE_FRACTION_ROUNDING_TOL = 1.0e-12
 G0 = 9.80665                      # standard gravity [m/s^2]
 _TRAPZ = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
 
@@ -288,6 +384,19 @@ class Config:
     eta_T0: float = 1.0           # combustion/heat-loss efficiency on T0 [-]
     property_policy: str = "clamp"  # 'clamp' | 'extrapolate' (outside range)
 
+    # ---------------- two-phase chamber / nozzle model ----------------
+    # 'homogeneous_equilibrium' (standard): the conserved chamber mass is the
+    #   TOTAL product mass mt = mg + mc; EOS p*Vg = mt*Yg(p)*Rg(p)*T0(p); the
+    #   nozzle total flow is the gas reference flow divided by Yg_chamber
+    #   (complete entrainment, no particle slip).
+    # 'single_phase_legacy': exact GRIBS v0.4.3-alpha behaviour (Yg := 1),
+    #   kept ONLY for regression comparison.
+    two_phase_mode: str = TWO_PHASE_HOMOGENEOUS
+    # Condensed-phase volume treatment; only 'neglected' is implemented.
+    two_phase_condensed_volume: str = "neglected"
+    # Nozzle two-phase treatment; only 'complete' (entrainment) is implemented.
+    two_phase_nozzle_entrainment: str = "complete"
+
     # ---------------- nozzle low-pressure policy ----------------
     unchoked_policy: str = "switch"  # 'switch' (subsonic branch) | 'stop'
 
@@ -340,7 +449,10 @@ PARAM_DOC = {
     "cea_py_transport": "official CEA backend: compute transport properties",
     "cea_py_trace": "official CEA backend: trace-species threshold (<=0 uses the API default)",
     "cea_py_products_from_reactants": "official CEA backend: build the product set from the reactant elements",
-    "cea_py_molecular_weight": "'gas_phase_M' (gas-phase M, as in the legacy .plt 'm' column) | 'total_MW'",
+    "cea_py_molecular_weight": ("'gas_phase_M' only: the gas-phase equation of state "
+                                "must use the gas-phase molecular weight. The former "
+                                "'total_MW' choice is rejected (v0.4.4): MW is tabulated "
+                                "as a diagnostic and never enters the EOS or nozzle."),
     "cea_legacy_executable_path": "path to the native CEA executable (compatibility backend)",
     "cea_legacy_data_directory": "directory containing thermo.lib and trans.lib",
     "cea_legacy_timeout_s": "timeout for each external CEA batch [s]",
@@ -350,6 +462,12 @@ PARAM_DOC = {
     "p_fit_max": "upper validity limit of the property table [Pa]",
     "eta_T0": "combustion efficiency applied to T0 [-]",
     "property_policy": "'clamp' or 'extrapolate' outside the table range",
+    "two_phase_mode": ("'homogeneous_equilibrium' (total product mass conserved, "
+                       "EOS on the gas phase via Psi = Yg*Rg*T0) | "
+                       "'single_phase_legacy' (v0.4.3 behaviour, regression only)"),
+    "two_phase_condensed_volume": "condensed-phase volume treatment ('neglected')",
+    "two_phase_nozzle_entrainment": ("nozzle two-phase treatment ('complete' = both "
+                                     "phases leave with the same velocity)"),
     "unchoked_policy": "'switch' to subsonic branch, or 'stop'",
     "method": "ODE method: LSODA | BDF | Radau",
     "rtol": "relative tolerance",
@@ -398,8 +516,14 @@ def geometry(x: float, c: Config):
 # 3. THERMOCHEMISTRY BACKENDS
 # ------------------------------------------------------------------------------
 #  The internal-ballistics solver only ever asks a backend for:
-#      props(p)                  -> (R [J/(kg K)], T0 [K], gamma_s [-])
-#      theta_and_derivative(p)   -> (Theta = R*T0 [J/kg], dTheta/dp [J/(kg Pa)])
+#      props(p)                  -> (Rg [J/(kg K)], T0 [K], gamma_s [-])
+#                                   GAS-PHASE properties only
+#      psi_and_derivative(p)     -> (Psi = Yg*Rg*T0 [J/kg], dPsi/dp [J/(kg Pa)])
+#                                   (two-phase mode; Psi := Theta in legacy mode)
+#      theta_and_derivative(p)   -> (Theta = Rg*T0 [J/kg], dTheta/dp [J/(kg Pa)])
+#                                   (single-phase legacy pathway)
+#      phase_fractions(p)        -> (Yg [-], Yc [-]),  Yg + Yc = 1
+#                                   (1, 0) in the single-phase legacy mode
 #      is_extrapolated(p)        -> bool
 #      metadata()                -> provenance dictionary for summary.json
 #
@@ -417,7 +541,11 @@ Official project:
     {CEA_PROJECT_URL}"""
 
 _TABLE_REQUIRED_KEYS = ("pressure_Pa", "temperature_K", "gamma_s",
-                        "molecular_weight_kg_kmol", "gas_constant_J_kgK")
+                        "gas_phase_molecular_weight_kg_kmol", "gas_constant_J_kgK")
+#: Extra columns every cache must carry once the homogeneous-equilibrium
+#: two-phase model is used (cache schema >= 3).  A cache without them cannot be
+#: used for the two-phase model - it is rejected with an actionable message.
+_TABLE_TWO_PHASE_KEYS = ("gas_mass_fraction", "condensed_mass_fraction")
 
 
 @dataclass(frozen=True)
@@ -458,6 +586,9 @@ class ThermochemistryBackend:
     #: True when the backend evaluates an external CEA calculation while building
     #: the chamber-property table (never inside the ODE right-hand side).
     uses_cea = False
+    #: True when the backend can tabulate the gas/condensed mass fractions from
+    #: the official CEA phase information (required by the two-phase model).
+    supports_two_phase = False
 
     #: lower/upper validity limit of the property representation [Pa]
     pmin: float = 1.0e5
@@ -469,6 +600,12 @@ class ThermochemistryBackend:
     def theta_and_derivative(self, pressure_pa: float) -> Tuple[float, float]:
         raise NotImplementedError
 
+    def psi_and_derivative(self, pressure_pa: float) -> Tuple[float, float]:
+        raise NotImplementedError
+
+    def phase_fractions(self, pressure_pa: float) -> Tuple[float, float]:
+        raise NotImplementedError
+
     def is_extrapolated(self, pressure_pa: float) -> bool:
         raise NotImplementedError
 
@@ -478,6 +615,9 @@ class ThermochemistryBackend:
     # -- convenience ---------------------------------------------------------
     def theta(self, pressure_pa: float) -> float:
         return self.theta_and_derivative(pressure_pa)[0]
+
+    def psi(self, pressure_pa: float) -> float:
+        return self.psi_and_derivative(pressure_pa)[0]
 
     @property
     def outside_range_policy(self) -> str:
@@ -494,22 +634,38 @@ class PressureTableBackend(ThermochemistryBackend):
     """Base class for backends that tabulate chamber properties on a pressure grid.
 
     The table is built once, cached as JSON, and interpolated with monotonic PCHIP
-    interpolators in z = ln(p).  The derivative of Theta = R*T0 is taken from the
-    analytic derivative of the interpolator and converted with
+    interpolators in z = ln(p).  The derivatives of Psi = Yg*Rg*T0 (two-phase
+    mode) and Theta = Rg*T0 (single-phase legacy mode) are taken from the
+    analytic derivative of the interpolators and converted with
 
-        dTheta/dp = dTheta/dln(p) / p
+        dPsi/dp = dPsi/dln(p) / p
 
     so that the ODE pressure equation never sees finite-difference noise and CEA is
     never called from inside solve_ivp.
+
+    Cache schema 3 (v0.5.0-alpha) adds the equilibrium phase split
+    (gas_mass_fraction, condensed_mass_fraction) and the gas-phase molecular
+    weight key name; caches from schema 2 (v0.4.3-alpha, no phase split) are
+    rejected for the two-phase model and never silently reused.
     """
 
-    cache_schema = 2
+    cache_schema = 3
     table_stem = "thermo_table"
     #: human-readable identification of the equilibrium formulation (metadata)
     equilibrium_formulation = "unspecified"
 
     def __init__(self, c: Config, reactants: Sequence[ReactantSpec],
                  packing_fraction: float, cache_root: Path):
+        if c.two_phase_mode == TWO_PHASE_HOMOGENEOUS and not self.supports_two_phase:
+            raise ConfigurationError(
+                f"two_phase_model.mode = '{TWO_PHASE_HOMOGENEOUS}' requires a "
+                f"thermochemistry backend that provides the gas/condensed mass "
+                f"fractions, but the selected backend '{self.name}' cannot supply "
+                f"them (its CEA output does not contain the phase split, and GRIBS "
+                f"never estimates it).\n"
+                f"Either select backend '{BACKEND_CEA_PYTHON}', or set "
+                f"two_phase_model.mode = '{TWO_PHASE_SINGLE_LEGACY}' (regression "
+                f"comparison only).")
         self.c = c
         self.reactants = list(reactants)
         self.packing_fraction = float(packing_fraction)
@@ -554,6 +710,10 @@ class PressureTableBackend(ThermochemistryBackend):
             "pressure_max_Pa": float(self.c.p_fit_max),
             "pressure_points": int(self.c.cea_pressure_points),
             "temperature_efficiency": float(self.c.eta_T0),
+            # factors that change the tabulated two-phase properties:
+            "phase_fractions_tabulated": bool(self.supports_two_phase),
+            "molecular_weight_definition": "gas_phase_M (gas-phase M; total MW is "
+                                           "diagnostic only since v0.5.0-alpha)",
             "options": self.option_signature(),
         }
 
@@ -589,7 +749,22 @@ class PressureTableBackend(ThermochemistryBackend):
         missing = [k for k in _TABLE_REQUIRED_KEYS if k not in table]
         if missing:
             raise ThermochemistryCacheError(
-                f"Chamber-property cache is missing {missing}: {self.cache_path}")
+                f"Chamber-property cache is missing {missing}: {self.cache_path}\n"
+                "This looks like a cache built by an older GRIBS version (schema < 3, "
+                "before the gas/condensed phase split). Old caches are never reused "
+                "for the two-phase model.\n"
+                "Rebuild it: set 'rebuild_cache' to true once, or delete the file, "
+                "or run with --no-cache.")
+        if self.c.two_phase_mode == TWO_PHASE_HOMOGENEOUS:
+            missing2p = [k for k in _TABLE_TWO_PHASE_KEYS if k not in table]
+            if missing2p:
+                raise ThermochemistryCacheError(
+                    f"Chamber-property cache is missing the two-phase columns "
+                    f"{missing2p}: {self.cache_path}\n"
+                    "The homogeneous-equilibrium two-phase model requires the "
+                    "gas/condensed mass fractions in the cache (schema >= 3).\n"
+                    "Rebuild it: set 'rebuild_cache' to true once, or delete the "
+                    "file, or run with --no-cache.")
         cached_key = table.get("cache_key")
         if cached_key is not None and cached_key != self.key:
             raise ThermochemistryCacheError(
@@ -617,7 +792,7 @@ class PressureTableBackend(ThermochemistryBackend):
     def _load_table(self, table: Dict[str, Any]) -> None:
         p = np.asarray(table["pressure_Pa"], dtype=float)
         R = np.asarray(table["gas_constant_J_kgK"], dtype=float)
-        M = np.asarray(table["molecular_weight_kg_kmol"], dtype=float)
+        M = np.asarray(table["gas_phase_molecular_weight_kg_kmol"], dtype=float)
         T = np.asarray(table["temperature_K"], dtype=float) * self.c.eta_T0
         g = np.asarray(table["gamma_s"], dtype=float)
         if p.ndim != 1 or R.shape != p.shape or T.shape != p.shape or g.shape != p.shape:
@@ -641,6 +816,57 @@ class PressureTableBackend(ThermochemistryBackend):
         if not (np.all(np.isfinite(g)) and np.all(g > 1.0)):
             raise ThermochemistryError(
                 "The chamber-property table contains non-physical gamma_s (must be > 1).")
+
+        # ---- equilibrium phase split (two-phase model) -----------------------
+        # Physical range: 0 < Yg <= 1 and 0 <= Yc < 1 with Yg + Yc = 1 exactly.
+        # Only a rounding-level overshoot (<= _PHASE_FRACTION_ROUNDING_TOL) is
+        # corrected, and it is corrected by projection onto Yg in [0, 1] with
+        # Yc = 1 - Yg so the identity holds by construction.  Anything larger is
+        # a ThermochemistryError, never a silent wide clip.
+        two_phase = (self.c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
+                     and self.supports_two_phase)
+        if two_phase:
+            if any(k not in table for k in _TABLE_TWO_PHASE_KEYS):
+                raise ThermochemistryCacheError(
+                    f"Chamber-property table lacks the two-phase columns "
+                    f"{list(_TABLE_TWO_PHASE_KEYS)}: rebuild the cache "
+                    "(rebuild_cache = true or --no-cache).")
+            Yg = np.asarray(table["gas_mass_fraction"], dtype=float)
+            Yc = np.asarray(table["condensed_mass_fraction"], dtype=float)
+            if Yg.shape != p.shape or Yc.shape != p.shape:
+                raise ThermochemistryCacheError(
+                    "Chamber-property table phase-fraction arrays have "
+                    "inconsistent shapes.")
+            if not (np.all(np.isfinite(Yg)) and np.all(np.isfinite(Yc))):
+                raise ThermochemistryError(
+                    "The chamber-property table contains non-finite phase "
+                    "mass fractions.")
+            if not np.allclose(Yg + Yc, 1.0, rtol=0.0, atol=1.0e-12):
+                raise ThermochemistryError(
+                    "The chamber-property table violates Yg + Yc = 1 beyond "
+                    f"1e-12: max deviation = "
+                    f"{float(np.max(np.abs(Yg + Yc - 1.0))):.3e}.")
+            bad = (Yg <= 0.0) | (Yg > 1.0 + _PHASE_FRACTION_ROUNDING_TOL) | \
+                  (Yc < -_PHASE_FRACTION_ROUNDING_TOL) | (Yc >= 1.0)
+            if np.any(bad):
+                i = int(np.argmax(bad))
+                raise ThermochemistryError(
+                    f"Non-physical phase mass fractions at p = {p[i]:.6g} Pa: "
+                    f"Yg = {Yg[i]:.6g}, Yc = {Yc[i]:.6g}. "
+                    "Require 0 < Yg <= 1 and 0 <= Yc < 1; this is not corrected "
+                    "silently.")
+            # rounding-level projection only (see the comment above)
+            Yg = np.clip(Yg, 0.0, 1.0)
+            Yc = 1.0 - Yg
+            if np.any(Yg <= 0.0):
+                raise ThermochemistryError(
+                    "The gas-phase mass fraction reached zero: a purely "
+                    "condensed equilibrium cannot be represented by this model.")
+        else:
+            # single-phase legacy pathway: Yg := 1 exactly (v0.4.3 behaviour)
+            Yg = np.ones_like(p)
+            Yc = np.zeros_like(p)
+
         self.pmin = float(p[0])
         self.pmax = float(p[-1])
         z = np.log(p)
@@ -649,18 +875,52 @@ class PressureTableBackend(ThermochemistryBackend):
         self.gi = PchipInterpolator(z, g, extrapolate=True)
         self.thi = PchipInterpolator(z, R * T, extrapolate=True)
         self.dthi = self.thi.derivative()
+        # Psi = Yg * Rg * T_used with T_used = eta_T0 * T_CEA.  Interpolated as
+        # its own PCHIP column so that the analytic derivative dPsi/dp used by
+        # the pressure ODE is consistent with the interpolated Psi itself
+        # (never a finite difference, never a product of separately
+        # interpolated factors).
+        psi = Yg * R * T
+        self.psi_tab = psi
+        self.psii = PchipInterpolator(z, psi, extrapolate=True)
+        self.dpsii = self.psii.derivative()
+        self.Ygi = PchipInterpolator(z, Yg, extrapolate=True)
 
     def _validate_table(self) -> Dict[str, Any]:
         """Numerical sanity report for the table (recorded in summary.json)."""
         p = np.asarray(self.table["pressure_Pa"], dtype=float)
-        theta = np.asarray(self.table["gas_constant_J_kgK"], dtype=float) * \
-            np.asarray(self.table["temperature_K"], dtype=float) * self.c.eta_T0
-        # p * Theta'(p) / Theta = (dTheta/dln p) / Theta   [dimensionless]
-        dz = np.diff(np.log(p))
-        slope = np.diff(theta) / dz
-        factor = 1.0 - slope / theta[:-1]
+        T_used = (np.asarray(self.table["temperature_K"], dtype=float) * self.c.eta_T0)
+        R = np.asarray(self.table["gas_constant_J_kgK"], dtype=float)
+        theta = R * T_used
+        two_phase = (self.c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
+                     and self.supports_two_phase)
+        if two_phase:
+            Yg = np.asarray(self.table["gas_mass_fraction"], dtype=float)
+            Yc = np.asarray(self.table["condensed_mass_fraction"], dtype=float)
+            psi = Yg * theta
+        else:
+            Yg = np.ones_like(p)
+            Yc = np.zeros_like(p)
+            psi = theta
+
+        # Pressure factor D(p) = 1 - p*Psi'/Psi using the ANALYTIC PCHIP
+        # derivative (the same object the ODE consumes), evaluated on a dense
+        # grid so knot-to-knot minima are captured.
+        z = np.log(np.geomspace(p[0], p[-1], max(201, 4 * p.size)))
+        psi_f = np.asarray(self.psii(z), dtype=float)
+        dpsi_f = np.asarray(self.dpsii(z), dtype=float) / np.exp(z)
+        factor = 1.0 - np.exp(z) * dpsi_f / psi_f
+        # same check for the legacy Theta factor (metadata / regression)
+        theta_f = np.asarray(self.thi(z), dtype=float)
+        dtheta_f = np.asarray(self.dthi(z), dtype=float) / np.exp(z)
+        factor_theta = 1.0 - np.exp(z) * dtheta_f / theta_f
+        # Psi consistency with Yg*R*T at the table nodes (self-test 3 preview)
+        psi_err = float(np.max(np.abs(self.psi_tab - psi) / np.maximum(psi, 1e-300))) \
+            if two_phase else 0.0
+
         report = {
             "activation_clamped": self.c.property_policy == "clamp",
+            "two_phase_model": bool(two_phase),
             "pressure_points": int(p.size),
             "pressure_min_Pa": float(p[0]),
             "pressure_max_Pa": float(p[-1]),
@@ -668,21 +928,40 @@ class PressureTableBackend(ThermochemistryBackend):
             "temperature_max_K": float(np.max(self.table["temperature_K"])),
             "gamma_min": float(np.min(self.table["gamma_s"])),
             "gamma_max": float(np.max(self.table["gamma_s"])),
-            "molecular_weight_min_kg_kmol": float(np.min(self.table["molecular_weight_kg_kmol"])),
-            "molecular_weight_max_kg_kmol": float(np.max(self.table["molecular_weight_kg_kmol"])),
+            "gas_phase_molecular_weight_min_kg_kmol":
+                float(np.min(self.table["gas_phase_molecular_weight_kg_kmol"])),
+            "gas_phase_molecular_weight_max_kg_kmol":
+                float(np.max(self.table["gas_phase_molecular_weight_kg_kmol"])),
+            "gas_mass_fraction_min": float(np.min(Yg)),
+            "gas_mass_fraction_max": float(np.max(Yg)),
+            "condensed_mass_fraction_min": float(np.min(Yc)),
+            "condensed_mass_fraction_max": float(np.max(Yc)),
             "theta_min_J_kg": float(np.min(theta)),
             "theta_max_J_kg": float(np.max(theta)),
-            "min_pressure_factor_1_minus_pTheta_over_Theta": float(np.min(factor)),
+            "psi_min_J_kg": float(np.min(psi)),
+            "psi_max_J_kg": float(np.max(psi)),
+            "psi_vs_YgRT_max_rel_error": psi_err,
+            "min_pressure_factor_1_minus_pPsi_over_Psi": float(np.min(factor)),
+            "min_pressure_factor_1_minus_pTheta_over_Theta": float(np.min(factor_theta)),
             "all_points_finite": bool(np.all(np.isfinite(p))),
             "pressure_strictly_increasing": bool(np.all(np.diff(p) > 0.0)),
         }
-        if report["min_pressure_factor_1_minus_pTheta_over_Theta"] <= 0.0:
+        if report["min_pressure_factor_1_minus_pPsi_over_Psi"] <= 0.0:
             raise ThermochemistryError(
                 "The chamber-pressure equation is non-physical over the configured "
-                "property table: min(1 - p*Theta'/Theta) = "
-                f"{report['min_pressure_factor_1_minus_pTheta_over_Theta']:.6g} <= 0.\n"
+                "property table: min(1 - p*Psi'/Psi) = "
+                f"{report['min_pressure_factor_1_minus_pPsi_over_Psi']:.6g} <= 0.\n"
                 "Check the thermochemistry inputs (reactants, temperatures, "
                 "pressure range) before continuing.")
+        if report["min_pressure_factor_1_minus_pTheta_over_Theta"] <= 0.0:
+            raise ThermochemistryError(
+                "The single-phase (Theta) pressure equation is non-physical over "
+                "the configured property table: min(1 - p*Theta'/Theta) = "
+                f"{report['min_pressure_factor_1_minus_pTheta_over_Theta']:.6g} <= 0.")
+        if two_phase and psi_err > 1.0e-12:
+            raise ThermochemistryError(
+                "Cached Psi column is inconsistent with Yg*Rg*T0 (max rel. err "
+                f"{psi_err:.3e} > 1e-12); rebuild the chamber-property cache.")
         return report
 
     # -- solver-facing API ---------------------------------------------------
@@ -694,8 +973,36 @@ class PressureTableBackend(ThermochemistryBackend):
     def _outside_range(self, p: float) -> bool:
         return bool(p < self.pmin or p > self.pmax)
 
-    def props(self, p: float) -> Tuple[float, float, float]:
+    def _clamp_flags(self, p: float) -> Tuple[float, bool]:
+        """Return (effective pressure, clamped?) for a single query.
+
+        All interpolators (R, T0, gamma_s, Yg, Psi) are evaluated at the SAME
+        effective pressure, so clamping can never desynchronize the properties
+        from Psi and its derivative; when the clamp is active the derivative of
+        every clamped quantity is zero by definition.
+        """
         pe = self._effective_pressure(p)
+        return pe, (self.c.property_policy == "clamp" and p != pe)
+
+    def _clamp_phase_fraction(self, y: float, name: str, p: float) -> float:
+        """Enforce the physical range with a rounding-only correction policy."""
+        if not math.isfinite(y):
+            raise ThermochemistryError(
+                f"Non-finite {name} at p = {p:.6g} Pa.")
+        if -_PHASE_FRACTION_ROUNDING_TOL <= y < 0.0:
+            return 0.0
+        if 1.0 < y <= 1.0 + _PHASE_FRACTION_ROUNDING_TOL:
+            return 1.0
+        if not (0.0 <= y <= 1.0):
+            raise ThermochemistryError(
+                f"Interpolated {name} = {y:.12g} is outside [0, 1] beyond the "
+                f"rounding tolerance {_PHASE_FRACTION_ROUNDING_TOL:g} at "
+                f"p = {p:.6g} Pa; not corrected silently.")
+        return y
+
+    def props(self, p: float) -> Tuple[float, float, float]:
+        """GAS-PHASE properties: Rg [J/(kg K)], T0 [K], gamma_s [-]."""
+        pe, _ = self._clamp_flags(p)
         z = math.log(pe)
         R = float(self.Ri(z))
         T = float(self.Ti(z))
@@ -706,15 +1013,47 @@ class PressureTableBackend(ThermochemistryBackend):
                 f"R = {R:.6g}, T0 = {T:.6g}, gamma_s = {g:.6g}.")
         return R, T, g
 
+    def phase_fractions(self, p: float) -> Tuple[float, float]:
+        """Equilibrium phase mass fractions (Yg, Yc) at pressure p [Pa].
+
+        Yc is evaluated as 1 - Yg so that Yg + Yc = 1 holds exactly for the
+        interpolated state, and both values are range-checked with the
+        rounding-only correction policy (no silent wide clipping).
+        """
+        if self.c.two_phase_mode != TWO_PHASE_HOMOGENEOUS or not self.supports_two_phase:
+            return 1.0, 0.0
+        pe, _ = self._clamp_flags(p)
+        z = math.log(pe)
+        Yg = self._clamp_phase_fraction(float(self.Ygi(z)), "Yg", p)
+        if Yg <= 0.0:
+            raise ThermochemistryError(
+                f"Interpolated gas-phase mass fraction is zero at p = {p:.6g} Pa; "
+                "a purely condensed equilibrium is outside this model.")
+        return Yg, 1.0 - Yg
+
+    def psi_and_derivative(self, p: float) -> Tuple[float, float]:
+        """Psi = Yg*Rg*T0 [J/kg] and its ANALYTIC derivative dPsi/dp [J/(kg Pa)].
+
+        In the single-phase legacy mode Psi := Theta = Rg*T0, i.e. the exact
+        v0.4.3-alpha quantity.
+        """
+        if self.c.two_phase_mode != TWO_PHASE_HOMOGENEOUS or not self.supports_two_phase:
+            return self.theta_and_derivative(p)
+        pe, clamped = self._clamp_flags(p)
+        z = math.log(pe)
+        psi = float(self.psii(z))
+        dpsi = 0.0 if clamped else float(self.dpsii(z)) / pe
+        if not (math.isfinite(psi) and psi > 0.0 and math.isfinite(dpsi)):
+            raise ThermochemistryError(
+                f"Non-physical Psi or dPsi/dp at p = {p:.6g} Pa "
+                f"(Psi = {psi:.6g} J/kg, dPsi/dp = {dpsi:.6g}).")
+        return psi, dpsi
+
     def theta_and_derivative(self, p: float) -> Tuple[float, float]:
-        pe = self._effective_pressure(p)
+        pe, clamped = self._clamp_flags(p)
         z = math.log(pe)
         theta = float(self.thi(z))
-        clamped = self.c.property_policy == "clamp" and p != pe
-        if clamped:
-            dtheta = 0.0
-        else:
-            dtheta = float(self.dthi(z)) / pe
+        dtheta = 0.0 if clamped else float(self.dthi(z)) / pe
         if not (math.isfinite(theta) and theta > 0.0 and math.isfinite(dtheta)):
             raise ThermochemistryError(
                 f"Non-physical Theta or dTheta/dp at p = {p:.6g} Pa "
@@ -742,11 +1081,19 @@ class PressureTableBackend(ThermochemistryBackend):
             },
             "outside_range_policy": self.c.property_policy,
             "temperature_efficiency": float(self.c.eta_T0),
+            "two_phase_model": {
+                "mode": self.c.two_phase_mode,
+                "condensed_volume": self.c.two_phase_condensed_volume,
+                "nozzle_entrainment": self.c.two_phase_nozzle_entrainment,
+                "phase_fractions_available": bool(self.supports_two_phase),
+            },
             "interpolation": {
                 "variable": "z = ln(p)",
                 "method": "PCHIP (monotone cubic Hermite, scipy PchipInterpolator)",
-                "quantities": ["R", "T0", "gamma_s", "Theta = R*T0"],
-                "derivative": "dTheta/dp = d/dz[PCHIP(Theta)](z) / p",
+                "quantities": ["Rg", "T0", "gamma_s", "Yg", "Psi = Yg*Rg*T0",
+                               "Theta = Rg*T0"],
+                "derivative": ("dPsi/dp = d/dz[PCHIP(Psi)](z) / p (analytic; "
+                               "never a finite difference)"),
             },
             "cache_key": self.key,
             "cache_file": str(self.cache_path),
@@ -758,7 +1105,14 @@ class PressureTableBackend(ThermochemistryBackend):
             "reactant_temperatures_K": [float(r.temperature_K) for r in self.reactants],
             "molecular_weight_units": "kg/kmol (numerically identical to g/mol)",
             "universal_gas_constant_J_kmolK": R_UNIVERSAL,
-            "specific_gas_constant_definition": "R(p) = Ru / M(p)",
+            "specific_gas_constant_definition": ("Rg(p) = Ru / M_gas(p); the "
+                                                 "GAS-PHASE molecular weight only "
+                                                 "enters the EOS and the nozzle"),
+            "phase_fraction_definition": ("Yg(p) = sum of the gas-species mass "
+                                          "fractions, Yc(p) = sum of the "
+                                          "condensed-species mass fractions, from "
+                                          "the official CEA phase ordering "
+                                          "(gas species first, then condensed)"),
             "ideal_mixture_density_kg_m3": float(self.ideal_mixture_density),
             "packing_fraction": float(self.packing_fraction),
             "bulk_propellant_density_kg_m3": float(self.bulk_mixture_density),
@@ -780,10 +1134,18 @@ class CEALegacyExecutableBackend(PressureTableBackend):
 
     It exists for regression comparison during the v0.4-alpha transition.  New
     work should select ``cea_python``.
+
+    TWO-PHASE MODEL: the legacy .plt output (``plot p t gam m``) provides only
+    p, T, gamma_s and the gas-phase molecular weight - it does NOT provide the
+    gas/condensed mass fractions, and GRIBS never estimates them from the
+    molecular-weight difference.  This backend is therefore restricted to
+    ``two_phase_model.mode = 'single_phase_legacy'``; selecting the
+    homogeneous-equilibrium model with this backend is a configuration error.
     """
 
     name = BACKEND_CEA_LEGACY_EXECUTABLE
     uses_cea = True
+    supports_two_phase = False
     table_stem = "thermo_cea_legacy"
     equilibrium_formulation = ("NASA CEA HP (assigned enthalpy and pressure) equilibrium "
                                "through the external fcea2 executable; reactant enthalpy "
@@ -932,10 +1294,14 @@ class CEALegacyExecutableBackend(PressureTableBackend):
             "cache_key": self.key,
             "source": "external NASA CEA executable, HP equilibrium, .plt output",
             "cache_role": "TRANSITIONAL COMPATIBILITY BACKEND (v0.4-alpha only)",
+            "phase_fractions_available": False,
+            "phase_fractions_note": ("the legacy .plt columns (p t gam m) do not "
+                                     "provide the gas/condensed mass fractions; "
+                                     "this backend is single-phase legacy only"),
             "pressure_Pa": pp.tolist(),
             "temperature_K": T.tolist(),
             "gamma_s": gamma.tolist(),
-            "molecular_weight_kg_kmol": M.tolist(),
+            "gas_phase_molecular_weight_kg_kmol": M.tolist(),
             "gas_constant_J_kgK": R.tolist(),
         }
 
@@ -1083,14 +1449,23 @@ class CEAPythonBackend(PressureTableBackend):
       solver as ``h/R`` [K] (the convention of the official examples).
     * Pressure units: Pa in the configuration, converted to **bar** for the API.
     * Temperature units: K.
-    * Molecular weight: ``EqSolution.M`` by default - the gas-phase molecular
-      weight in kg/kmol (= g/mol), i.e. the same quantity the legacy ``plot m``
-      column provided.  ``total_MW`` (including condensed species) is selectable.
+    * Molecular weight: ``EqSolution.M`` - the GAS-PHASE molecular weight in
+      kg/kmol (= g/mol), i.e. the same quantity the legacy ``plot m`` column
+      provided.  The v0.4.3 option ``total_MW`` is REJECTED in v0.4.4: the
+      total molecular weight ``EqSolution.MW`` is tabulated as a diagnostic
+      only and never enters the equation of state or the nozzle model.
     * gamma: ``EqSolution.gamma_s`` (isentropic exponent of the equilibrium gas).
-    * Specific gas constant: R = Ru/M with Ru = 8314.51 J/(kmol K) - the value of
-      ``cea.R``, verified at runtime.
-    * Condensed species: included in the equilibrium (GRIBS only consumes the
-      gas-phase M and gamma_s; the condensed mass is reported as a diagnostic).
+    * Specific gas constant: Rg = Ru/M with Ru = 8314.51 J/(kmol K) - the value
+      of ``cea.R``, verified at runtime.
+    * Phase split (new in v0.4.4): ``Mixture.species_names`` lists the product
+      species gas species first, then condensed species; the counts are
+      ``EqSolver.num_gas`` / ``EqSolver.num_condensed``.  ``EqSolution.
+      mass_fractions`` (which sums to 1 over ALL species) is partitioned
+      accordingly:
+          Yg = sum of the gas-species mass fractions
+          Yc = sum of the condensed-species mass fractions = 1 - Yg
+      Yc is NEVER estimated from the molecular-weight difference (M vs MW);
+      that ratio carries no reliable condensed-mass information.
     * Ions: off by default (``ions`` option).  Transport: off by default.
     * Product species: built from the reactant elements
       (``Mixture(..., products_from_reactants=True)``), which reproduces the
@@ -1104,6 +1479,7 @@ class CEAPythonBackend(PressureTableBackend):
 
     name = BACKEND_CEA_PYTHON
     uses_cea = True
+    supports_two_phase = True
     table_stem = "thermo_cea_python"
     equilibrium_formulation = ("NASA CEA HP equilibrium (assigned pressure and enthalpy) "
                                "at each tabulated chamber pressure; reactant enthalpy from "
@@ -1134,10 +1510,21 @@ class CEAPythonBackend(PressureTableBackend):
 
     def _check_option_consistency(self) -> None:
         c = self.c
-        if c.cea_py_molecular_weight not in ("gas_phase_M", "total_MW"):
+        if c.cea_py_molecular_weight == "total_MW":
+            raise ConfigurationError(
+                "thermochemistry.cea_python.molecular_weight = 'total_MW' is no "
+                "longer accepted (v0.5.0-alpha).\n"
+                "  The chamber equation of state p*Vg = mt*Yg(p)*Rg(p)*T0(p) and "
+                "the nozzle model must use the GAS-PHASE molecular weight; using "
+                "the total molecular weight there is physically inconsistent "
+                "whenever condensed products exist.\n"
+                "  Set molecular_weight = 'gas_phase_M'.  The total molecular "
+                "weight (EqSolution.MW) is still tabulated and reported as the "
+                "diagnostic 'total_molecular_weight_kg_kmol'.")
+        if c.cea_py_molecular_weight != "gas_phase_M":
             raise ConfigurationError(
                 "thermochemistry.cea_python.molecular_weight must be "
-                "'gas_phase_M' or 'total_MW'.")
+                "'gas_phase_M' (the only accepted value since v0.5.0-alpha).")
         if c.cea_py_products_from_reactants and c.cea_py_product_species:
             raise ConfigurationError(
                 "thermochemistry.cea_python: 'product_species' must be empty when "
@@ -1247,6 +1634,49 @@ class CEAPythonBackend(PressureTableBackend):
                 f"The reactant-mixture enthalpy is not finite: h = {h_c!r} J/kg.")
         return reactant_mixture, product_mixture, solver, solution, weights, h_c
 
+    # -- phase split ----------------------------------------------------------
+    @staticmethod
+    def _phase_split(product_mixture, solver, solution) -> Tuple[float, float, Dict[str, float]]:
+        """Partition ``EqSolution.mass_fractions`` into gas and condensed blocks.
+
+        Method (official CEA phase information, verified against the installed
+        package - no guessing):
+          * ``Mixture.species_names`` lists every product species; the official
+            ordering is gas species first, then condensed species.
+          * ``EqSolver.num_gas`` / ``EqSolver.num_condensed`` give the block
+            sizes; ``num_gas + num_condensed == num_products`` is asserted.
+          * ``EqSolution.mass_fractions`` maps species name -> mass fraction
+            (kg of species per kg of TOTAL products; the values sum to 1).
+        Species are assigned to the blocks by SET MEMBERSHIP of the names, so
+        the result never depends on dictionary ordering.
+        """
+        names = list(product_mixture.species_names)
+        ng = int(solver.num_gas)
+        nc = int(solver.num_condensed)
+        if len(names) != ng + nc or len(names) != int(product_mixture.num_species):
+            raise ThermochemistryError(
+                "Inconsistent CEA species bookkeeping: "
+                f"len(species_names) = {len(names)}, num_gas = {ng}, "
+                f"num_condensed = {nc}, num_species = "
+                f"{int(product_mixture.num_species)}.")
+        gas_names = set(names[:ng])
+        condensed_names = set(names[ng:])
+        if gas_names & condensed_names:
+            raise ThermochemistryError(
+                "Overlapping gas/condensed species sets from the CEA mixture; "
+                "refusing to classify the phases by guesswork.")
+        mf = solution.mass_fractions
+        if set(mf.keys()) != set(names):
+            raise ThermochemistryError(
+                "EqSolution.mass_fractions does not cover exactly the product "
+                "species list of the mixture; the phase split cannot be formed "
+                "reliably.")
+        Yg = sum(float(mf[n]) for n in gas_names)
+        Yc = sum(float(mf[n]) for n in condensed_names)
+        condensed_fractions = {n: float(mf[n]) for n in sorted(condensed_names)
+                               if float(mf[n]) > 0.0}
+        return Yg, Yc, condensed_fractions
+
     # -- table ---------------------------------------------------------------
     def _build_table(self) -> Dict[str, Any]:
         cea = self.cea
@@ -1259,11 +1689,15 @@ class CEAPythonBackend(PressureTableBackend):
         M_out: List[float] = []
         MW_out: List[float] = []
         g_out: List[float] = []
+        Yg_out: List[float] = []
+        Yc_out: List[float] = []
         rho_out: List[float] = []
         cp_out: List[float] = []
         a_out: List[float] = []
         h_out: List[float] = []
         species_top: Dict[str, float] = {}
+        condensed_top: Dict[str, float] = {}
+        n_rounding_fixes = 0
 
         for p_pa in pressures:
             p_bar = float(p_pa) / 1.0e5
@@ -1283,28 +1717,63 @@ class CEAPythonBackend(PressureTableBackend):
                     "Adjust the pressure range, the reactant set or the CEA options.")
 
             T = float(solution.T)
-            M = float(solution.M)
-            MW = float(solution.MW)
+            M = float(solution.M)          # gas-phase molecular weight [kg/kmol]
+            MW = float(solution.MW)        # total molecular weight (diagnostic)
             gamma = float(solution.gamma_s)
             if not _finite_positive(T):
                 raise ThermochemistryError(
                     f"CEA returned a non-physical chamber temperature "
                     f"T = {T!r} K at p = {p_pa:.8g} Pa.")
-            molecular_weight = M if c.cea_py_molecular_weight == "gas_phase_M" else MW
-            if not _finite_positive(molecular_weight):
+            if not _finite_positive(M):
                 raise ThermochemistryError(
-                    f"CEA returned a non-physical molecular weight "
-                    f"({c.cea_py_molecular_weight}) = {molecular_weight!r} kg/kmol "
-                    f"at p = {p_pa:.8g} Pa.")
+                    f"CEA returned a non-physical gas-phase molecular weight "
+                    f"M = {M!r} kg/kmol at p = {p_pa:.8g} Pa.")
+            if not _finite_positive(MW):
+                raise ThermochemistryError(
+                    f"CEA returned a non-physical total molecular weight "
+                    f"MW = {MW!r} kg/kmol at p = {p_pa:.8g} Pa.")
             if not (math.isfinite(gamma) and gamma > 1.0):
                 raise ThermochemistryError(
                     f"CEA returned a non-physical isentropic exponent "
                     f"gamma_s = {gamma!r} at p = {p_pa:.8g} Pa.")
 
+            # equilibrium phase split from the official CEA phase information
+            Yg, Yc, condensed_fractions = self._phase_split(
+                product_mixture, solver, solution)
+            if not (math.isfinite(Yg) and math.isfinite(Yc)):
+                raise ThermochemistryError(
+                    f"Non-finite phase mass fractions at p = {p_pa:.8g} Pa: "
+                    f"Yg = {Yg!r}, Yc = {Yc!r}.")
+            if abs(Yg + Yc - 1.0) > 1.0e-12:
+                raise ThermochemistryError(
+                    f"CEA phase mass fractions do not sum to 1 at p = "
+                    f"{p_pa:.8g} Pa: Yg + Yc = {Yg + Yc:.15g}.")
+            # Rounding-level projection only: summing ~200 double-precision
+            # species fractions can overshoot the [0, 1] endpoints by a few
+            # ULP; ONLY that (<= _PHASE_FRACTION_ROUNDING_TOL) is corrected,
+            # and Yc is then recomputed as 1 - Yg so the identity holds
+            # exactly.  Larger violations are an error, never clipped.
+            if 1.0 < Yg <= 1.0 + _PHASE_FRACTION_ROUNDING_TOL:
+                n_rounding_fixes += 1
+                Yg = 1.0
+            elif -_PHASE_FRACTION_ROUNDING_TOL <= Yg < 0.0:
+                n_rounding_fixes += 1
+                Yg = 0.0
+            Yc = 1.0 - Yg
+            if not (0.0 < Yg <= 1.0) or not (0.0 <= Yc < 1.0):
+                raise ThermochemistryError(
+                    f"Non-physical phase mass fractions at p = {p_pa:.8g} Pa: "
+                    f"Yg = {Yg!r}, Yc = {Yc!r} (require 0 < Yg <= 1, "
+                    f"0 <= Yc < 1; the violation exceeds the rounding "
+                    f"tolerance {_PHASE_FRACTION_ROUNDING_TOL:g} and is not "
+                    f"corrected silently).")
+
             T_out.append(T)
-            M_out.append(molecular_weight)
+            M_out.append(M)
             MW_out.append(MW)
             g_out.append(gamma)
+            Yg_out.append(Yg)
+            Yc_out.append(Yc)
             rho_out.append(float(solution.density))
             cp_out.append(float(solution.cp_eq))
             a_out.append(float(solution.sonic_velocity) if hasattr(solution, "sonic_velocity")
@@ -1314,8 +1783,13 @@ class CEAPythonBackend(PressureTableBackend):
                 species_top = {k: float(v) for k, v in
                                sorted(solution.mass_fractions.items(),
                                       key=lambda kv: -kv[1])[:8]}
+                condensed_top = condensed_fractions
 
         R_out = [R_UNIVERSAL / m for m in M_out]
+        # Psi = Yg * Rg * (eta_T0 * T_CEA); stored for a cache round-trip
+        # consistency check - it is recomputed from Yg, R, T at load time.
+        psi_out = [yg * r * c.eta_T0 * t
+                   for yg, r, t in zip(Yg_out, R_out, T_out)]
         return {
             "schema": self.cache_schema,
             "backend": self.name,
@@ -1328,22 +1802,35 @@ class CEAPythonBackend(PressureTableBackend):
             "pressure_Pa": pressures.tolist(),
             "temperature_K": T_out,
             "gamma_s": g_out,
-            "molecular_weight_kg_kmol": M_out,
+            "gas_phase_molecular_weight_kg_kmol": M_out,
             "gas_constant_J_kgK": R_out,
+            "gas_mass_fraction": Yg_out,
+            "condensed_mass_fraction": Yc_out,
+            "psi_J_kg": psi_out,
+            "phase_fraction_method": ("EqSolution.mass_fractions partitioned by the "
+                                      "official species ordering (gas species first, "
+                                      "then condensed; EqSolver.num_gas / "
+                                      "num_condensed), summed per block"),
+            "phase_fraction_rounding_corrections": int(n_rounding_fixes),
             "reactant_enthalpy_J_kg": h_c,
             "reactant_enthalpy_over_R_K": h_R,
             "reactant_enthalpy_recomputed_kJ_kg": h_out,
-            "molecular_weight_definition": c.cea_py_molecular_weight,
+            "molecular_weight_definition": "gas_phase_M (EqSolution.M); EqSolution.MW "
+                                           "is tabulated as a diagnostic only",
             "product_species_count": int(product_mixture.num_species),
             "num_gas": int(solver.num_gas),
             "num_condensed": int(solver.num_condensed),
             "num_elements": int(solver.num_elements),
             "diagnostics": {
                 "density_kg_m3": rho_out,
+                "density_note": ("EqSolution.density equals the gas-phase ideal "
+                                 "density p/(Rg*T); it is NOT the two-phase "
+                                 "chamber density"),
                 "cp_eq_kJ_kgK": cp_out,
                 "sonic_velocity_m_s": a_out,
                 "total_molecular_weight_kg_kmol": MW_out,
                 "top_mass_fractions_at_max_pressure": species_top,
+                "condensed_species_mass_fractions_at_max_pressure": condensed_top,
                 "note": ("diagnostic values only; they never replace the GRIBS "
                          "internal-ballistics or nozzle results"),
             },
@@ -1378,13 +1865,18 @@ class CEAPythonBackend(PressureTableBackend):
                 "temperatures; passed to CEA as h/R [K]."),
             "pressure_units": "configuration in Pa, official API in bar",
             "temperature_units": "K",
-            "molecular_weight_definition": (
-                "EqSolution.M (gas-phase, kg/kmol)") if c.cea_py_molecular_weight
-                == "gas_phase_M" else "EqSolution.MW (incl. condensed, kg/kmol)",
+            "molecular_weight_definition": "EqSolution.M (gas-phase, kg/kmol); "
+                                           "EqSolution.MW is diagnostic only",
             "gamma_definition": "EqSolution.gamma_s (equilibrium isentropic exponent)",
             "heat_capacity_treatment": "equilibrium (cp_eq reported as a diagnostic)",
-            "condensed_species": ("included in the equilibrium; GRIBS consumes the "
-                                  "gas-phase M and gamma_s only"),
+            "phase_fractions": ("Yg = sum of gas-species mass fractions, Yc = sum "
+                                "of condensed-species mass fractions, from "
+                                "EqSolution.mass_fractions partitioned by the "
+                                "official species ordering (num_gas first, then "
+                                "num_condensed); never estimated from M vs MW"),
+            "condensed_species": ("included in the equilibrium and consumed by the "
+                                  "two-phase model through Yg(p), Yc(p); the "
+                                  "condensed volume is neglected"),
             "ion_settings": "enabled" if c.cea_py_ions else "disabled",
             "transport_settings": "enabled" if c.cea_py_transport else "disabled",
             "product_species_selection": ("built from the reactant elements"
@@ -1577,12 +2069,25 @@ def thermochemistry() -> ThermochemistryBackend:
 
 
 def gas_props(p0: float, c: Config) -> Tuple[float, float, float]:
-    """Return chamber R [J/(kg K)], adiabatic equilibrium T0 [K], gamma_s [-]."""
+    """Return GAS-PHASE chamber Rg [J/(kg K)], equilibrium T0 [K], gamma_s [-]."""
     return thermochemistry().props(p0)
 
 
+def psi_and_deriv(p0: float, c: Config) -> Tuple[float, float]:
+    """Return Psi = Yg*Rg*T0 [J/kg] and its analytic dPsi/dp [J/(kg Pa)].
+
+    In the single-phase legacy mode this is Theta = Rg*T0 and dTheta/dp.
+    """
+    return thermochemistry().psi_and_derivative(p0)
+
+
+def phase_fractions(p0: float, c: Config) -> Tuple[float, float]:
+    """Return the equilibrium phase mass fractions (Yg, Yc) at p0 [Pa]."""
+    return thermochemistry().phase_fractions(p0)
+
+
 def theta_and_deriv(p0: float, c: Config) -> Tuple[float, float]:
-    """Return Theta = R*T0 [J/kg] and dTheta/dp [J/(kg Pa)]."""
+    """Return Theta = Rg*T0 [J/kg] and dTheta/dp [J/(kg Pa)] (legacy pathway)."""
     return thermochemistry().theta_and_derivative(p0)
 
 
@@ -1620,8 +2125,64 @@ def burn_rate(p0: float, c: Config, Ab: float, Ri: float) -> float:
 
 
 # ==============================================================================
-# 5. NOZZLE MODEL  (unchanged from v0.3.1-alpha)
+# 5. NOZZLE MODEL
+#    Gas-phase isentropic reference flow (unchanged from v0.3.1-alpha) plus the
+#    v0.4.4 two-phase mass split.  MASS BASIS: the flow returned to the ODE is
+#    mdot_total (gas + condensed), consistent with the pressure equation that
+#    conserves the TOTAL product mass.
 # ==============================================================================
+class NozzleTwoPhaseModel:
+    """Two-phase mass split of the nozzle flow (isolated for future upgrades).
+
+    Implemented model: HOMOGENEOUS EQUILIBRIUM, COMPLETE ENTRAINMENT.
+      * The gas-phase isentropic reference flow mdot_gas_ref is computed from
+        the gas-phase properties Rg, T0, gamma_s (see ``_gas_reference``).
+      * Both phases are assumed to leave with the same velocity, so the total
+        flow is the gas flow divided by the chamber gas mass fraction:
+            mdot_total = mdot_gas_ref / Yg_chamber
+            mdot_gas       = Yg_chamber * mdot_total
+            mdot_condensed = Yc_chamber * mdot_total
+      * This is a FIRST APPROXIMATION: it is not a rigorous two-phase choking
+        model (no particle slip, no two-phase sound speed, no non-equilibrium
+        nozzle chemistry, no particle-size effects).  For large condensed
+        fractions it tends to OVERESTIMATE the delivered mass flow and thrust.
+      * In 'single_phase_legacy' mode Yg := 1 and mdot_total = mdot_gas_ref,
+        i.e. exactly the v0.4.3-alpha behaviour (regression comparison only).
+
+    A future rigorous model (e.g. frozen/non-equilibrium two-phase choking,
+    particle lag) should replace ``split`` without touching the ODE, which only
+    consumes (mdot_total, mdot_gas, mdot_condensed).
+    """
+
+    def __init__(self, mode: str):
+        if mode not in KNOWN_TWO_PHASE_MODES:
+            raise ConfigurationError(
+                f"Unknown two-phase mode {mode!r}; expected one of "
+                f"{list(KNOWN_TWO_PHASE_MODES)}.")
+        self.mode = mode
+
+    @property
+    def entrainment_assumption(self) -> str:
+        return ("complete entrainment: mdot_total = mdot_gas_ref / Yg_chamber, "
+                "both phases share the exit velocity (no particle slip)"
+                if self.mode == TWO_PHASE_HOMOGENEOUS else
+                "single-phase legacy: the total flow equals the gas reference "
+                "flow (Yg := 1)")
+
+    def split(self, mdot_gas_reference: float,
+              Yg_chamber: float) -> Tuple[float, float, float]:
+        """Return (mdot_total, mdot_gas, mdot_condensed) [kg/s]."""
+        if self.mode == TWO_PHASE_SINGLE_LEGACY:
+            return mdot_gas_reference, mdot_gas_reference, 0.0
+        if not (0.0 < Yg_chamber <= 1.0):
+            raise ThermochemistryError(
+                f"Nozzle two-phase split received Yg_chamber = {Yg_chamber!r}; "
+                "require 0 < Yg <= 1.")
+        mdot_total = mdot_gas_reference / Yg_chamber
+        mdot_gas = Yg_chamber * mdot_total
+        return mdot_total, mdot_gas, mdot_total - mdot_gas
+
+
 def area_mach(M: float, g: float) -> float:
     """A/At as a function of Mach number (isentropic)."""
     return (1.0 / M) * ((2.0 / (g + 1.0))
@@ -1671,9 +2232,33 @@ def choke_limit_pressure(c: Config, At: float, Ae: float) -> Optional[float]:
 
 
 def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
-    """Mass flow, thrust, exit conditions and flow regime."""
+    """Nozzle mass flow, thrust, exit conditions and flow regime.
+
+    MASS BASIS (v0.5.0-alpha): the returned ``mdot_total`` is the TOTAL product
+    mass flow (gas + condensed) and is the quantity that must be fed to the
+    pressure ODE, which conserves the total product mass.  ``mdot_gas`` and
+    ``mdot_condensed`` decompose it with the chamber equilibrium phase split.
+    ``mdot`` is retained as a backward-compatible ALIAS of ``mdot_total`` (it is
+    NOT the gas-only flow); prefer the explicit names in new code.
+
+    The gas-phase isentropic reference flow uses the GAS-PHASE properties
+    Rg(p0), T0(p0), gamma_s(p0).  In the homogeneous-equilibrium mode the total
+    flow is mdot_gas_ref / Yg(p0) (complete entrainment, see
+    ``NozzleTwoPhaseModel``); in the single-phase legacy mode it equals the
+    gas reference flow.
+    """
+    split_model = NozzleTwoPhaseModel(c.two_phase_mode)
+    Yg, Yc = phase_fractions(p0, c)
+
     if p0 <= c.p_a:
-        return dict(mdot=0.0, F=0.0, Me=0.0, pe=p0, ve=0.0,
+        return dict(mdot=0.0,                   # alias of mdot_total (documented)
+                    mdot_total=0.0,
+                    mdot_gas=0.0,
+                    mdot_condensed=0.0,
+                    mdot_gas_reference=0.0,
+                    gas_mass_fraction=Yg,
+                    condensed_mass_fraction=Yc,
+                    F=0.0, Me=0.0, pe=p0, ve=0.0,
                     regime="no-flow", A_eff=Ae)
 
     R, T0, g = gas_props(p0, c)
@@ -1682,7 +2267,7 @@ def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
     p_thr = choke_threshold_pressure(p0, At, Ae, c)
 
     if p0 >= p_thr:                                   # ---- choked ----
-        mdot = c.Cd * At * p0 * sq \
+        mdot_ref = c.Cd * At * p0 * sq \
             * (2.0 / (g + 1.0)) ** ((g + 1.0) / (2.0 * (g - 1.0)))
         Me = 1.0 if eps <= 1.0 + 1.0e-12 else mach_from_area(eps, g, True)
         pe = p0 * (1.0 + 0.5 * (g - 1.0) * Me * Me) ** (-g / (g - 1.0))
@@ -1703,18 +2288,38 @@ def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
                     ve_eff = M_sep * math.sqrt(g * R * Te_s)
                     Me = M_sep
                     regime = "separated"
-        F = c.eta_thrust * mdot * ve_eff + (pe_eff - c.p_a) * A_eff
-        return dict(mdot=mdot, F=F, Me=Me, pe=pe_eff, ve=ve_eff,
+        # Complete velocity equilibrium: both phases leave at ve_eff.  With
+        # particle slip the momentum term would be mdot_gas*vg + mdot_c*vc and
+        # the thrust would be lower for large condensed fractions; eta_F may
+        # additionally lump two-phase losses (avoid double correction).
+        mdot_total, mdot_gas, mdot_cond = split_model.split(mdot_ref, Yg)
+        F = c.eta_thrust * mdot_total * ve_eff + (pe_eff - c.p_a) * A_eff
+        return dict(mdot=mdot_total,
+                    mdot_total=mdot_total,
+                    mdot_gas=mdot_gas,
+                    mdot_condensed=mdot_cond,
+                    mdot_gas_reference=mdot_ref,
+                    gas_mass_fraction=Yg,
+                    condensed_mass_fraction=Yc,
+                    F=F, Me=Me, pe=pe_eff, ve=ve_eff,
                     regime=regime, A_eff=A_eff)
 
     # ---- subsonic (exit pressure equals ambient); continuous with the above ----
     Me = math.sqrt(2.0 / (g - 1.0) * ((p0 / c.p_a) ** ((g - 1.0) / g) - 1.0))
-    mdot = c.Cd * Ae * p0 * sq * Me \
+    mdot_ref = c.Cd * Ae * p0 * sq * Me \
         * (1.0 + 0.5 * (g - 1.0) * Me * Me) ** (-(g + 1.0) / (2.0 * (g - 1.0)))
     Te = T0 / (1.0 + 0.5 * (g - 1.0) * Me * Me)
     ve = Me * math.sqrt(g * R * Te)
-    F = c.eta_thrust * mdot * ve
-    return dict(mdot=mdot, F=F, Me=Me, pe=c.p_a, ve=ve,
+    mdot_total, mdot_gas, mdot_cond = split_model.split(mdot_ref, Yg)
+    F = c.eta_thrust * mdot_total * ve
+    return dict(mdot=mdot_total,
+                mdot_total=mdot_total,
+                mdot_gas=mdot_gas,
+                mdot_condensed=mdot_cond,
+                mdot_gas_reference=mdot_ref,
+                gas_mass_fraction=Yg,
+                condensed_mass_fraction=Yc,
+                F=F, Me=Me, pe=c.p_a, ve=ve,
                 regime="subsonic", A_eff=Ae)
 
 
@@ -1723,13 +2328,18 @@ def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
 # ==============================================================================
 def equilibrium_pressure(Ab: float, Ri: float, At: float, Ae: float,
                          c: Config) -> Optional[float]:
-    """Lowest pressure satisfying mdot_gen(p) = mdot_out(p); None if not found."""
+    """Lowest pressure satisfying mdot_gen_total(p) = mdot_out_total(p).
+
+    Both sides use the TOTAL product mass basis, consistent with the pressure
+    ODE; None if no crossing is found.  Diagnostic only.
+    """
     if not np.isfinite(Ab) or Ab <= 0.0:
         return None
 
     def bal(p):
         try:
-            v = c.rho_p * burn_rate(p, c, Ab, Ri) * Ab - nozzle_state(p, At, Ae, c)["mdot"]
+            v = (c.rho_p * burn_rate(p, c, Ab, Ri) * Ab
+                 - nozzle_state(p, At, Ae, c)["mdot_total"])
             return float(v) if np.isfinite(v) else np.nan
         except (ValueError, OverflowError, FloatingPointError, GribsError):
             return np.nan
@@ -1748,7 +2358,13 @@ def equilibrium_pressure(Ab: float, Ri: float, At: float, Ae: float,
 
 # ==============================================================================
 # 7. ODE SYSTEM
-#    y = [p0, x, Rt, m_out, Impulse, m_gen]     (unchanged from v0.3.1-alpha)
+#    y = [p0, x, Rt, m_out_total, Impulse, m_gen_total]
+#    The mass quadratures are TOTAL product masses (gas + condensed) in the
+#    homogeneous-equilibrium mode.  Pressure equation (two-phase model B):
+#      dp0/dt = [ Psi*(mdot_gen_total - mdot_out_total) - p0*Ab*r ]
+#               / [ Vg*(1 - p0*Psi'/Psi) ]
+#    with Psi = Yg*Rg*T0 and the ANALYTIC dPsi/dp.  In the single-phase legacy
+#    mode Psi := Theta = Rg*T0 (exact v0.4.3-alpha behaviour).
 # ==============================================================================
 IP, IX, IRT, IMO, IIMP, IMG = range(6)
 
@@ -1772,17 +2388,20 @@ def make_rhs(c: Config, Ae: float, burning: bool) -> Callable:
             r = burn_rate(p0, c, Ab, Ri)
         else:
             r, Ab = 0.0, 0.0
-        m_gen = c.rho_p * r * Ab + igniter_mdot(t, c)
+        # TOTAL generated product mass flow (gas + condensed) [kg/s]: every
+        # kilogram of burned propellant enters mt, regardless of its phase.
+        m_gen_total = c.rho_p * r * Ab + igniter_mdot(t, c)
 
+        # TOTAL nozzle outflow (gas + condensed), consistent mass basis.
         nz = nozzle_state(p0, At, Ae, c)
-        theta, dtheta = theta_and_deriv(p0, c)
-        denom = Vg * (1.0 - p0 * dtheta / theta)
+        psi, dpsi = psi_and_deriv(p0, c)
+        denom = Vg * (1.0 - p0 * dpsi / psi)
         if denom <= 0.0:
-            raise ValueError("Non-physical factor (1 - p0*Theta'/Theta) <= 0.")
+            raise ValueError("Non-physical factor (1 - p0*Psi'/Psi) <= 0.")
 
-        dp = (theta * (m_gen - nz["mdot"]) - p0 * Ab * r) / denom
+        dp = (psi * (m_gen_total - nz["mdot_total"]) - p0 * Ab * r) / denom
         dRt = c.ero_throat_c * (p0 / c.p_ref) ** c.ero_throat_m
-        return np.array([dp, r, dRt, nz["mdot"], nz["F"], m_gen])
+        return np.array([dp, r, dRt, nz["mdot_total"], nz["F"], m_gen_total])
 
     return rhs
 
@@ -1806,8 +2425,17 @@ def run_model(c: Config) -> dict:
                          "nothing to integrate.")
 
     theta0, _ = theta_and_deriv(c.p0_init, c)
+    psi0, _ = psi_and_deriv(c.p0_init, c)
     y0 = np.array([c.p0_init, 0.0, c.R_t0, 0.0, 0.0, 0.0])
-    m_gas0 = c.p0_init * c.V_g0 / theta0
+    # Initial chamber inventory as TOTAL product mass:
+    #   mt0 = p0*Vg0/Psi(p0)   (two-phase mode; Psi = Yg*Rg*T0)
+    #   m0  = p0*Vg0/Theta(p0) (single-phase legacy mode)
+    # ASSUMPTION: the initial chamber gas is equilibrium combustion products of
+    # the main propellant at p0_init.  An initial fill of air or igniter gas of
+    # a different composition is not represented exactly by this
+    # single-composition model.
+    m_total0 = c.p0_init * c.V_g0 / psi0
+    m_gas0 = c.p0_init * c.V_g0 / theta0      # diagnostic (legacy-basis value)
 
     atol = np.array([c.atol_p, c.atol_x, 1e-14, 1e-12, 1e-9, 1e-12])
 
@@ -1859,7 +2487,8 @@ def run_model(c: Config) -> dict:
             stop2 = "choking-loss"
 
     return dict(sol_burn=sol1, sol_blow=sol2, stop_burn=stop1, stop_blow=stop2,
-                Ae=Ae, At0=At0, m_gas0=m_gas0, init_regime=init_regime,
+                Ae=Ae, At0=At0, m_total0=m_total0, m_gas0=m_gas0,
+                init_regime=init_regime,
                 t_events={nm: [float(v) for v in te]
                           for nm, te in zip(names, sol1.t_events)})
 
@@ -1886,7 +2515,10 @@ def validate(c: Config) -> None:
 
 
 # ==============================================================================
-# 8. POST-PROCESSING  (unchanged from v0.3.1-alpha)
+# 8. POST-PROCESSING
+#    v0.5.0-alpha: history columns use the TOTAL product mass basis
+#    (m_total_eos, m_total_balance, mdot_out_total/gas/condensed) plus the
+#    equilibrium phase fractions and Psi.
 # ==============================================================================
 def _phase_grid(sol, n_lin: int, log_head: bool) -> np.ndarray:
     t0, t1 = float(sol.t[0]), float(sol.t[-1])
@@ -1905,6 +2537,21 @@ def _phase_grid(sol, n_lin: int, log_head: bool) -> np.ndarray:
 
 
 def sample(res: dict, c: Config) -> dict:
+    """Dense post-processing of the ODE solution.
+
+    Column meanings (v0.5.0-alpha two-phase model B):
+      mdot_gen_total        generated TOTAL product mass flow [kg/s]
+      mdot_out_total/gas/condensed  nozzle outflow decomposition [kg/s]
+      m_gen, m_out          integrated TOTAL product masses [kg] (ODE states)
+      m_total_eos           TOTAL product mass from the EOS: p0*Vg/Psi(p0) [kg]
+                            (replaces the v0.4.3 column m_gas_eos, whose meaning
+                            changed - the old name is deliberately NOT kept)
+      m_total_balance       mt0 + m_gen - m_out [kg] (replaces m_gas_bal)
+      m_gas_equilibrium     Yg(p0)*m_total_eos [kg] (gas part of m_total_eos)
+      m_condensed           Yc(p0)*m_total_eos [kg] (condensed part)
+      Y_gas, Y_condensed    equilibrium phase mass fractions [-]
+      Psi                   Yg*Rg*T0 [J/kg]
+    """
     Ae = res["Ae"]
     xw = web_thickness(c)
     segs = [(res["sol_burn"], "burn", 4000, True)]
@@ -1913,9 +2560,11 @@ def sample(res: dict, c: Config) -> dict:
 
     rec = {k: [] for k in
            ("t", "phase", "p0", "x", "Rt", "At", "Kn", "Ri", "Lp", "Ab", "Vg",
-            "r", "mdot_gen", "mdot_out", "F", "Me", "pe", "ve", "regime",
-            "R", "T0", "gamma", "m_out", "impulse", "m_gen", "m_gas_eos",
-            "m_gas_bal", "extrap", "cstar", "CF")}
+            "r", "mdot_gen_total", "mdot_out_total", "mdot_out_gas",
+            "mdot_out_condensed", "F", "Me", "pe", "ve", "regime",
+            "R", "T0", "gamma", "Y_gas", "Y_condensed", "Psi",
+            "m_out", "impulse", "m_gen", "m_total_eos", "m_total_balance",
+            "m_gas_equilibrium", "m_condensed", "extrap", "cstar", "CF")}
 
     first = True
     for sol, phase, n_lin, head in segs:
@@ -1931,15 +2580,16 @@ def sample(res: dict, c: Config) -> dict:
             At = math.pi * Rt * Rt
             Ri, Lp, Ab, Vg = geometry(x, c)
             R, T0, g = gas_props(p0, c)
+            Yg, Yc = phase_fractions(p0, c)
+            psi, _ = psi_and_deriv(p0, c)
             nz = nozzle_state(p0, At, Ae, c)
             if phase == "burn":
                 r = burn_rate(p0, c, Ab, Ri)
-                mg = c.rho_p * r * Ab + igniter_mdot(t, c)
+                m_gen_rate = c.rho_p * r * Ab + igniter_mdot(t, c)
             else:
-                r, Ab, mg = 0.0, 0.0, 0.0
-            theta = R * T0
-            m_eos = p0 * Vg / theta
-            m_bal = res["m_gas0"] + float(ys[IMG, k]) - float(ys[IMO, k])
+                r, Ab, m_gen_rate = 0.0, 0.0, 0.0
+            m_total_eos = p0 * Vg / psi
+            m_total_bal = res["m_total0"] + float(ys[IMG, k]) - float(ys[IMO, k])
 
             rec["t"].append(float(t));          rec["phase"].append(phase)
             rec["p0"].append(p0);               rec["x"].append(x)
@@ -1947,17 +2597,26 @@ def sample(res: dict, c: Config) -> dict:
             rec["Kn"].append(Ab / At);          rec["Ri"].append(Ri)
             rec["Lp"].append(Lp);               rec["Ab"].append(Ab)
             rec["Vg"].append(Vg);               rec["r"].append(r)
-            rec["mdot_gen"].append(mg);         rec["mdot_out"].append(nz["mdot"])
+            rec["mdot_gen_total"].append(m_gen_rate)
+            rec["mdot_out_total"].append(nz["mdot_total"])
+            rec["mdot_out_gas"].append(nz["mdot_gas"])
+            rec["mdot_out_condensed"].append(nz["mdot_condensed"])
             rec["F"].append(nz["F"]);           rec["Me"].append(nz["Me"])
             rec["pe"].append(nz["pe"]);         rec["ve"].append(nz["ve"])
             rec["regime"].append(nz["regime"]); rec["R"].append(R)
             rec["T0"].append(T0);               rec["gamma"].append(g)
+            rec["Y_gas"].append(Yg);            rec["Y_condensed"].append(Yc)
+            rec["Psi"].append(psi)
             rec["m_out"].append(float(ys[IMO, k]))
             rec["impulse"].append(float(ys[IIMP, k]))
             rec["m_gen"].append(float(ys[IMG, k]))
-            rec["m_gas_eos"].append(m_eos);     rec["m_gas_bal"].append(m_bal)
+            rec["m_total_eos"].append(m_total_eos)
+            rec["m_total_balance"].append(m_total_bal)
+            rec["m_gas_equilibrium"].append(Yg * m_total_eos)
+            rec["m_condensed"].append(Yc * m_total_eos)
             rec["extrap"].append(is_extrapolated(p0, c))
-            rec["cstar"].append(p0 * At / nz["mdot"] if nz["mdot"] > 0 else np.nan)
+            rec["cstar"].append(p0 * At / nz["mdot_total"]
+                                if nz["mdot_total"] > 0 else np.nan)
             rec["CF"].append(nz["F"] / (p0 * At) if p0 * At > 0 else np.nan)
 
     out = {k: (np.asarray(v) if k not in ("phase", "regime") else np.asarray(v, dtype=object))
@@ -2000,14 +2659,22 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
     CF_eff = I_burn / pAt_int if pAt_int > 0 else float("nan")
     p_mean = float(pAt_int / (At0 * (t_bo - t[0]))) if t_bo > t[0] else float("nan")
 
-    denom = np.maximum(np.abs(h["m_gas_eos"]), 1e-15)
-    mass_err = float(np.max(np.abs(h["m_gas_bal"] - h["m_gas_eos"]) / denom))
+    # EOS mass vs balance mass (TOTAL product mass basis in the two-phase mode)
+    denom = np.maximum(np.abs(h["m_total_eos"]), 1e-15)
+    mass_err = float(np.max(np.abs(h["m_total_balance"] - h["m_total_eos"]) / denom))
+
+    # two-phase statistics over the computed history
+    Yg_h = np.asarray(h["Y_gas"], dtype=float)
+    Yc_h = np.asarray(h["Y_condensed"], dtype=float)
 
     p_star = choke_limit_pressure(c, At0, Ae)
     mg0 = c.rho_p * base_burn_rate(c.p0_init, c) * geometry(0.0, c)[2]
-    mo0 = nozzle_state(c.p0_init, At0, Ae, c)["mdot"]
+    mo0 = nozzle_state(c.p0_init, At0, Ae, c)["mdot_total"]
 
     backend = thermochemistry()
+    pv_table = getattr(backend, "property_validation", {})
+    two_phase_active = (c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
+                        and bool(getattr(backend, "supports_two_phase", False)))
     s = dict(
         web_mm=web_thickness(c) * 1e3,
         propellant_density_kg_m3=c.rho_p,
@@ -2036,7 +2703,38 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
         Kn_final=float(h["Kn"][burn][-1]),
         throat_radius_final_mm=float(h["Rt"][-1]) * 1e3,
         propellant_mass_balance_error=abs(m_gen_tot / m_prop - 1.0) if m_prop > 0 else float("nan"),
-        gas_mass_consistency_error=mass_err,
+        total_mass_consistency_error=mass_err,
+        # ---------------- two-phase model ----------------
+        two_phase_model={
+            "mode": c.two_phase_mode,
+            "condensed_volume": c.two_phase_condensed_volume,
+            "nozzle_entrainment": c.two_phase_nozzle_entrainment,
+            "active": bool(two_phase_active),
+        },
+        gas_mass_fraction_min=float(np.min(Yg_h)),
+        gas_mass_fraction_max=float(np.max(Yg_h)),
+        condensed_mass_fraction_min=float(np.min(Yc_h)),
+        condensed_mass_fraction_max=float(np.max(Yc_h)),
+        maximum_condensed_mass_fraction_during_run=float(np.max(Yc_h)),
+        mean_condensed_mass_fraction_during_burn=float(np.mean(Yc_h[burn]))
+        if np.any(burn) else float("nan"),
+        condensed_mass_fraction_at_max_pressure=float(Yc_h[int(np.argmax(h["p0"]))]),
+        gas_mass_fraction_table_min=float(pv_table.get("gas_mass_fraction_min", float("nan"))),
+        gas_mass_fraction_table_max=float(pv_table.get("gas_mass_fraction_max", float("nan"))),
+        condensed_mass_fraction_table_min=float(pv_table.get("condensed_mass_fraction_min", float("nan"))),
+        condensed_mass_fraction_table_max=float(pv_table.get("condensed_mass_fraction_max", float("nan"))),
+        min_pressure_factor_1_minus_pPsi_over_Psi=float(
+            pv_table.get("min_pressure_factor_1_minus_pPsi_over_Psi", float("nan"))),
+        nozzle_entrainment_assumption=(
+            "complete entrainment: mdot_total = mdot_gas_ref / Yg_chamber; both "
+            "phases leave with the same exit velocity (particle slip NOT "
+            "modelled; momentum thrust may be overestimated for large "
+            "condensed fractions)" if two_phase_active else
+            "single-phase legacy: total flow = gas reference flow (Yg := 1)"),
+        condensed_volume_assumption=(
+            "condensed-phase volume neglected against the chamber free volume; "
+            "the gas phase occupies Vg" if two_phase_active else
+            "not applicable (single-phase legacy mode)"),
         property_extrapolation=bool(np.any(h["extrap"])),
         property_extrapolation_points=int(np.count_nonzero(h["extrap"])),
         property_extrapolation_fraction=float(np.mean(h["extrap"])),
@@ -2062,7 +2760,80 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
 DERIVATIVE_TOLERANCE_TABLE = 1.0e-5
 
 
+class _SyntheticTestBackend(PressureTableBackend):
+    """Synthetic analytic property table for numerical self-tests ONLY.
+
+    Not selectable from any configuration; used to verify:
+      * the single-phase limit (Yg = 1 everywhere) reproduces the legacy
+        Theta model bit-for-bit (self-test: single-phase limit), and
+      * the homogeneous-equilibrium run matches the legacy run when the table
+        contains no condensed phase (compatibility test).
+    Constant T0, gamma_s, M and a configurable constant condensed fraction are
+    sufficient because these tests compare MODELS, not chemistry.
+    """
+
+    name = "synthetic_selftest"
+    uses_cea = False
+    supports_two_phase = True
+    table_stem = "thermo_synthetic_selftest"
+    equilibrium_formulation = ("synthetic constant-property analytic table "
+                               "(numerical self-tests only, never a production "
+                               "backend)")
+
+    def __init__(self, c: Config, condensed_fraction: float = 0.0):
+        if not (0.0 <= condensed_fraction < 1.0):
+            raise ValueError("condensed_fraction must lie in [0, 1).")
+        self._ycond = float(condensed_fraction)
+        # cache must never interfere with the self-tests
+        c2 = Config(**{**asdict(c), "cea_cache_enabled": False,
+                       "cea_rebuild_cache": False})
+        super().__init__(c2, c.reactants_spec_list, c.packing_fraction,
+                         Path(tempfile.gettempdir()) / "gribs_selftest_cache")
+
+    def _build_table(self) -> Dict[str, Any]:
+        c = self.c
+        pmin = max(c.p_fit_min / 50.0, 1.0e3)
+        pmax = c.p_fit_max * 10.0
+        pressures = np.geomspace(pmin, pmax, 41)
+        T0 = 3000.0
+        gamma = 1.2
+        M = 25.0
+        R = R_UNIVERSAL / M
+        Yg = 1.0 - self._ycond
+        n = pressures.size
+        return {
+            "schema": self.cache_schema,
+            "backend": self.name,
+            "cache_key": self.key,
+            "source": "synthetic analytic table (self-tests only)",
+            "pressure_Pa": pressures.tolist(),
+            "temperature_K": [T0] * n,
+            "gamma_s": [gamma] * n,
+            "gas_phase_molecular_weight_kg_kmol": [M] * n,
+            "gas_constant_J_kgK": [R] * n,
+            "gas_mass_fraction": [Yg] * n,
+            "condensed_mass_fraction": [self._ycond] * n,
+            "psi_J_kg": [Yg * R * T0 * c.eta_T0] * n,
+        }
+
+    def metadata(self) -> Dict[str, Any]:
+        return {"backend": self.name, "synthetic_selftest_backend": True}
+
+
+#: Tolerance of the single-phase-limit regression test.  With Yg = 1 the two
+#: code paths evaluate bit-identical arithmetic, so any difference beyond
+#: double-rounding level indicates a structural inconsistency.
+SINGLE_PHASE_LIMIT_TOLERANCE = 1.0e-12
+
+
 def self_tests(c: Config, verbose=True) -> bool:
+    """Numerical self-tests executed before every production run.
+
+    All v0.4.3-alpha tests are kept unchanged (T1-T7); the two-phase model
+    adds T8-T15 (see the test names).  Post-simulation conservation tests run
+    in :func:`self_tests_post_run` after the ODE integration.
+    """
+    global _THERMO
     out, ok_all = [], True
 
     def chk(name, ok, detail=""):
@@ -2071,6 +2842,8 @@ def self_tests(c: Config, verbose=True) -> bool:
         out.append(f"  [{'PASS' if ok else 'FAIL'}] {name:<46s} {detail}")
 
     backend = thermochemistry()
+    two_phase_active = (c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
+                        and bool(getattr(backend, "supports_two_phase", False)))
 
     # T1 analytic dTheta/dp against a centred difference (derivative validation)
     tol_deriv = DERIVATIVE_TOLERANCE_TABLE
@@ -2130,15 +2903,23 @@ def self_tests(c: Config, verbose=True) -> bool:
             f"Ae/At = {eps:.6g}, mdot jump = {worst_mdot:.2e}, "
             f"F jump = {worst_thrust:.2e}")
 
-        # T5 closed-form check of the converging-nozzle choked thrust
-        cc = Config(**{**asdict(c), "eps_nozzle": 1.0, "Cd": 1.0,
-                       "eta_thrust": 1.0, "use_separation": False})
-        At0 = math.pi * cc.R_t0 ** 2
+        # T5 closed-form check of the converging-nozzle choked thrust.
+        # Two-phase momentum basis: only the momentum term scales with the
+        # entrained condensed mass (mdot_total = mdot_gas/Yg), the pressure
+        # thrust does not:
+        #   F = mdot_total*ve + (pe - pa)*At
+        #     = At*(crit*p*(g/Yg + 1) - pa),  crit = (2/(g+1))^(g/(g-1))
+        # With Yg = 1 this reduces to the classical single-phase identity
+        # F = At*((g+1)*crit*p - pa).
+        cc5 = Config(**{**asdict(c), "eps_nozzle": 1.0, "Cd": 1.0,
+                        "eta_thrust": 1.0, "use_separation": False})
+        At0 = math.pi * cc5.R_t0 ** 2
         e = 0.0
-        for p in np.geomspace(cc.p_a / 0.5, 50e6, 20):
-            nz = nozzle_state(p, At0, At0, cc)
-            _, _, g = gas_props(p, cc)
-            F_ref = At0 * ((g + 1.0) * critical_ratio(g) * p - cc.p_a)
+        for p in np.geomspace(cc5.p_a / 0.5, 50e6, 20):
+            nz = nozzle_state(p, At0, At0, cc5)
+            _, _, g = gas_props(p, cc5)
+            Yg_p, _ = phase_fractions(p, cc5)
+            F_ref = At0 * (critical_ratio(g) * p * (g / Yg_p + 1.0) - cc5.p_a)
             e = max(e, abs(nz["F"] / F_ref - 1.0))
         chk("closed-form choked thrust identity", e < 1e-12,
             f"max rel. err = {e:.2e}")
@@ -2159,7 +2940,8 @@ def self_tests(c: Config, verbose=True) -> bool:
             bool(pv.get("pressure_strictly_increasing", False)) and \
             float(pv.get("temperature_min_K", 0.0)) > 0.0 and \
             float(pv.get("gamma_min", 0.0)) > 1.0 and \
-            float(pv.get("min_pressure_factor_1_minus_pTheta_over_Theta", -1.0)) > 0.0
+            float(pv.get("min_pressure_factor_1_minus_pTheta_over_Theta", -1.0)) > 0.0 and \
+            float(pv.get("min_pressure_factor_1_minus_pPsi_over_Psi", -1.0)) > 0.0
         detail = (f"{pv.get('pressure_points', 'n/a')} points, "
                   f"T0 = {pv.get('temperature_min_K', float('nan')):.1f}-"
                   f"{pv.get('temperature_max_K', float('nan')):.1f} K, "
@@ -2169,8 +2951,198 @@ def self_tests(c: Config, verbose=True) -> bool:
     except Exception as exc:                                  # pragma: no cover
         chk("chamber-property table physical", False, str(exc))
 
+    # ---- two-phase tests (new in v0.5.0-alpha) ------------------------------
+    table = getattr(backend, "table", {})
+    if "gas_mass_fraction" in table:
+        Yg_tab = np.asarray(table["gas_mass_fraction"], dtype=float)
+        Yc_tab = np.asarray(table["condensed_mass_fraction"], dtype=float)
+    else:
+        npts = len(table.get("pressure_Pa", [0] * 4))
+        Yg_tab = np.ones(npts)
+        Yc_tab = np.zeros(npts)
+
+    # T8 phase-fraction completeness: Yg + Yc = 1 at every table point
+    e = float(np.max(np.abs(Yg_tab + Yc_tab - 1.0)))
+    chk("phase fractions sum to 1 (table)", e <= 1.0e-12,
+        f"max |Yg+Yc-1| = {e:.2e} (tol 1e-12)")
+
+    # T9 physical ranges: 0 < Yg <= 1, 0 <= Yc < 1
+    ok = bool(np.all(Yg_tab > 0.0) and np.all(Yg_tab <= 1.0)
+              and np.all(Yc_tab >= 0.0) and np.all(Yc_tab < 1.0))
+    chk("phase fractions physical (table)", ok,
+        f"Yg in [{Yg_tab.min():.6g}, {Yg_tab.max():.6g}], "
+        f"Yc in [{Yc_tab.min():.6g}, {Yc_tab.max():.6g}]")
+
+    # T10 Psi consistency: Psi = Yg*Rg*T_used at every table point.
+    # The interpolator check is mode-consistent: in the two-phase mode the
+    # solver-facing Psi is Yg*Rg*T_used; in the single-phase legacy mode it is
+    # Theta = Rg*T_used by definition (Yg := 1), while the stored table column
+    # keeps the physical Yg*Rg*T_used product in both cases.
+    R_tab = np.asarray(table["gas_constant_J_kgK"], dtype=float)
+    T_tab = np.asarray(table["temperature_K"], dtype=float) * c.eta_T0
+    psi_ref = Yg_tab * R_tab * T_tab
+    psi_solver_ref = psi_ref if two_phase_active else R_tab * T_tab
+    if "psi_J_kg" in table:
+        psi_tab = np.asarray(table["psi_J_kg"], dtype=float)
+    else:
+        psi_tab = psi_ref
+    e = float(np.max(np.abs(psi_tab - psi_ref) / np.maximum(psi_ref, 1e-300)))
+    # also check the interpolated Psi against the mode-consistent product
+    e_node = 0.0
+    for p, ref in zip(table["pressure_Pa"], psi_solver_ref):
+        e_node = max(e_node, abs(psi_and_deriv(float(p), c)[0] / ref - 1.0))
+    chk("Psi = Yg*Rg*T0 (table + interpolator)",
+        e <= 1.0e-12 and e_node <= 1.0e-10,
+        f"stored-vs-product rel. err = {e:.2e}, node interp err = {e_node:.2e}")
+
+    # T11 analytic dPsi/dp against a centred difference
+    e = 0.0
+    for p in np.geomspace(max(c.p_fit_min * 1.05, 1.1e5), c.p_fit_max * 0.95, 25):
+        hstep = p * 1e-5
+        fd = (psi_and_deriv(p + hstep, c)[0] - psi_and_deriv(p - hstep, c)[0]) / (2 * hstep)
+        dp = psi_and_deriv(p, c)[1]
+        if dp == 0.0:
+            e = max(e, abs(fd) / max(psi_and_deriv(p, c)[0], 1e-300) * p)
+        else:
+            e = max(e, abs(fd / dp - 1.0))
+    chk("analytic vs numerical dPsi/dp", e < tol_deriv,
+        f"max rel. err = {e:.2e} (tol {tol_deriv:.0e})")
+
+    # T12 pressure-equation denominator D(p) = 1 - p*Psi'/Psi > 0 everywhere
+    try:
+        dmin = float(backend.property_validation[
+            "min_pressure_factor_1_minus_pPsi_over_Psi"])
+        chk("pressure factor 1 - p*Psi'/Psi > 0", dmin > 0.0,
+            f"min D(p) = {dmin:.6f}")
+    except Exception as exc:                                  # pragma: no cover
+        chk("pressure factor 1 - p*Psi'/Psi > 0", False, str(exc))
+
+    # T13 single-phase limit: with Yg = 1 everywhere the two-phase model B must
+    # reduce EXACTLY to the legacy Theta model (regression test).
+    # T14 nozzle decomposition identities (with a condensed phase present).
+    # T15 compatibility: no condensed phase -> homogeneous and legacy runs agree.
+    saved_thermo = _THERMO
+    try:
+        synth = _SyntheticTestBackend(c, condensed_fraction=0.0)
+        _THERMO = synth
+        e_psi, e_dpsi, e_rhs = 0.0, 0.0, 0.0
+        c_hom = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
+        c_leg = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_SINGLE_LEGACY})
+        for p in np.geomspace(synth.pmin * 1.01, synth.pmax * 0.99, 30):
+            psi_h, dpsi_h = psi_and_deriv(float(p), c_hom)
+            th_l, dth_l = theta_and_deriv(float(p), c_leg)
+            e_psi = max(e_psi, abs(psi_h / th_l - 1.0))
+            if dth_l != 0.0:
+                e_dpsi = max(e_dpsi, abs(dpsi_h / dth_l - 1.0))
+            else:
+                e_dpsi = max(e_dpsi, abs(dpsi_h - dth_l))
+            y0 = np.array([float(p), 0.3 * web_thickness(c_hom), c.R_t0,
+                           1e-5, 1e-4, 2e-5])
+            dy_h = make_rhs(c_hom, Ae, True)(0.0, y0)
+            dy_l = make_rhs(c_leg, Ae, True)(0.0, y0)
+            e_rhs = max(e_rhs, float(np.max(np.abs(dy_h - dy_l)
+                                            / np.maximum(np.abs(dy_l), 1e-300))))
+        chk("single-phase limit: model B == Theta model",
+            max(e_psi, e_dpsi, e_rhs) < SINGLE_PHASE_LIMIT_TOLERANCE,
+            f"Psi err = {e_psi:.2e}, dPsi err = {e_dpsi:.2e}, "
+            f"rhs err = {e_rhs:.2e} (tol {SINGLE_PHASE_LIMIT_TOLERANCE:.0e})")
+
+        # T14 nozzle flow decomposition: mdot_total = mdot_gas + mdot_condensed,
+        # mdot_gas = Yg*mdot_total, mdot_condensed = Yc*mdot_total.
+        synth_c = _SyntheticTestBackend(c, condensed_fraction=0.3)
+        _THERMO = synth_c
+        e_dec = 0.0
+        c_hom_c = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
+        for p in np.geomspace(c.p_a * 1.05, c.p_fit_max, 30):
+            nz = nozzle_state(float(p), At0, Ae, c_hom_c)
+            if nz["mdot_total"] <= 0.0:
+                continue
+            Yg_p, Yc_p = phase_fractions(float(p), c_hom_c)
+            e_dec = max(e_dec,
+                        abs(nz["mdot_gas"] + nz["mdot_condensed"]
+                            - nz["mdot_total"]) / nz["mdot_total"],
+                        abs(nz["mdot_gas"] / nz["mdot_total"] - Yg_p),
+                        abs(nz["mdot_condensed"] / nz["mdot_total"] - Yc_p),
+                        abs(nz["mdot_total"] * Yg_p
+                            - nz["mdot_gas_reference"]) / nz["mdot_gas_reference"])
+        chk("nozzle decomposition mdot_total = gas + condensed",
+            e_dec < 1.0e-12, f"max rel. err = {e_dec:.2e}")
+
+        # T15 compatibility regression: with a condensed-FREE table the
+        # homogeneous-equilibrium run must match the legacy run (short motor).
+        _THERMO = synth
+        fast = {**asdict(c), "a_burn": 10.0 * c.a_burn, "blowdown": False}
+        c_hom_f = Config(**{**fast, "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
+        c_leg_f = Config(**{**fast, "two_phase_mode": TWO_PHASE_SINGLE_LEGACY})
+        res_h = run_model(c_hom_f)
+        res_l = run_model(c_leg_f)
+        hist_h = sample(res_h, c_hom_f)
+        hist_l = sample(res_l, c_leg_f)
+        s_h = summarize(res_h, hist_h, c_hom_f)
+        s_l = summarize(res_l, hist_l, c_leg_f)
+        e_run = max(abs(s_h["p_max_Pa"] / s_l["p_max_Pa"] - 1.0),
+                    abs(s_h["burn_time_s"] / s_l["burn_time_s"] - 1.0),
+                    abs(s_h["impulse_total_Ns"] / s_l["impulse_total_Ns"] - 1.0),
+                    abs(s_h["Isp_s"] / s_l["Isp_s"] - 1.0))
+        t_cmp = np.linspace(0.0, 0.98 * min(s_h["burn_time_s"], s_l["burn_time_s"]), 200)
+        p_h = res_h["sol_burn"].sol(t_cmp)[IP]
+        p_l = res_l["sol_burn"].sol(t_cmp)[IP]
+        e_traj = float(np.max(np.abs(p_h / p_l - 1.0)))
+        e_run = max(e_run, e_traj)
+        chk("no-condensed compatibility (hom. vs legacy run)", e_run < 1.0e-9,
+            f"summary/trajectory rel. err = {e_run:.2e} (tol 1e-9)")
+    except Exception as exc:                                  # pragma: no cover
+        chk("two-phase regression tests", False, f"{type(exc).__name__}: {exc}")
+    finally:
+        _THERMO = saved_thermo
+
     if verbose:
-        print(f"Self-tests  (thermochemistry backend: {backend.name})")
+        print(f"Self-tests  (thermochemistry backend: {backend.name}, "
+              f"two-phase mode: {c.two_phase_mode}"
+              f"{'' if two_phase_active else ' (phase split inactive)'})")
+        print("\n".join(out))
+        print(f"  -> {'all checks passed' if ok_all else 'FAILURES DETECTED'}\n")
+    return ok_all
+
+
+#: Tolerance of the post-simulation mass-conservation tests.  The integrated
+#: mass quadratures inherit the ODE error control (rtol ~ 1e-9), so a relative
+#: consistency of 1e-6 is far above the numerical noise floor while still
+#: catching structural mass-basis errors (which are O(1) or O(Yc)).
+POST_RUN_MASS_TOLERANCE = 1.0e-6
+
+
+def self_tests_post_run(res: dict, h: dict, c: Config, verbose=True) -> bool:
+    """Conservation tests that require the completed simulation (tests 7-8)."""
+    out, ok_all = [], True
+
+    def chk(name, ok, detail=""):
+        nonlocal ok_all
+        ok_all &= bool(ok)
+        out.append(f"  [{'PASS' if ok else 'FAIL'}] {name:<46s} {detail}")
+
+    m_total0 = float(res["m_total0"])
+    m_gen_final = float(h["m_gen"][-1])
+    m_out_final = float(h["m_out"][-1])
+    m_eos_final = float(h["m_total_eos"][-1])
+
+    # Test 7: total mass conservation  mt0 + m_gen = m_out + mt_remaining
+    lhs = m_total0 + m_gen_final
+    rhs = m_out_final + m_eos_final
+    e7 = abs(lhs - rhs) / max(abs(lhs), 1e-300)
+    chk("total mass conservation (final)", e7 < POST_RUN_MASS_TOLERANCE,
+        f"mt0 + m_gen = {lhs:.9e} kg vs m_out + mt = {rhs:.9e} kg "
+        f"(rel. err = {e7:.2e})")
+
+    # Test 8: EOS mass vs balance mass over the whole history
+    denom = np.maximum(np.abs(np.asarray(h["m_total_eos"], dtype=float)), 1e-15)
+    e8 = float(np.max(np.abs(np.asarray(h["m_total_balance"], dtype=float)
+                             - np.asarray(h["m_total_eos"], dtype=float)) / denom))
+    chk("EOS mass vs balance mass (history)", e8 < POST_RUN_MASS_TOLERANCE,
+        f"max rel. err = {e8:.2e} (tol {POST_RUN_MASS_TOLERANCE:.0e})")
+
+    if verbose:
+        print("Post-run conservation tests")
         print("\n".join(out))
         print(f"  -> {'all checks passed' if ok_all else 'FAILURES DETECTED'}\n")
     return ok_all
@@ -2178,7 +3150,10 @@ def self_tests(c: Config, verbose=True) -> bool:
 
 # ==============================================================================
 # 10. PLOTTING (one single, carefully designed figure)
-#     Panel definitions and meanings unchanged from v0.3.1-alpha.
+#     Panel layout unchanged from v0.3.1-alpha; v0.4.4 adds the condensed
+#     mass fraction as a second axis of panel (a) and the condensed outflow
+#     component to panel (c), and the key-results block reports the two-phase
+#     model statistics.
 # ==============================================================================
 C_PRESS = "#14507d"
 C_THRUST = "#b3331f"
@@ -2348,7 +3323,24 @@ def make_figure(res, h, s, c: Config, path: Path, cea_diag: Optional[dict] = Non
     ax_p.set_xlabel("time  $t$  [s]")
     ax_p.set_ylabel("chamber pressure  $p_0$  [MPa]")
     ax_p.set_title("(a)  Chamber pressure history", loc="left")
-    ax_p.legend(loc="lower right", ncol=1)
+    # condensed-phase mass fraction on a second axis (two-phase model B);
+    # drawn only when a condensed phase is actually present, so the panel is
+    # unchanged for condensed-free propellants
+    yc_hist = np.asarray(h["Y_condensed"], dtype=float)
+    if float(np.max(yc_hist)) > 0.0:
+        ax_yc = ax_p.twinx()
+        ax_yc.grid(False)
+        ax_yc.plot(t, yc_hist, color="#8d6e63", lw=1.4, ls="-.",
+                   label=r"condensed fraction $Y_c$")
+        ax_yc.set_ylim(0.0, max(float(np.max(yc_hist)) * 1.35, 1e-6))
+        ax_yc.set_ylabel(r"condensed mass fraction  $Y_c$  [-]", color="#8d6e63")
+        ax_yc.tick_params(axis="y", colors="#8d6e63")
+        ax_yc.spines["right"].set_visible(True)
+        hl = ax_p.get_legend_handles_labels()
+        h2 = ax_yc.get_legend_handles_labels()
+        ax_p.legend(hl[0] + h2[0], hl[1] + h2[1], loc="lower right", ncol=1)
+    else:
+        ax_p.legend(loc="lower right", ncol=1)
 
     # ---------------- key results panel ----------------
     ax_key.axis("off")
@@ -2382,10 +3374,13 @@ def make_figure(res, h, s, c: Config, path: Path, cea_diag: Optional[dict] = Non
         f"  backend            {s['thermochemistry_backend']}",
         f"  property range     {s['property_range_min_Pa']/1e5:.3g}"
         f"-{s['property_range_max_Pa']/1e5:.3g} bar",
+        f"  two-phase model    {s['two_phase_model']['mode']}",
+        f"{'max Yc (run)':<24}{s['maximum_condensed_mass_fraction_during_run']:>11.4f} -",
+        f"{'mean Yc (burn)':<24}{s['mean_condensed_mass_fraction_during_burn']:>11.4f} -",
         "",
         "VERIFICATION",
         f"{'propellant mass balance':<24}{s['propellant_mass_balance_error']:>11.2e}",
-        f"{'gas mass consistency':<24}{s['gas_mass_consistency_error']:>11.2e}",
+        f"{'total mass consistency':<24}{s['total_mass_consistency_error']:>11.2e}",
         f"{'property extrapolation':<24}{str(s['property_extrapolation']):>11s}",
     ]
     if cea_diag:
@@ -2427,20 +3422,24 @@ def make_figure(res, h, s, c: Config, path: Path, cea_diag: Optional[dict] = Non
 
     # ---------------- (c) mass flow balance ----------------
     _shade(ax_md, spans)
-    pos = h["mdot_gen"] > 0
-    ax_md.plot(t[pos], h["mdot_gen"][pos] * 1e3, color=C_GEN, lw=1.8,
-               label=r"generated  $\dot{m}_{gen}=\rho_p A_b r$")
-    ax_md.plot(t, np.maximum(h["mdot_out"], 1e-12) * 1e3, color=C_OUT, lw=1.6,
-               ls="--", label=r"nozzle  $\dot{m}_{out}$")
-    acc = h["mdot_gen"] > h["mdot_out"]
-    ax_md.fill_between(t, np.maximum(h["mdot_out"], 1e-12) * 1e3,
-                       np.maximum(h["mdot_gen"], 1e-12) * 1e3, where=acc,
+    pos = h["mdot_gen_total"] > 0
+    ax_md.plot(t[pos], h["mdot_gen_total"][pos] * 1e3, color=C_GEN, lw=1.8,
+               label=r"generated (total)  $\dot{m}_{gen}=\rho_p A_b r$")
+    ax_md.plot(t, np.maximum(h["mdot_out_total"], 1e-12) * 1e3, color=C_OUT, lw=1.6,
+               ls="--", label=r"nozzle (total)  $\dot{m}_{out}$")
+    if np.any(np.asarray(h["mdot_out_condensed"]) > 0.0):
+        ax_md.plot(t, np.maximum(h["mdot_out_condensed"], 1e-12) * 1e3,
+                   color="#8d6e63", lw=1.2, ls=":",
+                   label=r"nozzle condensed  $\dot{m}_{out,c}$")
+    acc = h["mdot_gen_total"] > h["mdot_out_total"]
+    ax_md.fill_between(t, np.maximum(h["mdot_out_total"], 1e-12) * 1e3,
+                       np.maximum(h["mdot_gen_total"], 1e-12) * 1e3, where=acc,
                        color=C_ACC, alpha=0.25, lw=0, label="chamber filling")
     ax_md.axvline(t_bo, color="#404040", lw=1.0, ls="--")
     ax_md.set_yscale("log")
     ax_md.set_xlim(0.0, t[-1])
     ax_md.set_xlabel("time  $t$  [s]")
-    ax_md.set_ylabel(r"mass flow  [g/s]")
+    ax_md.set_ylabel(r"mass flow (total)  [g/s]")
     ax_md.set_title("(c)  Mass-flow balance", loc="left")
     ax_md.legend(loc="lower right")
 
@@ -2557,6 +3556,8 @@ def make_figure(res, h, s, c: Config, path: Path, cea_diag: Optional[dict] = Non
                bbox_to_anchor=(0.5, 0.012), fontsize=8.6, frameon=False)
 
     note = (f"GRIBS v{PROGRAM_VERSION}  |  thermochemistry: {s['thermochemistry_backend']}   |   "
+            f"two-phase: {s['two_phase_model']['mode']}"
+            f"{' (complete entrainment, no particle slip)' if s['two_phase_model']['active'] else ''}   |   "
             f"solver: {c.method}, rtol={c.rtol:g}   |   "
             f"unchoked policy: {c.unchoked_policy}   |   "
             f"property policy: {c.property_policy} "
@@ -2573,17 +3574,30 @@ def make_figure(res, h, s, c: Config, path: Path, cea_diag: Optional[dict] = Non
 
 # ==============================================================================
 # 11. FILE OUTPUT
-#     CSV columns, their units and their meanings are unchanged from v0.3.1-alpha.
+#     v0.5.0-alpha: the mass columns are renamed to their true meaning (total
+#     product mass basis) - see the CSV_COLUMNS note below.
 # ==============================================================================
+#: v0.5.0-alpha column set.  MEANING CHANGES vs v0.4.3-alpha are RENAMED, not
+#: silently reused:  mdot_gen -> mdot_gen_total, mdot_out -> mdot_out_total,
+#: m_gas_eos -> m_total_eos, m_gas_bal -> m_total_balance (TOTAL product mass
+#: basis: gas + condensed).  m_gen / m_out are the integrated TOTAL masses.
 CSV_COLUMNS = ["t", "phase", "p0", "x", "Ri", "Lp", "Ab", "Vg", "Kn", "Rt", "At",
-               "r", "mdot_gen", "mdot_out", "m_gen", "m_out", "m_gas_eos",
-               "m_gas_bal", "regime", "Me", "pe", "ve", "F", "impulse",
+               "r", "mdot_gen_total", "mdot_out_total", "mdot_out_gas",
+               "mdot_out_condensed", "m_gen", "m_out", "m_total_eos",
+               "m_total_balance", "m_gas_equilibrium", "m_condensed",
+               "Y_gas", "Y_condensed", "Psi",
+               "regime", "Me", "pe", "ve", "F", "impulse",
                "cstar", "CF", "R", "T0", "gamma", "extrap"]
 CSV_UNITS = {"t": "s", "p0": "Pa", "x": "m", "Ri": "m", "Lp": "m", "Ab": "m2",
              "Vg": "m3", "Kn": "-", "Rt": "m", "At": "m2", "r": "m/s",
-             "mdot_gen": "kg/s", "mdot_out": "kg/s", "m_gen": "kg", "m_out": "kg",
-             "m_gas_eos": "kg", "m_gas_bal": "kg", "Me": "-", "pe": "Pa",
-             "ve": "m/s", "F": "N", "impulse": "N.s", "cstar": "m/s", "CF": "-",
+             "mdot_gen_total": "kg/s", "mdot_out_total": "kg/s",
+             "mdot_out_gas": "kg/s", "mdot_out_condensed": "kg/s",
+             "m_gen": "kg", "m_out": "kg",
+             "m_total_eos": "kg", "m_total_balance": "kg",
+             "m_gas_equilibrium": "kg", "m_condensed": "kg",
+             "Y_gas": "-", "Y_condensed": "-", "Psi": "J/kg",
+             "Me": "-", "pe": "Pa", "ve": "m/s", "F": "N", "impulse": "N.s",
+             "cstar": "m/s", "CF": "-",
              "R": "J/(kg.K)", "T0": "K", "gamma": "-"}
 
 
@@ -2679,6 +3693,31 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
         A("          unsteady nozzle model; they are not expected to be equal and are")
         A("          never substituted for one another.")
     A("")
+    A("[ two-phase model (homogeneous equilibrium, model B) ]")
+    tpm = s["two_phase_model"]
+    A(f"  model                            : {tpm['mode']}"
+      f"{'  (ACTIVE)' if tpm['active'] else '  (phase split inactive: Yg := 1)'}")
+    A(f"  chamber EOS                      : p0*Vg = mt*Yg(p)*Rg(p)*T0(p) = mt*Psi(p)")
+    A(f"  conserved chamber mass           : TOTAL product mass mt = m_gas + m_condensed")
+    A(f"  max condensed fraction (run)     : "
+      f"{s['maximum_condensed_mass_fraction_during_run']:.6f} [-]")
+    A(f"  mean condensed fraction (burn)   : "
+      f"{s['mean_condensed_mass_fraction_during_burn']:.6f} [-]")
+    A(f"  condensed fraction at MEOP       : "
+      f"{s['condensed_mass_fraction_at_max_pressure']:.6f} [-]")
+    A(f"  Yc over the property table       : "
+      f"{s['condensed_mass_fraction_table_min']:.6f} - "
+      f"{s['condensed_mass_fraction_table_max']:.6f} [-]")
+    A(f"  min (1 - p*Psi'/Psi) on table    : "
+      f"{s['min_pressure_factor_1_minus_pPsi_over_Psi']:.6f} [-]  (must be > 0)")
+    A(f"  nozzle entrainment assumption    : {s['nozzle_entrainment_assumption']}")
+    A(f"  condensed volume assumption      : {s['condensed_volume_assumption']}")
+    A("  NOTE: particle slip is NOT modelled; the complete-entrainment momentum")
+    A("        term can overestimate the thrust for propellants with a large")
+    A("        condensed fraction.  eta_F may additionally lump two-phase losses.")
+    A("        These results are NOT experimentally validated - independent")
+    A("        validation is required before any engineering use.")
+    A("")
     A("[ initial balance ]")
     A(f"  initial nozzle regime            : {s['initial_regime']}")
     if s["choke_limit_pressure_Pa"]:
@@ -2718,7 +3757,7 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
     A("")
     A("[ verification ]")
     A(f"  propellant mass balance error    : {s['propellant_mass_balance_error']:.3e}")
-    A(f"  gas-mass (EOS vs balance) error  : {s['gas_mass_consistency_error']:.3e}")
+    A(f"  total-mass (EOS vs balance) error: {s['total_mass_consistency_error']:.3e}")
     A(f"  property-range extrapolation used: {s['property_extrapolation']}"
       f"   (policy = {c.property_policy})")
     if s["property_extrapolation"] and c.property_policy == "extrapolate":
@@ -3001,8 +4040,79 @@ def migrate_v030_document(doc: dict) -> Tuple[dict, List[str]]:
         notes.append("thermochemistry.cea_python: not present in the v0.3 document, "
                      "defaults added (the official package backend is available but "
                      "not selected by this migration).")
+    new["schema_version"] = PRE_TWO_PHASE_SCHEMA_VERSION
+    notes.append(f"schema_version: {LEGACY_SCHEMA_VERSION!r} -> "
+                 f"{PRE_TWO_PHASE_SCHEMA_VERSION!r}.")
+    return new, notes
+
+
+#: Default two-phase block inserted by the v0.4.3 -> v0.4.4 migration.
+DEFAULT_TWO_PHASE_BLOCK: Dict[str, Any] = {
+    "mode": TWO_PHASE_HOMOGENEOUS,
+    "condensed_volume": "neglected",
+    "nozzle_entrainment": "complete",
+}
+
+
+def migrate_v043_document(doc: dict) -> Tuple[dict, List[str]]:
+    """Explicitly migrate a v0.4.3-alpha configuration to the v0.4.4 schema.
+
+    The physical model CHANGES with this migration (single-phase gas-only EOS
+    -> homogeneous-equilibrium two-phase model with the total product mass
+    conserved), so the inserted block and its consequences are recorded as
+    notes, printed as warnings and stored in summary.json.  Nothing is
+    reinterpreted silently.
+    """
+    notes: List[str] = []
+    new = copy.deepcopy(_mapping(doc, "root"))
+    th = _mapping(new.get("thermochemistry", {}), "thermochemistry")
+
+    # total_MW in the gas-phase EOS is physically inconsistent (v0.4.4 policy):
+    # the migration refuses to rewrite it silently.
+    cea_py = th.get("cea_python")
+    if isinstance(cea_py, dict) and cea_py.get("molecular_weight") == "total_MW":
+        raise ConfigurationError(
+            "thermochemistry.cea_python.molecular_weight = 'total_MW' cannot be "
+            "migrated automatically: since v0.5.0-alpha the gas-phase equation "
+            "of state and the nozzle model use the GAS-PHASE molecular weight "
+            "only, and a silent substitution is forbidden.\n"
+            "Edit the configuration: set molecular_weight = 'gas_phase_M' "
+            "(the total molecular weight remains available as a diagnostic).")
+
+    if "two_phase_model" not in new:
+        backend = _mapping(new.get("thermochemistry", {}),
+                           "thermochemistry").get("backend")
+        if backend == BACKEND_CEA_LEGACY_EXECUTABLE:
+            # the fcea2 backend cannot provide the phase split; the only
+            # migration that preserves the v0.4.3 behaviour is the legacy mode
+            mode = TWO_PHASE_SINGLE_LEGACY
+            notes.append(
+                "two_phase_model: not present in the v0.4.3 document; the "
+                "defaults were added with mode = 'single_phase_legacy' because "
+                "the selected backend 'cea_legacy_executable' cannot provide "
+                "the gas/condensed mass fractions (its .plt output does not "
+                "contain them).  This exactly preserves the v0.4.3 physical "
+                "model.  Select backend 'cea_python' and mode "
+                "'homogeneous_equilibrium' to enable the two-phase model.")
+        else:
+            mode = TWO_PHASE_HOMOGENEOUS
+            notes.append(
+                "two_phase_model: not present in the v0.4.3 document; defaults "
+                "added with mode = 'homogeneous_equilibrium' (the standard "
+                "two-phase model B: the conserved chamber mass is the TOTAL "
+                "product mass, EOS p*Vg = mt*Yg(p)*Rg(p)*T0(p), nozzle flow with "
+                "complete entrainment).  THIS CHANGES THE PHYSICAL MODEL vs "
+                "v0.4.3 whenever condensed products exist.  To reproduce exact "
+                "v0.4.3 results for regression comparison, set "
+                "two_phase_model.mode = 'single_phase_legacy'.")
+        new["two_phase_model"] = {
+            "mode": mode,
+            "condensed_volume": "neglected",
+            "nozzle_entrainment": "complete",
+        }
     new["schema_version"] = SCHEMA_VERSION
-    notes.append(f"schema_version: {LEGACY_SCHEMA_VERSION!r} -> {SCHEMA_VERSION!r}.")
+    notes.append(f"schema_version: {PRE_TWO_PHASE_SCHEMA_VERSION!r} -> "
+                 f"{SCHEMA_VERSION!r}.")
     return new, notes
 
 
@@ -3016,7 +4126,9 @@ class Configuration:
 
 
 _ROOT_KEYS = ("schema_version", "notes", "propellant", "grain", "nozzle",
-              "environment", "igniter", "thermochemistry", "solver", "output")
+              "environment", "igniter", "thermochemistry", "two_phase_model",
+              "solver", "output")
+_TWO_PHASE_KEYS = ("mode", "condensed_volume", "nozzle_entrainment")
 _THERMO_ROOT_KEYS = ("backend", "temperature_efficiency", "outside_range_policy",
                      "pressure_range", "pressure_points", "cea_python",
                      "cea_legacy_executable")
@@ -3073,12 +4185,29 @@ def _load_document(path: Path) -> Tuple[dict, List[str]]:
     if schema == LEGACY_SCHEMA_VERSION:
         doc, notes = migrate_v030_document(doc)
         notes.insert(0, f"{path.name}: {LEGACY_SCHEMA_VERSION} configuration migrated "
-                        f"automatically to {SCHEMA_VERSION}.")
-    elif schema != SCHEMA_VERSION:
+                        f"automatically to {PRE_TWO_PHASE_SCHEMA_VERSION}.")
+        schema = doc.get("schema_version")
+    if schema == PRE_TWO_PHASE_SCHEMA_VERSION:
+        doc, notes44 = migrate_v043_document(doc)
+        notes.extend(notes44)
+        migrated_mode = _mapping(doc.get("two_phase_model", {}),
+                                 "two_phase_model").get("mode")
+        model_note = ("the chamber model changes to the homogeneous-equilibrium "
+                      "two-phase model; see the notes below"
+                      if migrated_mode == TWO_PHASE_HOMOGENEOUS else
+                      "the chamber model stays on the v0.4.3 single-phase "
+                      "pathway (two_phase_model.mode = 'single_phase_legacy'); "
+                      "see the notes below")
+        notes.insert(0, f"{path.name}: {PRE_TWO_PHASE_SCHEMA_VERSION} configuration "
+                        f"migrated automatically to {SCHEMA_VERSION} ({model_note}).")
+        schema = doc.get("schema_version")
+    if schema != SCHEMA_VERSION:
         raise ConfigurationError(
             f"schema_version: expected {SCHEMA_VERSION!r} (or the migratable legacy "
-            f"value {LEGACY_SCHEMA_VERSION!r}), got {schema!r}.\n"
-            "Update the configuration file; see docs/MIGRATION_v0.3_to_v0.4.md.")
+            f"values {PRE_TWO_PHASE_SCHEMA_VERSION!r} / {LEGACY_SCHEMA_VERSION!r}), "
+            f"got {schema!r}.\n"
+            "Update the configuration file; see docs/MIGRATION_v0.3_to_v0.4.md and "
+            "the v0.4.4 release notes (two-phase model).")
     return doc, notes
 
 
@@ -3111,6 +4240,20 @@ def configuration_from_document(doc: dict) -> Configuration:
     _reject_unknown(ign, _IGNITER_KEYS, "igniter")
     th = _section(root, "thermochemistry", "root")
     _reject_unknown(th, _THERMO_ROOT_KEYS, "thermochemistry")
+    tpm = _section(root, "two_phase_model", "root", required=False)
+    if tpm is None:
+        raise ConfigurationError(
+            "two_phase_model: missing required configuration section (v0.4.4).\n"
+            "  Add, for example:\n"
+            '    "two_phase_model": {\n'
+            '      "mode": "homogeneous_equilibrium",\n'
+            '      "condensed_volume": "neglected",\n'
+            '      "nozzle_entrainment": "complete"\n'
+            "    }\n"
+            "  ('homogeneous_equilibrium' is the standard model; "
+            "'single_phase_legacy' reproduces the v0.4.3 behaviour for "
+            "regression comparison only.)")
+    _reject_unknown(tpm, _TWO_PHASE_KEYS, "two_phase_model")
     solver = _section(root, "solver", "root")
     _reject_unknown(solver, _SOLVER_KEYS, "solver")
     blow = _mapping(_get(solver, "blowdown", "solver"), "solver.blowdown")
@@ -3145,6 +4288,22 @@ def configuration_from_document(doc: dict) -> Configuration:
 
     # ---------------- thermochemistry block ----------------------------------
     backend = _backend_choice(th, "thermochemistry")
+    two_phase_mode = str(_choice(tpm, "mode", "two_phase_model",
+                                 KNOWN_TWO_PHASE_MODES))
+    two_phase_cv = str(_choice(tpm, "condensed_volume", "two_phase_model",
+                               TWO_PHASE_CONDENSED_VOLUME_CHOICES))
+    two_phase_ne = str(_choice(tpm, "nozzle_entrainment", "two_phase_model",
+                               TWO_PHASE_NOZZLE_ENTRAINMENT_CHOICES))
+    if backend == BACKEND_CEA_LEGACY_EXECUTABLE and \
+            two_phase_mode == TWO_PHASE_HOMOGENEOUS:
+        raise ConfigurationError(
+            "two_phase_model.mode = 'homogeneous_equilibrium' cannot be used "
+            "with backend 'cea_legacy_executable': the legacy fcea2 .plt output "
+            "(p t gam m) does not provide the gas/condensed mass fractions, and "
+            "GRIBS never estimates them.\n"
+            "  Use backend 'cea_python' for the two-phase model, or set "
+            "two_phase_model.mode = 'single_phase_legacy' (regression "
+            "comparison only).")
     th_keys = _THERMO_ROOT_KEYS
     prange = _mapping(_get(th, "pressure_range", "thermochemistry"),
                       "thermochemistry.pressure_range")
@@ -3198,8 +4357,25 @@ def configuration_from_document(doc: dict) -> Configuration:
                             "thermochemistry.cea_python", required=False)
     py_insert = _string_array(cea_py_block, "insert_species",
                               "thermochemistry.cea_python", required=False)
+    # molecular_weight: since v0.5.0-alpha the gas-phase EOS and the nozzle use
+    # the GAS-PHASE molecular weight exclusively.  A leftover "total_MW" is
+    # rejected with an explicit migration message - it is NEVER substituted
+    # silently.
+    py_mw_raw = cea_py_block.get("molecular_weight", "gas_phase_M")
+    if py_mw_raw == "total_MW":
+        raise ConfigurationError(
+            "thermochemistry.cea_python.molecular_weight = 'total_MW' is no "
+            "longer accepted (v0.5.0-alpha).\n"
+            "  The two-phase chamber EOS p*Vg = mt*Yg(p)*Rg(p)*T0(p) and the "
+            "nozzle model require the GAS-PHASE molecular weight; feeding the "
+            "total molecular weight (which includes condensed species) into a "
+            "gas-phase EOS is physically inconsistent.\n"
+            "  Set molecular_weight = 'gas_phase_M'.  The total molecular "
+            "weight remains available as the diagnostic column "
+            "'total_molecular_weight_kg_kmol' in the property table and "
+            "summary.json.")
     py_mw = _choice(cea_py_block, "molecular_weight", "thermochemistry.cea_python",
-                    ("gas_phase_M", "total_MW"), required=False, default="gas_phase_M")
+                    ("gas_phase_M",), required=False, default="gas_phase_M")
     py_smooth = _boolean(cea_py_block, "smooth_truncation",
                          "thermochemistry.cea_python", required=False, default=False)
     py_width = float(_number(cea_py_block, "truncation_width",
@@ -3311,6 +4487,9 @@ def configuration_from_document(doc: dict) -> Configuration:
                              exclusive_minimum=0.0, maximum=1.5)),
         property_policy=str(_choice(th, "outside_range_policy", "thermochemistry",
                                     ("clamp", "extrapolate"))),
+        two_phase_mode=two_phase_mode,
+        two_phase_condensed_volume=two_phase_cv,
+        two_phase_nozzle_entrainment=two_phase_ne,
         unchoked_policy=str(_choice(solver, "unchoked_policy", "solver",
                                     ("switch", "stop"))),
         method=str(_choice(solver, "method", "solver", ("LSODA", "BDF", "Radau"))),
@@ -3405,6 +4584,18 @@ def build_parser() -> argparse.ArgumentParser:
 def _print_backend_banner(cfg: Config, backend: ThermochemistryBackend) -> None:
     print(f"{PROGRAM_NAME} v{PROGRAM_VERSION}  (schema {SCHEMA_VERSION})")
     print(f"thermochemistry backend : {backend.name}")
+    two_phase_active = (cfg.two_phase_mode == TWO_PHASE_HOMOGENEOUS
+                        and bool(getattr(backend, "supports_two_phase", False)))
+    print(f"  two-phase model       : {cfg.two_phase_mode}"
+          + ("  (ACTIVE: total product mass conserved, EOS on the gas phase)"
+             if two_phase_active else
+             ("  (phase split inactive: Yg := 1)"
+              if cfg.two_phase_mode == TWO_PHASE_HOMOGENEOUS else
+              "  (v0.4.3 regression pathway)")))
+    if two_phase_active:
+        print(f"  nozzle entrainment    : {cfg.two_phase_nozzle_entrainment} "
+              f"(no particle slip)")
+        print(f"  condensed volume      : {cfg.two_phase_condensed_volume}")
     if backend.name == BACKEND_CEA_PYTHON:
         print(f"  official CEA package  : {getattr(backend.cea, '__version__', '?')} "
               f"at {getattr(backend.cea, '__file__', '?')}")
@@ -3492,8 +4683,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "pressure_Pa": list(backend.table.get("pressure_Pa", [])),
             "temperature_K": list(backend.table.get("temperature_K", [])),
             "gamma_s": list(backend.table.get("gamma_s", [])),
-            "molecular_weight_kg_kmol": list(backend.table.get("molecular_weight_kg_kmol", [])),
+            "gas_phase_molecular_weight_kg_kmol":
+                list(backend.table.get("gas_phase_molecular_weight_kg_kmol", [])),
             "gas_constant_J_kgK": list(backend.table.get("gas_constant_J_kgK", [])),
+            "gas_mass_fraction": list(backend.table.get("gas_mass_fraction", [])),
+            "condensed_mass_fraction":
+                list(backend.table.get("condensed_mass_fraction", [])),
+            "psi_J_kg": list(backend.table.get("psi_J_kg", [])),
         }
         args.dump_thermo.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         print(f"Chamber-property table written to {args.dump_thermo}")
@@ -3513,6 +4709,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except (GribsError, ValueError, RuntimeError) as exc:
         print(f"Simulation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 4
+    if not self_tests_post_run(res, hist, cfg):
+        print("Post-run conservation tests failed; aborting before writing output.",
+              file=sys.stderr)
+        return 1
     summ = summarize(res, hist, cfg)
     thermo_md = backend.metadata()
     cea_diag = _cea_theoretical_diagnostics(cfg, backend, summ)
@@ -3548,6 +4748,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "original_configuration": loaded.document,
         "resolved_configuration": asdict(cfg),
         "derived_inputs": derived,
+        "two_phase_model": summ["two_phase_model"],
         "thermochemistry": thermo_md,
         "cea_theoretical_diagnostics": cea_diag,
         "results": summ,
