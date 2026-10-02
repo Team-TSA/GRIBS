@@ -1,0 +1,38 @@
+A-0 numerical regression comparison
+====================================
+
+Pre-A-0 trajectory:
+  verification/baseline-v0.5.0-pre-a0/results/time_history.csv
+
+Post-A-0 trajectory:
+  /tmp/gribs-post-a0-results/time_history.csv
+
+CSV dimensions:
+  pre:  8690 rows x 37 columns
+  post: 8690 rows x 37 columns
+
+Compared numerical values:
+  295460
+
+Maximum absolute difference:
+  0.00000000000000000e+00
+
+Maximum relative difference:
+  0.00000000000000000e+00
+
+Result:
+  PASS: all CSV numerical values are exactly identical.
+
+Summary JSON comparison:
+  PASS: all common numerical values under summary["results"]
+  agree within a relative tolerance of 1e-12.
+
+Expected metadata change:
+  program version: 0.4.4-alpha -> 0.5.0-alpha
+  schema version:  0.4.4-alpha -> 0.5.0-alpha
+
+Known pre-existing test result:
+  pytest: 3 passed, 1 failed
+  failure: C-D nozzle T4 at Ae/At = 4
+  measured thrust jump: 1.04e+00
+  disposition: retained for Phase A, A-2; not changed by A-0.

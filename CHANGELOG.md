@@ -2,6 +2,50 @@
 
 All notable changes to GRIBS are documented in this file.
 
+## [v0.5.0-alpha] - 2026-10-02
+
+### Changed
+
+- Aligned the program identity, configuration schema, command examples, and
+  generated result metadata with `GRIBS_v0.5.0-alpha.py`.
+- Promoted `gribs_config.json` to the native `0.5.0-alpha` schema.
+- Added the explicit homogeneous-equilibrium two-phase configuration to the
+  native `0.5.0-alpha` configuration.
+- Added an auditable `0.4.4-alpha` to `0.5.0-alpha` configuration migration
+  that preserves all physical and numerical settings.
+- Preserved staged migration from `0.3.0-alpha` through `0.4.3-alpha` and
+  `0.4.4-alpha` to `0.5.0-alpha`.
+- No calculation model, physical equation, or numerical integration setting
+  was changed by the A-0 version-alignment work.
+
+### Validation
+
+- Python syntax compilation completed successfully under Python 3.14.4.
+- `--version` reports `GRIBS 0.5.0-alpha`.
+- The native `0.5.0-alpha` configuration validates without migration
+  warnings.
+- A legacy `0.4.3-alpha` configuration migrates successfully through
+  `0.4.4-alpha` to `0.5.0-alpha`.
+- The standard `Ae/At = 1` self-test configuration passes all 15 checks.
+- The complete internal-ballistics simulation and post-run conservation
+  checks pass.
+- The pre-A-0 and post-A-0 time histories have identical dimensions of
+  8,690 rows by 37 columns.
+- All 295,460 compared numerical CSV values are exactly identical, with
+  maximum absolute and relative differences of zero.
+- All common numerical values under `summary.json` `results` agree within a
+  relative tolerance of `1e-12`.
+
+### Known limitations
+
+- The pre-existing C-D nozzle T4 failure at `Ae/At = 4` remains:
+  mass-flow continuity is maintained, but the measured thrust jump is
+  `1.04e+00`.
+- The T4 issue is assigned to Phase A, A-2. It was reproduced before and
+  after A-0 and was not introduced or modified by the version-alignment work.
+- Alpha release; independent validation remains necessary before engineering
+  or safety-critical use.
+
 ## [v0.4.3-alpha] - 2026-09-20
 
 ### Changed

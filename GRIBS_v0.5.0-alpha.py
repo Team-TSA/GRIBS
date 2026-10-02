@@ -159,9 +159,9 @@ OUTPUT
   All user inputs are read from gribs_config.json beside this script.
   Select thermochemistry.backend in that file.  An alternative complete
   configuration may be supplied with:
-      python GRIBS_v0.4.3-alpha.py --config another_config.json
+      python GRIBS_v0.5.0-alpha.py --config another_config.json
   Run numerical self-tests only with:
-      python GRIBS_v0.4.3-alpha.py --selftest
+      python GRIBS_v0.5.0-alpha.py --selftest
 
 --------------------------------------------------------------------------------
 STATUS / LIMITATIONS
@@ -218,14 +218,18 @@ from scipy.interpolate import PchipInterpolator
 # 0. PROGRAM IDENTITY AND CONSTANTS
 # ==============================================================================
 PROGRAM_NAME = "GRIBS"
-PROGRAM_VERSION = "0.4.4-alpha"
-SCHEMA_VERSION = "0.4.4-alpha"
+PROGRAM_VERSION = "0.5.0-alpha"
+SCHEMA_VERSION = "0.5.0-alpha"
 #: Schema string of the pre-migration configuration; used only by the explicit
 #: v0.3 -> v0.4 migration helper (never for normal operation).
 LEGACY_SCHEMA_VERSION = "0.3.0-alpha"
 #: Schema string of the v0.4.3 single-phase configuration; used only by the
 #: explicit v0.4.3 -> v0.4.4 migration helper (never for normal operation).
 PRE_TWO_PHASE_SCHEMA_VERSION = "0.4.3-alpha"
+
+#: Schema string immediately preceding the v0.5.0-alpha schema.  A v0.4.4
+#: document already contains the two-phase model introduced in that release.
+PRE_V050_SCHEMA_VERSION = "0.4.4-alpha"
 
 #: Chamber two-phase model: conserved mass = total product mass (gas +
 #: condensed), EOS acts on the gas phase through Psi = Yg*Rg*T0 (standard).
@@ -4110,9 +4114,25 @@ def migrate_v043_document(doc: dict) -> Tuple[dict, List[str]]:
             "condensed_volume": "neglected",
             "nozzle_entrainment": "complete",
         }
-    new["schema_version"] = SCHEMA_VERSION
+    new["schema_version"] = PRE_V050_SCHEMA_VERSION
     notes.append(f"schema_version: {PRE_TWO_PHASE_SCHEMA_VERSION!r} -> "
-                 f"{SCHEMA_VERSION!r}.")
+                 f"{PRE_V050_SCHEMA_VERSION!r}.")
+    return new, notes
+
+
+def migrate_v044_document(doc: dict) -> Tuple[dict, List[str]]:
+    """Migrate a v0.4.4-alpha document to the v0.5.0-alpha schema.
+
+    The migration preserves every physical and numerical input.  Only the
+    declared schema version changes because A-0 aligns the program identity,
+    file name, and configuration schema without modifying the model.
+    """
+    new = copy.deepcopy(_mapping(doc, "root"))
+    new["schema_version"] = SCHEMA_VERSION
+    notes = [
+        f"schema_version: {PRE_V050_SCHEMA_VERSION!r} -> "
+        f"{SCHEMA_VERSION!r}; no physical or numerical setting changed."
+    ]
     return new, notes
 
 
@@ -4199,20 +4219,31 @@ def _load_document(path: Path) -> Tuple[dict, List[str]]:
                       "pathway (two_phase_model.mode = 'single_phase_legacy'); "
                       "see the notes below")
         notes.insert(0, f"{path.name}: {PRE_TWO_PHASE_SCHEMA_VERSION} configuration "
-                        f"migrated automatically to {SCHEMA_VERSION} ({model_note}).")
+                        f"migrated automatically to {PRE_V050_SCHEMA_VERSION} "
+                        f"({model_note}).")
+        schema = doc.get("schema_version")
+    if schema == PRE_V050_SCHEMA_VERSION:
+        doc, notes50 = migrate_v044_document(doc)
+        notes.extend(notes50)
+        notes.append(
+            f"{path.name}: {PRE_V050_SCHEMA_VERSION} configuration migrated "
+            f"automatically to {SCHEMA_VERSION}; physical and numerical "
+            "settings were preserved."
+        )
         schema = doc.get("schema_version")
     if schema != SCHEMA_VERSION:
         raise ConfigurationError(
-            f"schema_version: expected {SCHEMA_VERSION!r} (or the migratable legacy "
-            f"values {PRE_TWO_PHASE_SCHEMA_VERSION!r} / {LEGACY_SCHEMA_VERSION!r}), "
+            f"schema_version: expected {SCHEMA_VERSION!r} (or a migratable legacy "
+            f"value: {PRE_V050_SCHEMA_VERSION!r}, "
+            f"{PRE_TWO_PHASE_SCHEMA_VERSION!r}, or {LEGACY_SCHEMA_VERSION!r}), "
             f"got {schema!r}.\n"
-            "Update the configuration file; see docs/MIGRATION_v0.3_to_v0.4.md and "
-            "the v0.4.4 release notes (two-phase model).")
+            "Update the configuration file; see the migration documentation "
+            "and CHANGELOG.md.")
     return doc, notes
 
 
 def configuration_from_document(doc: dict) -> Configuration:
-    """Validate a v0.4 document and build the runtime configuration."""
+    """Validate a v0.5 document and build the runtime configuration."""
     root = _mapping(doc, "root")
     _reject_unknown(root, _ROOT_KEYS, "root")
     # optional free-text notes carried by the configuration (documentation only)
