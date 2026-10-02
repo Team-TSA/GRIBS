@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0 -- /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/hikaru-kurokawa/Rocket/GRIBS-dev
+configfile: pytest.ini
+collecting ... collected 1 item
+
+tests/test_gribs.py::test_cd_nozzle_known_t4_discontinuity PASSED        [100%]
+
+============================== 1 passed in 9.60s ===============================
+real 10.19
+user 17.51
+sys 0.20
+pytest_exit=0

@@ -1,0 +1,10 @@
+GRIBS A-2 pre-change environment
+date=2026-10-02T23:39:25+09:00
+commit=e99227dbeabd440e061a554d92f8c9f319dfce67
+branch=phase-a-a2-nozzle-transition
+python=Python 3.14.4
+pytest=pytest 9.1.1
+
+[git status]
+## phase-a-a2-nozzle-transition...origin/phase-a-a2-nozzle-transition
+?? verification/a2-pre/

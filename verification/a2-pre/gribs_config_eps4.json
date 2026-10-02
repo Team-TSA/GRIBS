@@ -1,0 +1,138 @@
+{
+  "schema_version": "0.5.0-alpha",
+  "notes": [
+    "GRIBS v0.4.3-alpha configuration.",
+    "ACTION REQUIRED: set thermochemistry.backend explicitly to 'cea_python' (official NASA CEA Python package, recommended) or 'cea_legacy_executable' (external fcea2 executable).  It is intentionally left empty here: GRIBS has no default backend, never substitutes another one, and stops with an actionable message until this choice is made.",
+    "The v0.3 backends 'cea2' and 'legacy_fit' are not accepted: 'legacy_fit' was removed in v0.4.0-alpha and 'cea2' is renamed to 'cea_legacy_executable'.",
+    "The bulk propellant density is always rho_p = packing_fraction / sum_i(w_i/density_i); it is not a configuration setting any more."
+  ],
+  "propellant": {
+    "description": "Solid-propellant formulation as a mass-fraction mixture. reactant name must exist in the thermochemistry database of the selected backend; wt_percent must sum to 100. density_kg_m3 is the solid constituent density. The bulk density is rho_p = packing_fraction / sum_i(w_i/rho_i) (additive-volume model) and is completely independent of any CEA combustion-product (gas) density. NOTE (v0.4): in the official NASA CEA database the bare name 'C' denotes gaseous atomic carbon (h ~ +59.67 MJ/kg at 298.15 K) while 'C(gr)' is graphite; 'C' is retained here unchanged from the v0.3 formulation - see README.md and VALIDATION_REPORT.md before changing it.",
+    "packing_fraction": 1.0,
+    "reactants": [
+      {
+        "name": "NH4NO3(IV)",
+        "wt_percent": 88.7,
+        "temperature_K": 298.15,
+        "density_kg_m3": 1720.0
+      },
+      {
+        "name": "AL(cr)",
+        "wt_percent": 0.7,
+        "temperature_K": 298.15,
+        "density_kg_m3": 2700.0
+      },
+      {
+        "name": "C",
+        "wt_percent": 10.6,
+        "temperature_K": 298.15,
+        "density_kg_m3": 2260.0
+      }
+    ],
+    "burn_law": {
+      "coefficient_m_s": 0.0007,
+      "pressure_exponent": 0.5,
+      "reference_pressure_Pa": 1000000.0,
+      "temperature_sensitivity_1_K": 0.0,
+      "grain_temperature_K": 294.0,
+      "reference_temperature_K": 294.0,
+      "erosive_burning": {
+        "enabled": false,
+        "alpha": 0.0,
+        "beta": 53.0
+      }
+    }
+  },
+  "grain": {
+    "initial_bore_radius_m": 0.003,
+    "outer_radius_m": 0.012,
+    "initial_length_m": 0.08,
+    "initial_free_volume_m3": 6.79e-06,
+    "burning_end_faces": 1.0
+  },
+  "nozzle": {
+    "initial_throat_radius_m": 0.0015,
+    "expansion_ratio": 4.0,
+    "discharge_coefficient": 1.0,
+    "thrust_efficiency": 1.0,
+    "flow_separation": {
+      "enabled": true,
+      "pressure_ratio": 0.4
+    },
+    "throat_erosion": {
+      "enabled": false,
+      "rate_m_s_at_reference_pressure": 0.0,
+      "pressure_exponent": 1.0
+    }
+  },
+  "environment": {
+    "ambient_pressure_Pa": 101325.0,
+    "initial_chamber_pressure_Pa": 200000.0
+  },
+  "igniter": {
+    "mass_flow_kg_s": 0.0,
+    "duration_s": 0.0
+  },
+  "thermochemistry": {
+    "backend": "cea_python",
+    "temperature_efficiency": 1.0,
+    "outside_range_policy": "clamp",
+    "pressure_range": {
+      "minimum_Pa": 100000.0,
+      "maximum_Pa": 8000000.0
+    },
+    "pressure_points": 81,
+    "cea_python": {
+      "ions": false,
+      "transport": false,
+      "trace": 1e-10,
+      "products_from_reactants": true,
+      "product_species": [],
+      "omit_species": [],
+      "insert_species": [],
+      "molecular_weight": "gas_phase_M",
+      "smooth_truncation": false,
+      "truncation_width": -1.0,
+      "rocket_diagnostics": true,
+      "cache_enabled": true,
+      "rebuild_cache": false,
+      "cache_directory": ""
+    },
+    "cea_legacy_executable": {
+      "executable": "fcea2",
+      "data_directory": "",
+      "timeout_s": 120.0,
+      "batch_size": 8,
+      "trace": 1e-10,
+      "cache_enabled": true,
+      "rebuild_cache": false,
+      "cache_directory": ""
+    }
+  },
+  "solver": {
+    "method": "LSODA",
+    "relative_tolerance": 1e-09,
+    "pressure_absolute_tolerance_Pa": 0.001,
+    "burn_depth_absolute_tolerance_m": 1e-13,
+    "burning_time_limit_s": 600.0,
+    "maximum_burning_step_s": 0.02,
+    "unchoked_policy": "switch",
+    "blowdown": {
+      "enabled": true,
+      "time_limit_s": 5.0,
+      "maximum_step_s": 0.0005
+    }
+  },
+  "output": {
+    "directory": "results",
+    "figure_filename": "ballistics.png",
+    "history_filename": "time_history.csv",
+    "summary_text_filename": "summary.txt",
+    "summary_json_filename": "summary.json"
+  },
+  "two_phase_model": {
+    "mode": "homogeneous_equilibrium",
+    "condensed_volume": "neglected",
+    "nozzle_entrainment": "complete"
+  }
+}
