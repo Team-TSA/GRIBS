@@ -1,0 +1,6 @@
+..                                                                       [100%]
+2 passed, 2 deselected in 0.67s
+real 1.13
+user 4.78
+sys 0.10
+fast_exit=0

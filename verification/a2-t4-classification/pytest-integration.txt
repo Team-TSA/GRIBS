@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0 -- /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/hikaru-kurokawa/Rocket/GRIBS-dev
+configfile: pytest.ini
+collecting ... collected 4 items / 2 deselected / 2 selected
+
+tests/test_gribs.py::test_default_self_tests_pass PASSED                 [ 50%]
+tests/test_gribs.py::test_cd_nozzle_transition_classification PASSED     [100%]
+
+======================= 2 passed, 2 deselected in 14.43s =======================
+real 15.02
+user 25.78
+sys 0.31
+integration_exit=0
