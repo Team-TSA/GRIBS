@@ -1,0 +1,13 @@
+CSV rows: 8690
+CSV columns: 37
+CSV numeric values compared: 295460
+CSV maximum absolute difference: 0
+CSV maximum relative difference: 0
+CSV non-numeric differences: 0
+
+summary.json results numeric values compared: 46
+summary.json maximum absolute difference: 0
+summary.json maximum relative difference: 0
+summary.json differing numeric values: 0
+
+PASS: numerical result data are unchanged.
