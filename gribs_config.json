@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.4.3-alpha",
+  "schema_version": "0.5.0-alpha",
   "notes": [
     "GRIBS v0.4.3-alpha configuration.",
     "ACTION REQUIRED: set thermochemistry.backend explicitly to 'cea_python' (official NASA CEA Python package, recommended) or 'cea_legacy_executable' (external fcea2 executable).  It is intentionally left empty here: GRIBS has no default backend, never substitutes another one, and stops with an actionable message until this choice is made.",
@@ -129,5 +129,10 @@
     "history_filename": "time_history.csv",
     "summary_text_filename": "summary.txt",
     "summary_json_filename": "summary.json"
+  },
+  "two_phase_model": {
+    "mode": "homogeneous_equilibrium",
+    "condensed_volume": "neglected",
+    "nozzle_entrainment": "complete"
   }
 }
