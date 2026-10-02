@@ -1,0 +1,17 @@
+usage: GRIBS_v0.5.0-alpha.py [-h] [--config CONFIG]
+                             [--backend {cea_python,cea_legacy_executable}]
+                             [--selftest] [--validate-config]
+                             [--dump-thermo FILE] [--no-cache] [--version]
+
+GRIBS v0.5.0-alpha JSON-configured internal ballistics
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG       complete JSON configuration file
+  --backend {cea_python,cea_legacy_executable}
+                        override thermochemistry.backend for this run
+  --selftest            run numerical self-tests only
+  --validate-config     validate the JSON configuration and exit
+  --dump-thermo FILE    write the chamber-property table to FILE and exit
+  --no-cache            force a rebuild of the chamber-property table
+  --version             show program's version number and exit
