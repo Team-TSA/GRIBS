@@ -1,0 +1,5 @@
+WARNING: gribs_config.json: 0.4.3-alpha configuration migrated automatically to 0.4.4-alpha (the chamber model changes to the homogeneous-equilibrium two-phase model; see the notes below).
+WARNING: two_phase_model: not present in the v0.4.3 document; defaults added with mode = 'homogeneous_equilibrium' (the standard two-phase model B: the conserved chamber mass is the TOTAL product mass, EOS p*Vg = mt*Yg(p)*Rg(p)*T0(p), nozzle flow with complete entrainment).  THIS CHANGES THE PHYSICAL MODEL vs v0.4.3 whenever condensed products exist.  To reproduce exact v0.4.3 results for regression comparison, set two_phase_model.mode = 'single_phase_legacy'.
+WARNING: schema_version: '0.4.3-alpha' -> '0.4.4-alpha'.
+Configuration /home/hikaru-kurokawa/Rocket/GRIBS-dev/gribs_config.json is valid (schema 0.4.4-alpha, backend cea_python).
+validate-config exit=0
