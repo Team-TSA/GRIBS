@@ -1,0 +1,120 @@
+{
+  "schema_version": "1.0",
+  "description": "Phase A-3 numerical-convergence and event-policy sweep for GRIBS v0.5.0-alpha.",
+  "sweeps": [
+    {
+      "setting": "rtol",
+      "attribute": "rtol",
+      "comparison_kind": "convergence",
+      "values": [
+        1e-6,
+        1e-7,
+        1e-8,
+        1e-9,
+        1e-10,
+        1e-11
+      ],
+      "reference": 1e-11,
+      "display_format": ".0e"
+    },
+    {
+      "setting": "atol_p",
+      "attribute": "atol_p",
+      "comparison_kind": "convergence",
+      "values": [
+        1e-1,
+        1e-2,
+        1e-3,
+        1e-4
+      ],
+      "reference": 1e-4,
+      "display_format": ".0e"
+    },
+    {
+      "setting": "max_step_burn",
+      "attribute": "max_step_burn",
+      "comparison_kind": "convergence",
+      "values": [
+        0.2,
+        0.05,
+        0.02,
+        0.005
+      ],
+      "reference": 0.005,
+      "display_format": "g"
+    },
+    {
+      "setting": "cea_pressure_points",
+      "attribute": "cea_pressure_points",
+      "comparison_kind": "convergence",
+      "values": [
+        21,
+        41,
+        81,
+        161
+      ],
+      "reference": 161,
+      "display_format": "d"
+    },
+    {
+      "setting": "unchoked_policy",
+      "attribute": "unchoked_policy",
+      "comparison_kind": "event_sensitivity",
+      "values": [
+        "switch",
+        "stop"
+      ],
+      "reference": "switch",
+      "display_format": "s"
+    }
+  ],
+  "metrics": {
+    "relative": {
+      "p_max_Pa": {
+        "unit": "Pa",
+        "tolerance": 1e-6
+      },
+      "burn_time_s": {
+        "unit": "s",
+        "tolerance": 1e-6
+      },
+      "F_max_N": {
+        "unit": "N",
+        "tolerance": 1e-6
+      },
+      "impulse_total_Ns": {
+        "unit": "N s",
+        "tolerance": 1e-6
+      }
+    },
+    "absolute_limit": {
+      "total_mass_consistency_error": {
+        "unit": "1",
+        "maximum": 1e-4
+      },
+      "propellant_mass_balance_error": {
+        "unit": "1",
+        "maximum": 1e-7
+      }
+    },
+    "diagnostic": [
+      "burn_stop_reason",
+      "blowdown_stop_reason",
+      "property_extrapolation",
+      "regimes_visited"
+    ]
+  },
+  "acceptance": {
+    "enforce": false,
+    "apply_relative_tolerances_to": [
+      "convergence"
+    ],
+    "notes": [
+      "Tolerance evaluation is recorded but is not yet an enforced process exit condition.",
+      "The historical Phase A investigation reported relative differences at or below approximately 1e-6.",
+      "Current GRIBS v0.5.0-alpha measurements have already shown some differences above 1e-6.",
+      "Residual metrics are assessed by their absolute values, not by relative change against an extremely small reference residual.",
+      "Event-policy sensitivity cases are descriptive comparisons and are not required to match the reference policy."
+    ]
+  }
+}
