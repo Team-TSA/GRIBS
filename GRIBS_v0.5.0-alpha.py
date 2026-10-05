@@ -342,6 +342,7 @@ class Config:
     eps_nozzle: float = 1.0       # area ratio Ae/At (1.0 = converging nozzle)
     Cd: float = 1.0               # nozzle discharge coefficient [-]
     eta_thrust: float = 1.0       # thrust (momentum) efficiency [-]
+    transition_policy: str = "jump"  # 'jump' | 'shock' (shock reserved)
     use_separation: bool = True   # model overexpanded flow separation
     sep_ratio: float = 0.4        # Summerfield separation criterion pe/pa [-]
     ero_throat_c: float = 0.0     # throat erosion rate [m/s] at p_ref
@@ -2419,6 +2420,10 @@ def _event(fn, terminal=True, direction=0.0):
 def run_model(c: Config) -> dict:
     """Integrate the burning phase and (optionally) the blowdown phase."""
     validate(c)
+
+
+    require_implemented_transition_policy(c)
+
     At0 = math.pi * c.R_t0 ** 2
     Ae = c.eps_nozzle * At0                      # geometric exit area, fixed
     xw = web_thickness(c)
@@ -2516,7 +2521,18 @@ def validate(c: Config) -> None:
         raise ValueError("Require 0 < p_fit_min < p_fit_max.")
     if c.unchoked_policy not in ("switch", "stop"):
         raise ValueError("unchoked_policy must be 'switch' or 'stop'.")
+    if c.transition_policy not in ("jump", "shock"):
+        raise ValueError("transition_policy must be 'jump' or 'shock'.")
 
+
+def require_implemented_transition_policy(c: Config) -> None:
+    """Reject valid-but-not-yet-implemented nozzle transition models."""
+    if c.transition_policy == "shock":
+        raise NotImplementedError(
+            "nozzle.transition_policy = 'shock' is valid configuration syntax "
+            "but the internal-shock nozzle transition model is not implemented. "
+            "Use transition_policy = 'jump' for the current direct-switch model."
+        )
 
 # ==============================================================================
 # 8. POST-PROCESSING
@@ -2644,6 +2660,161 @@ def sample(res: dict, c: Config) -> dict:
     return out
 
 
+def _masked_trapezoid(
+    y: np.ndarray,
+    x: np.ndarray,
+    mask: np.ndarray,
+) -> float:
+    """Integrate only intervals whose two endpoints are inside the mask."""
+    y = np.asarray(y, dtype=float)
+    x = np.asarray(x, dtype=float)
+    mask = np.asarray(mask, dtype=bool)
+
+    if y.ndim != 1 or x.ndim != 1 or mask.ndim != 1:
+        raise ValueError("y, x, and mask must be one-dimensional.")
+    if not (y.size == x.size == mask.size):
+        raise ValueError("y, x, and mask must have the same length.")
+    if x.size < 2:
+        return 0.0
+
+    valid_intervals = mask[:-1] & mask[1:]
+    dx = np.diff(x)
+    interval_areas = 0.5 * (y[:-1] + y[1:]) * dx
+
+    return float(np.sum(interval_areas[valid_intervals]))
+
+
+def nozzle_transition_diagnostics(
+    h: dict,
+    c: Config,
+    Ae: float,
+    *,
+    lower_pressure_Pa: Optional[float] = None,
+    upper_pressure_Pa: Optional[float] = None,
+) -> dict:
+    """Quantify time and impulse spent in the jump-model transition band.
+
+    Explicit pressure bounds are primarily intended for isolated tests. During
+    normal calculations, the lower boundary is the choking threshold and the
+    upper boundary is the onset of the configured flow-separation criterion.
+    """
+    result = {
+        "policy": c.transition_policy,
+        "applicable": False,
+        "detected": False,
+        "warning_code": None,
+        "interval_count": 0,
+        "duration_s": 0.0,
+        "duration_fraction": 0.0,
+        "impulse_Ns": 0.0,
+        "impulse_fraction": 0.0,
+    }
+
+    if c.transition_policy != "jump":
+        return result
+    if c.eps_nozzle <= 1.0 + 1.0e-12:
+        return result
+    if not c.use_separation:
+        return result
+
+    t = np.asarray(h["t"], dtype=float)
+    p0 = np.asarray(h["p0"], dtype=float)
+    At = np.asarray(h["At"], dtype=float)
+    thrust = np.asarray(h["F"], dtype=float)
+
+    if not (t.size == p0.size == At.size == thrust.size):
+        raise ValueError(
+            "Transition diagnostic histories t, p0, At, and F "
+            "must have the same length."
+        )
+
+    result["applicable"] = True
+
+    if t.size < 2:
+        return result
+
+    if lower_pressure_Pa is not None or upper_pressure_Pa is not None:
+        if lower_pressure_Pa is None or upper_pressure_Pa is None:
+            raise ValueError(
+                "lower_pressure_Pa and upper_pressure_Pa must be supplied together."
+            )
+        if not lower_pressure_Pa < upper_pressure_Pa:
+            raise ValueError(
+                "Require lower_pressure_Pa < upper_pressure_Pa."
+            )
+
+        transition_mask = (
+            (p0 > float(lower_pressure_Pa))
+            & (p0 < float(upper_pressure_Pa))
+        )
+    else:
+        transition_mask = np.zeros(t.size, dtype=bool)
+
+        for i in range(t.size):
+            if not np.isfinite(p0[i]) or not np.isfinite(At[i]):
+                continue
+            if p0[i] <= c.p_a or At[i] <= 0.0:
+                continue
+
+            try:
+                if choke_margin(p0[i], At[i], Ae, c) < 0.0:
+                    continue
+
+                _, _, gamma = gas_props(p0[i], c)
+                eps = Ae / At[i]
+                if eps <= 1.0 + 1.0e-12:
+                    continue
+
+                exit_mach = mach_from_area(eps, gamma, supersonic=True)
+                exit_pressure = p0[i] * (
+                    1.0 + 0.5 * (gamma - 1.0) * exit_mach * exit_mach
+                ) ** (-gamma / (gamma - 1.0))
+
+                transition_mask[i] = (
+                    exit_pressure < c.sep_ratio * c.p_a
+                )
+            except (ValueError, RuntimeError, ThermochemistryError):
+                continue
+
+    starts = transition_mask & np.concatenate(
+        (np.array([True]), ~transition_mask[:-1])
+    )
+    interval_count = int(np.count_nonzero(starts))
+
+    duration = _masked_trapezoid(
+        np.ones_like(t),
+        t,
+        transition_mask,
+    )
+    transition_impulse = _masked_trapezoid(
+        thrust,
+        t,
+        transition_mask,
+    )
+
+    total_duration = float(t[-1] - t[0])
+    total_impulse = float(_TRAPZ(thrust, t))
+
+    detected = bool(interval_count > 0 and duration > 0.0)
+
+    result.update(
+        detected=detected,
+        warning_code="W_NOZZLE_TRANSITION" if detected else None,
+        interval_count=interval_count,
+        duration_s=duration,
+        duration_fraction=(
+            duration / total_duration if total_duration > 0.0 else 0.0
+        ),
+        impulse_Ns=transition_impulse,
+        impulse_fraction=(
+            transition_impulse / total_impulse
+            if abs(total_impulse) > 0.0
+            else 0.0
+        ),
+    )
+    return result
+
+
 def summarize(res: dict, h: dict, c: Config) -> dict:
     t = h["t"]
     burn = h["phase"] == "burn"
@@ -2672,6 +2843,8 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
     Yc_h = np.asarray(h["Y_condensed"], dtype=float)
 
     p_star = choke_limit_pressure(c, At0, Ae)
+    transition = nozzle_transition_diagnostics(h, c, Ae)
+
     mg0 = c.rho_p * base_burn_rate(c.p0_init, c) * geometry(0.0, c)[2]
     mo0 = nozzle_state(c.p0_init, At0, Ae, c)["mdot_total"]
 
@@ -2749,6 +2922,31 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
         pressure_min_Pa=float(np.min(h["p0"])),
         pressure_max_Pa=float(np.max(h["p0"])),
         regimes_visited=sorted(set(h["regime"].tolist())),
+        nozzle_transition=transition,
+        warnings=(
+            [
+                {
+                    "code": "W_NOZZLE_TRANSITION",
+                    "severity": "warning",
+                    "message": (
+                        "The direct-switch nozzle model traversed the "
+                        "C-D nozzle transition band. Thrust and impulse in "
+                        "this band are model-dependent because an internal-"
+                        "shock solution is not implemented."
+                    ),
+                    "context": {
+                        "policy": c.transition_policy,
+                        "duration_s": transition["duration_s"],
+                        "duration_fraction": transition["duration_fraction"],
+                        "impulse_Ns": transition["impulse_Ns"],
+                        "impulse_fraction": transition["impulse_fraction"],
+                        "interval_count": transition["interval_count"],
+                    },
+                }
+            ]
+            if transition["warning_code"] == "W_NOZZLE_TRANSITION"
+            else []
+        ),
         event_times=res["t_events"],
     )
     return s
@@ -2876,11 +3074,16 @@ def self_tests(c: Config, verbose=True) -> bool:
                     abs(area_mach(mach_from_area(eps, g, False), g) / eps - 1.0))
     chk("area-Mach inversion round trip", e < 1e-10, f"max rel. err = {e:.2e}")
 
-    # T4 continuity of mdot and F across the choking boundary
-    # Test only the nozzle geometry specified in the current configuration.
-    worst_mdot = 0.0
-    worst_thrust = 0.0
-
+    # T4 choking-boundary continuity and transition classification.
+    #
+    # For a converging nozzle (Ae/At = 1), mass flow and thrust must both
+    # remain continuous across the choking boundary.
+    #
+    # For a C-D nozzle (Ae/At > 1), the current jump model switches directly
+    # between supersonic choked and subsonic solutions. Mass flow must remain
+    # continuous. The thrust jump remains a diagnostic until an internal-shock
+    # transition model is implemented.
+    continuity_tolerance = 1.0e-6
     eps = c.eps_nozzle
 
     cc = Config(**{
@@ -2891,21 +3094,29 @@ def self_tests(c: Config, verbose=True) -> bool:
 
     At0 = math.pi * cc.R_t0 ** 2
     Ae = eps * At0
-
     pstar = choke_limit_pressure(cc, At0, Ae)
 
     if pstar is None:
-        chk("choked/subsonic continuity (mdot, F)", False,
+        chk("nozzle choking-boundary continuity", False,
             "choking-limit pressure could not be determined")
     else:
         lo = nozzle_state(pstar * (1.0 - 1e-9), At0, Ae, cc)
         hi = nozzle_state(pstar * (1.0 + 1e-9), At0, Ae, cc)
         worst_mdot = abs(lo["mdot"] / hi["mdot"] - 1.0)
         worst_thrust = abs((lo["F"] + 1e-12) / (hi["F"] + 1e-12) - 1.0)
-        worst = max(worst_mdot, worst_thrust)
-        chk("choked/subsonic continuity (mdot, F)", worst < 1e-6,
-            f"Ae/At = {eps:.6g}, mdot jump = {worst_mdot:.2e}, "
-            f"F jump = {worst_thrust:.2e}")
+
+        if math.isclose(eps, 1.0, rel_tol=0.0, abs_tol=1.0e-12):
+            worst = max(worst_mdot, worst_thrust)
+            chk("converging-nozzle continuity (mdot, F)",
+                worst < continuity_tolerance,
+                f"Ae/At = {eps:.6g}, mdot jump = {worst_mdot:.2e}, "
+                f"F jump = {worst_thrust:.2e}")
+        else:
+            chk("C-D nozzle transition mass-flow continuity",
+                worst_mdot < continuity_tolerance,
+                f"Ae/At = {eps:.6g}, mdot jump = {worst_mdot:.2e}, "
+                f"F jump = {worst_thrust:.2e} "
+                "(diagnostic; known jump-model limitation)")
 
         # T5 closed-form check of the converging-nozzle choked thrust.
         # Two-phase momentum basis: only the momentum term scales with the
@@ -3620,6 +3831,43 @@ def write_csv(h: dict, path: Path) -> None:
             w.writerow(row)
 
 
+def nozzle_transition_summary_lines(
+    transition: dict,
+    warnings: Sequence[dict],
+) -> List[str]:
+    """Format the nozzle-transition diagnostic for the text summary."""
+    lines = [
+        "[ nozzle transition diagnostic ]",
+        f"  policy                            : {transition['policy']}",
+        f"  applicable                        : {transition['applicable']}",
+        f"  transition band detected          : {transition['detected']}",
+        f"  contiguous intervals              : {transition['interval_count']}",
+        (
+            "  residence time                    : "
+            f"{1.0e3 * transition['duration_s']:.4f} ms"
+        ),
+        (
+            "  fraction of computed duration     : "
+            f"{100.0 * transition['duration_fraction']:.6f} %"
+        ),
+        (
+            "  model impulse in transition band  : "
+            f"{transition['impulse_Ns']:.6f} N.s"
+        ),
+        (
+            "  fraction of total model impulse   : "
+            f"{100.0 * transition['impulse_fraction']:.6f} %"
+        ),
+    ]
+
+    for warning in warnings:
+        if warning.get("code") == "W_NOZZLE_TRANSITION":
+            lines.append(f"  WARNING [{warning['code']}]")
+            lines.append(f"    {warning['message']}")
+
+    return lines
+
+
 def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
                  cea_diag: Optional[dict] = None,
                  migration_notes: Optional[Sequence[str]] = None) -> str:
@@ -3758,6 +4006,12 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
       f"{s['Kn_max']:.1f} / {s['Kn_final']:.1f}")
     A(f"  final throat radius              : {s['throat_radius_final_mm']:.5f} mm")
     A(f"  nozzle regimes visited           : {', '.join(s['regimes_visited'])}")
+    A("")
+    for line in nozzle_transition_summary_lines(
+        s["nozzle_transition"],
+        s["warnings"],
+    ):
+        A(line)
     A("")
     A("[ verification ]")
     A(f"  propellant mass balance error    : {s['propellant_mass_balance_error']:.3e}")
@@ -4160,8 +4414,15 @@ _ERO_BURN_KEYS = ("enabled", "alpha", "beta")
 _REACTANT_KEYS = ("name", "wt_percent", "temperature_K", "density_kg_m3")
 _GRAIN_KEYS = ("initial_bore_radius_m", "outer_radius_m", "initial_length_m",
                "initial_free_volume_m3", "burning_end_faces")
-_NOZZLE_KEYS = ("initial_throat_radius_m", "expansion_ratio", "discharge_coefficient",
-                "thrust_efficiency", "flow_separation", "throat_erosion")
+_NOZZLE_KEYS = (
+    "initial_throat_radius_m",
+    "expansion_ratio",
+    "discharge_coefficient",
+    "thrust_efficiency",
+    "transition_policy",
+    "flow_separation",
+    "throat_erosion",
+)
 _SEPARATION_KEYS = ("enabled", "pressure_ratio")
 _THROAT_EROSION_KEYS = ("enabled", "rate_m_s_at_reference_pressure", "pressure_exponent")
 _ENV_KEYS = ("ambient_pressure_Pa", "initial_chamber_pressure_Pa")
@@ -4480,9 +4741,25 @@ def configuration_from_document(doc: dict) -> Configuration:
         eps_nozzle=float(_number(nozzle, "expansion_ratio", "nozzle", minimum=1.0)),
         Cd=float(_number(nozzle, "discharge_coefficient", "nozzle", exclusive_minimum=0.0)),
         eta_thrust=float(_number(nozzle, "thrust_efficiency", "nozzle", exclusive_minimum=0.0)),
-        use_separation=bool(_boolean(sep, "enabled", "nozzle.flow_separation")),
-        sep_ratio=float(_number(sep, "pressure_ratio", "nozzle.flow_separation",
-                                exclusive_minimum=0.0)),
+        transition_policy=str(_choice(
+            nozzle,
+            "transition_policy",
+            "nozzle",
+            ("jump", "shock"),
+            required=False,
+            default="jump",
+        )),
+        use_separation=bool(
+            _boolean(sep, "enabled", "nozzle.flow_separation")
+        ),
+        sep_ratio=float(
+            _number(
+                sep,
+                "pressure_ratio",
+                "nozzle.flow_separation",
+                exclusive_minimum=0.0,
+            )
+        ),
         ero_throat_c=(float(_number(tero, "rate_m_s_at_reference_pressure",
                                     "nozzle.throat_erosion", minimum=0.0))
                       if _boolean(tero, "enabled", "nozzle.throat_erosion") else 0.0),

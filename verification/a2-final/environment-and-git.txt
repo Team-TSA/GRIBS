@@ -1,0 +1,95 @@
+=== A-2 FINAL VERIFICATION ===
+2026-10-05T13:07:57+09:00
+
+=== ENVIRONMENT ===
+Python 3.14.4
+pytest 9.1.1
+CEA: 3.3.4
+
+=== GIT STATUS ===
+## phase-a-a2-nozzle-transition...origin/phase-a-a2-nozzle-transition
+?? verification/a2-final/
+
+=== RECENT COMMITS ===
+057ee91 (HEAD -> phase-a-a2-nozzle-transition, origin/phase-a-a2-nozzle-transition) docs: preserve Phase A verification specifications
+e451e43 feat: report nozzle transition diagnostics
+26641dd feat: add nozzle transition policy guard
+c45d917 fix: classify nozzle transition continuity by geometry
+493708c test: record pre-A-2 nozzle transition baseline
+e99227d (origin/phase-a-foundation, phase-a-foundation) Merge pull request #2 from Team-TSA/phase-a-a1-test-reorganization
+4f633fa (phase-a-a1-test-reorganization) refactor: stop running self-tests before normal CLI runs
+682f0b7 test: classify fast, integration, and known-issue tests
+
+=== A-2 COMMITS SINCE FOUNDATION ===
+057ee91 (HEAD -> phase-a-a2-nozzle-transition, origin/phase-a-a2-nozzle-transition) docs: preserve Phase A verification specifications
+e451e43 feat: report nozzle transition diagnostics
+26641dd feat: add nozzle transition policy guard
+c45d917 fix: classify nozzle transition continuity by geometry
+493708c test: record pre-A-2 nozzle transition baseline
+
+=== CHANGED FILES SINCE FOUNDATION ===
+ GRIBS_v0.5.0-alpha.py                              | 309 +++++++++++++++++++--
+ Specification/README.md                            |  72 +++++
+ Specification/convergence_sweep.json               | 254 +++++++++++++++++
+ Specification/convergence_sweep.py                 | 148 ++++++++++
+ Specification/convergence_sweep.txt                |  37 +++
+ Specification/gribs_config_eps1.json               | 127 +++++++++
+ Specification/gribs_config_wide.json               | 128 +++++++++
+ Specification/level0_blowdown_check.py             | 113 ++++++++
+ Specification/level0_blowdown_check.txt            |  16 ++
+ Specification/mass_ledger.py                       | 150 ++++++++++
+ Specification/mass_ledger.txt                      |  50 ++++
+ Specification/nozzle_switch_probe.py               | 143 ++++++++++
+ Specification/nozzle_switch_probe.txt              |  35 +++
+ Specification/nozzle_transition_cost.py            | 162 +++++++++++
+ Specification/nozzle_transition_cost.txt           |  17 ++
+ gribs_config.json                                  |   1 +
+ pytest.ini                                         |   1 -
+ tests/test_gribs.py                                | 193 +++++++++++--
+ verification/a2-pre/environment.txt                |  10 +
+ verification/a2-pre/gribs_config_eps4.json         | 138 +++++++++
+ verification/a2-pre/pytest-full.txt                |   6 +
+ verification/a2-pre/pytest-known-t4.txt            |  14 +
+ verification/a2-pre/selftest-eps1.txt              |  36 +++
+ verification/a2-pre/selftest-eps4.txt              |  36 +++
+ verification/a2-pre/t4-failure-extraction.txt      |   5 +
+ verification/a2-t4-classification/environment.txt  |  18 ++
+ verification/a2-t4-classification/pytest-fast.txt  |   6 +
+ verification/a2-t4-classification/pytest-full.txt  |   6 +
+ .../a2-t4-classification/pytest-integration.txt    |  15 +
+ .../a2-t4-classification/selftest-eps1.txt         |  36 +++
+ .../a2-t4-classification/selftest-eps4.txt         |  36 +++
+ .../a2-t4-classification/t4-comparison.txt         |  17 ++
+ 32 files changed, 2295 insertions(+), 40 deletions(-)
+M	GRIBS_v0.5.0-alpha.py
+A	Specification/README.md
+A	Specification/convergence_sweep.json
+A	Specification/convergence_sweep.py
+A	Specification/convergence_sweep.txt
+A	Specification/gribs_config_eps1.json
+A	Specification/gribs_config_wide.json
+A	Specification/level0_blowdown_check.py
+A	Specification/level0_blowdown_check.txt
+A	Specification/mass_ledger.py
+A	Specification/mass_ledger.txt
+A	Specification/nozzle_switch_probe.py
+A	Specification/nozzle_switch_probe.txt
+A	Specification/nozzle_transition_cost.py
+A	Specification/nozzle_transition_cost.txt
+M	gribs_config.json
+M	pytest.ini
+M	tests/test_gribs.py
+A	verification/a2-pre/environment.txt
+A	verification/a2-pre/gribs_config_eps4.json
+A	verification/a2-pre/pytest-full.txt
+A	verification/a2-pre/pytest-known-t4.txt
+A	verification/a2-pre/selftest-eps1.txt
+A	verification/a2-pre/selftest-eps4.txt
+A	verification/a2-pre/t4-failure-extraction.txt
+A	verification/a2-t4-classification/environment.txt
+A	verification/a2-t4-classification/pytest-fast.txt
+A	verification/a2-t4-classification/pytest-full.txt
+A	verification/a2-t4-classification/pytest-integration.txt
+A	verification/a2-t4-classification/selftest-eps1.txt
+A	verification/a2-t4-classification/selftest-eps4.txt
+A	verification/a2-t4-classification/t4-comparison.txt

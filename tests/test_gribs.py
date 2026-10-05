@@ -47,14 +47,8 @@ def test_default_self_tests_pass():
 
 
 @pytest.mark.integration
-@pytest.mark.known_issue
-def test_cd_nozzle_known_t4_discontinuity(tmp_path):
-    """Record the pre-A-2 C-D nozzle T4 discontinuity.
-
-    This is not a test of the desired final behavior. It preserves the known
-    v0.5.0-alpha baseline so that A-1 cannot accidentally hide, enlarge, or
-    otherwise change the T4 problem before its dedicated correction in A-2.
-    """
+def test_cd_nozzle_transition_classification(tmp_path):
+    """C-D nozzle mass flow passes T4 while thrust jump remains diagnostic."""
     source = ROOT / "gribs_config.json"
     supplied = json.loads(source.read_text(encoding="utf-8"))
     supplied["nozzle"]["expansion_ratio"] = 4.0
@@ -78,39 +72,44 @@ def test_cd_nozzle_known_t4_discontinuity(tmp_path):
         check=False,
     )
 
-    # Until A-2, Ae/At = 4 is expected to fail only the T4 continuity check.
-    assert result.returncode == 1, (
-        "The known T4 baseline changed unexpectedly.\n"
+    assert result.returncode == 0, (
+        "Ae/At = 4 self-test should pass after A-2 classification.\n"
         f"exit code: {result.returncode}\n"
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
 
-    failure_lines = [
-        line for line in result.stdout.splitlines()
-        if "[FAIL]" in line
+    diagnostic_lines = [
+        line
+        for line in result.stdout.splitlines()
+        if "C-D nozzle transition mass-flow continuity" in line
     ]
-    assert len(failure_lines) == 1, (
-        "Expected exactly one failed self-test for the known T4 baseline, "
-        f"found {len(failure_lines)}:\n" + "\n".join(failure_lines)
+    assert len(diagnostic_lines) == 1, (
+        "Expected exactly one C-D nozzle transition diagnostic, "
+        f"found {len(diagnostic_lines)}:\n"
+        + "\n".join(diagnostic_lines)
     )
 
-    failure = failure_lines[0]
-    assert "choked/subsonic continuity (mdot, F)" in failure
-    assert "Ae/At = 4" in failure
+    diagnostic = diagnostic_lines[0]
+    assert "[PASS]" in diagnostic
+    assert "Ae/At = 4" in diagnostic
+    assert "known jump-model limitation" in diagnostic
 
     match = re.search(
         r"mdot jump = ([0-9.eE+-]+), F jump = ([0-9.eE+-]+)",
-        failure,
+        diagnostic,
     )
-    assert match is not None, f"Could not parse T4 diagnostics:\n{failure}"
+    assert match is not None, (
+        f"Could not parse C-D nozzle transition diagnostics:\n{diagnostic}"
+    )
 
     mdot_jump = float(match.group(1))
     thrust_jump = float(match.group(2))
 
     assert mdot_jump == pytest.approx(4.02e-08, rel=1.0e-2)
     assert thrust_jump == pytest.approx(1.04, rel=1.0e-2)
-    assert "-> FAILURES DETECTED" in result.stdout
+    assert "-> all checks passed" in result.stdout
+    assert "[FAIL]" not in result.stdout
 
 
 @pytest.mark.fast
@@ -132,3 +131,151 @@ def test_example_configuration_keys_are_valid():
     supplied = json.loads(path.read_text(encoding="utf-8"))
     defaults = asdict(gribs.Config())
     assert set(supplied).issubset(defaults)
+
+
+@pytest.mark.fast
+def test_transition_policy_defaults_to_jump():
+    """Omitting transition_policy preserves the current jump-model behavior."""
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"].pop("transition_policy", None)
+
+    configuration = gribs.configuration_from_document(supplied)
+
+    assert configuration.config.transition_policy == "jump"
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("policy", ["jump", "shock"])
+def test_transition_policy_accepts_known_values(policy):
+    """The configuration schema accepts the documented transition policies."""
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"]["transition_policy"] = policy
+
+    configuration = gribs.configuration_from_document(supplied)
+
+    assert configuration.config.transition_policy == policy
+
+
+@pytest.mark.fast
+def test_transition_policy_rejects_unknown_value():
+    """Unknown policies must fail rather than silently selecting a model."""
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"]["transition_policy"] = "interpolate"
+
+    with pytest.raises(
+        gribs.ConfigurationError,
+        match=r"transition_policy.*jump.*shock",
+    ):
+        gribs.configuration_from_document(supplied)
+
+
+@pytest.mark.fast
+def test_shock_transition_policy_is_reserved_for_future_model():
+    """The reserved shock policy must not silently use the jump model."""
+    c = gribs.Config(transition_policy="shock")
+
+    with pytest.raises(
+        NotImplementedError,
+        match=r"transition_policy.*shock.*not implemented",
+    ):
+        gribs.require_implemented_transition_policy(c)
+
+
+@pytest.mark.fast
+def test_jump_transition_policy_is_implemented():
+    """The current direct-switch model remains available."""
+    c = gribs.Config(transition_policy="jump")
+
+    assert gribs.require_implemented_transition_policy(c) is None
+
+
+@pytest.mark.fast
+def test_run_model_rejects_unimplemented_shock_transition_policy():
+    """The normal calculation path must reject the reserved shock model."""
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"]["transition_policy"] = "shock"
+    configuration = gribs.configuration_from_document(supplied)
+
+    with pytest.raises(
+        NotImplementedError,
+        match=r"transition_policy.*shock.*not implemented",
+    ):
+        gribs.run_model(configuration.config)
+
+@pytest.mark.fast
+def test_masked_trapezoid_does_not_bridge_disjoint_regions():
+    """Masked integration must not invent area across gaps."""
+    t = gribs.np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    y = gribs.np.ones_like(t)
+    mask = gribs.np.array([True, True, False, True, True])
+
+    integral = gribs._masked_trapezoid(y, t, mask)
+
+    assert integral == pytest.approx(2.0)
+
+
+@pytest.mark.fast
+def test_nozzle_transition_diagnostics_reports_contiguous_band_cost():
+    """Transition diagnostics report time and impulse without bridging gaps."""
+    c = gribs.Config(
+        eps_nozzle=4.0,
+        transition_policy="jump",
+        use_separation=True,
+    )
+    t = gribs.np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    h = {
+        "t": t,
+        "p0": gribs.np.array([2.0, 3.0, 10.0, 3.0, 2.0]),
+        "At": gribs.np.ones_like(t),
+        "F": gribs.np.ones_like(t),
+    }
+
+    diagnostic = gribs.nozzle_transition_diagnostics(
+        h,
+        c,
+        Ae=4.0,
+        lower_pressure_Pa=1.0,
+        upper_pressure_Pa=5.0,
+    )
+
+    assert diagnostic["applicable"] is True
+    assert diagnostic["detected"] is True
+    assert diagnostic["duration_s"] == pytest.approx(2.0)
+    assert diagnostic["impulse_Ns"] == pytest.approx(2.0)
+    assert diagnostic["interval_count"] == 2
+
+
+@pytest.mark.fast
+def test_nozzle_transition_summary_lines_include_warning_code():
+    """Transition text output preserves units and the warning identifier."""
+    transition = {
+        "policy": "jump",
+        "applicable": True,
+        "detected": True,
+        "warning_code": "W_NOZZLE_TRANSITION",
+        "interval_count": 1,
+        "duration_s": 0.02844,
+        "duration_fraction": 0.012,
+        "impulse_Ns": 0.6370,
+        "impulse_fraction": 0.00041,
+    }
+    warnings = [
+        {
+            "code": "W_NOZZLE_TRANSITION",
+            "severity": "warning",
+            "message": "Synthetic transition warning for text testing.",
+            "context": {},
+        }
+    ]
+
+    lines = gribs.nozzle_transition_summary_lines(transition, warnings)
+    text = "\n".join(lines)
+
+    assert "[ nozzle transition diagnostic ]" in text
+    assert "28.4400 ms" in text
+    assert "0.041000 %" in text
+    assert "WARNING [W_NOZZLE_TRANSITION]" in text

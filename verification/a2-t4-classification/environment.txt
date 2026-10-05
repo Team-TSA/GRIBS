@@ -1,0 +1,18 @@
+GRIBS A-2 T4 classification verification
+date=2026-10-03T00:39:15+09:00
+base_commit=493708c696c81fea270841dcaf4c565278bc3a45
+branch=phase-a-a2-nozzle-transition
+python=Python 3.14.4
+pytest=pytest 9.1.1
+
+[working tree]
+## phase-a-a2-nozzle-transition...origin/phase-a-a2-nozzle-transition
+ M GRIBS_v0.5.0-alpha.py
+ M pytest.ini
+ M tests/test_gribs.py
+?? verification/a2-t4-classification/
+
+[changed files]
+GRIBS_v0.5.0-alpha.py
+pytest.ini
+tests/test_gribs.py

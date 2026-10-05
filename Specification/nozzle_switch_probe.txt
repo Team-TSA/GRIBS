@@ -1,0 +1,35 @@
+==============================================================================
+Q1  thrust discontinuity at the choked/subsonic switch (GRIBS model)
+==============================================================================
+ Ae/At  p_switch [Pa]   mdot jump  F_sub [N]  F_choked [N]    F jump
+  1.00       174472.1    1.98e-09      7.536         7.536     0.000
+  1.50       112917.9    5.67e-09      2.203         3.149     0.300
+  2.00       107080.5    1.01e-08      1.494         2.727     0.452
+  4.00       102627.2    4.02e-08      0.689         2.406     0.714
+  6.00       101894.1    9.03e-08      0.453         2.353     0.807
+
+==============================================================================
+Q2  off-design error of the C-D nozzle model (complete-entrainment basis)
+==============================================================================
+  'shock solution' = choked flow, normal shock in the diverging part,
+  subsonic exit at p_e = p_a  (the classical 1-D solution GRIBS omits).
+
+  Ae/At = 2:  choking onset p = 107,081 Pa, design (p_e = p_a) p = 763,170 Pa
+         p0 [Pa]  F model [N]  F shock [N]     error  shock at A/At
+          300000       17.858 (no shock solution)
+          600000       45.854 (no shock solution)
+
+  Ae/At = 4:  choking onset p = 102,627 Pa, design (p_e = p_a) p = 2,021,209 Pa
+         p0 [Pa]  F model [N]  F shock [N]     error  shock at A/At
+          300000       17.858 (no shock solution)
+          600000       44.670 (no shock solution)
+         1000000       84.684 (no shock solution)
+         2000000      189.782 (no shock solution)
+
+  Ae/At = 6:  choking onset p = 101,894 Pa, design (p_e = p_a) p = 3,446,847 Pa
+         p0 [Pa]  F model [N]  F shock [N]     error  shock at A/At
+          300000       17.858        1.364  +1208.8%          4.460
+          600000       44.670 (no shock solution)
+         1000000       83.394 (no shock solution)
+         2000000      190.440 (no shock solution)
+

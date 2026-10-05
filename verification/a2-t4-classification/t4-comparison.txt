@@ -1,0 +1,17 @@
+A-2 T4 classification comparison
+date=2026-10-03T00:40:27+09:00
+
+===== BEFORE A-2: Ae/At = 4 =====
+  [FAIL] choked/subsonic continuity (mdot, F)           Ae/At = 4, mdot jump = 4.02e-08, F jump = 1.04e+00
+  -> FAILURES DETECTED
+selftest_exit=1
+
+===== AFTER T4 CLASSIFICATION: Ae/At = 1 =====
+  [PASS] converging-nozzle continuity (mdot, F)         Ae/At = 1, mdot jump = 1.97e-09, F jump = 3.79e-09
+  -> all checks passed
+selftest_eps1_exit=0
+
+===== AFTER T4 CLASSIFICATION: Ae/At = 4 =====
+  [PASS] C-D nozzle transition mass-flow continuity     Ae/At = 4, mdot jump = 4.02e-08, F jump = 1.04e+00 (diagnostic; known jump-model limitation)
+  -> all checks passed
+selftest_eps4_exit=0

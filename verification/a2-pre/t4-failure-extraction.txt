@@ -1,0 +1,5 @@
+A-2 pre-change T4 failure extraction
+commit=e99227dbeabd440e061a554d92f8c9f319dfce67
+
+  [FAIL] choked/subsonic continuity (mdot, F)           Ae/At = 4, mdot jump = 4.02e-08, F jump = 1.04e+00
+  -> FAILURES DETECTED

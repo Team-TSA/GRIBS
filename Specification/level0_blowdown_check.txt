@@ -1,0 +1,16 @@
+==============================================================================
+Level-0 reference problem: isothermal-constant-property blowdown
+==============================================================================
+synthetic property basis : T0 = 3000.0 K, gamma = 1.200, R = 332.580 J/(kg K), Psi = 997741.200 J/kg
+choked flow coefficient C: 3.263561e-08 kg/(s Pa)   time constant tau = 0.000921 s
+residual generation      : 1.701e-11 kg/s -> asymptotic pressure p_inf = 0.000521 Pa
+integration interval     : 0 ... 0.0038 s, 86 steps
+choked segment used      : p0 = 5.0000 ... 200.1 kPa  (54 points)
+max |p_num/p_analytic-1| : 4.919e-09
+analytic p at t_end      : 200135.103562 Pa   numerical: 200135.104547 Pa
+
+Interpretation: the chamber mass/state equation, the choked nozzle flow
+and the event handling reproduce the closed-form solution to the solver
+tolerance.  The verification gap is not in the numerics but in the
+model-form assumptions - which is exactly what the roadmap says.
+

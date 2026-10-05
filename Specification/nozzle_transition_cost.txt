@@ -1,0 +1,17 @@
+==============================================================================
+C-D nozzle (Ae/At = 4), burning phase + blowdown, self-tests bypassed
+==============================================================================
+choking onset pressure           : 102627.2 Pa
+total computed time               : 2.372086 s
+regimes visited                  : [np.str_('choked'), np.str_('separated'), np.str_('subsonic')]
+   choked      98.80 % of the time,  1561.0800 N.s
+   separated    1.19 % of the time,     0.6186 N.s
+   subsonic     0.01 % of the time,     0.0001 N.s
+total computed impulse           : 1561.7372 N.s (burning + blowdown)
+
+model's separation onset (p_e = 0.4 p_a) : 822,315 Pa
+time inside the transition band          : 28.44 ms (1.20 % of the run)
+impulse inside the band (model)          : 0.6370 N.s (0.041 % of the total computed impulse)
+impulse inside the band (model's own subsonic branch): 1.7375 N.s
+impulse inside the band (normal-shock reference)     : 0.0594 N.s  (431 of 905 samples have a shock solution)
+
