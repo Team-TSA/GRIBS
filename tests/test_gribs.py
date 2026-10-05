@@ -205,3 +205,77 @@ def test_run_model_rejects_unimplemented_shock_transition_policy():
         match=r"transition_policy.*shock.*not implemented",
     ):
         gribs.run_model(configuration.config)
+
+@pytest.mark.fast
+def test_masked_trapezoid_does_not_bridge_disjoint_regions():
+    """Masked integration must not invent area across gaps."""
+    t = gribs.np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    y = gribs.np.ones_like(t)
+    mask = gribs.np.array([True, True, False, True, True])
+
+    integral = gribs._masked_trapezoid(y, t, mask)
+
+    assert integral == pytest.approx(2.0)
+
+
+@pytest.mark.fast
+def test_nozzle_transition_diagnostics_reports_contiguous_band_cost():
+    """Transition diagnostics report time and impulse without bridging gaps."""
+    c = gribs.Config(
+        eps_nozzle=4.0,
+        transition_policy="jump",
+        use_separation=True,
+    )
+    t = gribs.np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    h = {
+        "t": t,
+        "p0": gribs.np.array([2.0, 3.0, 10.0, 3.0, 2.0]),
+        "At": gribs.np.ones_like(t),
+        "F": gribs.np.ones_like(t),
+    }
+
+    diagnostic = gribs.nozzle_transition_diagnostics(
+        h,
+        c,
+        Ae=4.0,
+        lower_pressure_Pa=1.0,
+        upper_pressure_Pa=5.0,
+    )
+
+    assert diagnostic["applicable"] is True
+    assert diagnostic["detected"] is True
+    assert diagnostic["duration_s"] == pytest.approx(2.0)
+    assert diagnostic["impulse_Ns"] == pytest.approx(2.0)
+    assert diagnostic["interval_count"] == 2
+
+
+@pytest.mark.fast
+def test_nozzle_transition_summary_lines_include_warning_code():
+    """Transition text output preserves units and the warning identifier."""
+    transition = {
+        "policy": "jump",
+        "applicable": True,
+        "detected": True,
+        "warning_code": "W_NOZZLE_TRANSITION",
+        "interval_count": 1,
+        "duration_s": 0.02844,
+        "duration_fraction": 0.012,
+        "impulse_Ns": 0.6370,
+        "impulse_fraction": 0.00041,
+    }
+    warnings = [
+        {
+            "code": "W_NOZZLE_TRANSITION",
+            "severity": "warning",
+            "message": "Synthetic transition warning for text testing.",
+            "context": {},
+        }
+    ]
+
+    lines = gribs.nozzle_transition_summary_lines(transition, warnings)
+    text = "\n".join(lines)
+
+    assert "[ nozzle transition diagnostic ]" in text
+    assert "28.4400 ms" in text
+    assert "0.041000 %" in text
+    assert "WARNING [W_NOZZLE_TRANSITION]" in text
