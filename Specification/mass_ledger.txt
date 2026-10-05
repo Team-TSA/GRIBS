@@ -1,0 +1,50 @@
+==============================================================================
+GRIBS v0.5.0-alpha  --  itemised mass ledger (rebuilt from the CSV)
+==============================================================================
+configuration          : /home/user/gribs_baseline/gribs_config_eps1.json
+propellant (geometry)  : 6.589746438e-01 kg   (rho_p = 1672.712 kg/m3)
+igniter charge         : 2.000000000e-03 kg   (mdot = 0.02 kg/s, t = 0.1 s)
+
+[ ledger items ]
+  A  initial chamber inventory mt0          : 2.149160242e-05 kg
+  B  generated products  m_gen (state)      : 6.609746436e-01 kg
+     B1  of which propellant-derived        : 6.589746436e-01 kg
+     B2  of which igniter-derived           : 2.000000000e-03 kg
+  C  discharged          m_out (state)      : 6.609323298e-01 kg
+  D  chamber content     p0*Vg/Psi (EOS)    : 6.380542444e-05 kg
+  E  unburned solid propellant (geometry)   : 0.000000000e+00 kg
+  F  burned solid propellant   (geometry)   : 6.589746438e-01 kg
+
+[ closure residuals ]
+  A + B        = 6.609961352e-01 kg
+  C + D        = 6.609961352e-01 kg
+  eps_m (F.1)  = |A+B-C-D| / (A+B)          : 3.331e-11
+  F.2  propellant ledger: (B - igniter) - F : -1.736e-10 kg (-2.634e-10 relative to m_prop)
+  F.3  the number GRIBS itself prints as 'propellant mass balance error'
+       is  |B / m_prop - 1| = 3.035e-03  <-- igniter mass
+       (2.000e-03 kg) is folded into m_gen, so F.3 reports the igniter
+       charge as a propellant error.  The itemised ledger does not.
+
+[ what the existing outputs do NOT close: the phase split ]
+  The ODE carries ONE discharge state m_out (gas + condensed together).
+  The gas/condensed split of the discharge exists only as sampled rates,
+  so its accumulated value depends on the post-processing grid:
+    integral(mdot_out_total)     = 6.609323528e-01 kg   (grid quadrature)
+    ODE state m_out                                 = 6.609323298e-01 kg
+    grid quadrature error                           = 3.480e-08
+    integral(mdot_out_gas)       = 4.787846906e-01 kg
+    integral(mdot_out_condensed) = 1.821476622e-01 kg
+    gas + condensed             = 6.609323528e-01 kg
+    gas/condensed split of the DISCHARGE therefore carries a quadrature
+    error evaluated over the same sampled grid.
+
+[ chamber residual split (post-processed, not an ODE state) ]
+  m_gas_equilibrium (final) : 4.630045072e-05 kg
+  m_condensed       (final) : 1.750497371e-05 kg
+  Yg final = 0.725651   Yc final = 0.274349
+
+[ energy ledger ]  : NOT AVAILABLE -- no energy state is integrated and no
+  energy residual is written.  (Only the model-internal consistency of p, V,
+  m and Psi is checked.)
+
+written: /home/user/gribs_baseline/results/conv_nozzle_history_ledger.txt
