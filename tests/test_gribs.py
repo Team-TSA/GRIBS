@@ -131,3 +131,77 @@ def test_example_configuration_keys_are_valid():
     supplied = json.loads(path.read_text(encoding="utf-8"))
     defaults = asdict(gribs.Config())
     assert set(supplied).issubset(defaults)
+
+
+@pytest.mark.fast
+def test_transition_policy_defaults_to_jump():
+    """Omitting transition_policy preserves the current jump-model behavior."""
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"].pop("transition_policy", None)
+
+    configuration = gribs.configuration_from_document(supplied)
+
+    assert configuration.config.transition_policy == "jump"
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("policy", ["jump", "shock"])
+def test_transition_policy_accepts_known_values(policy):
+    """The configuration schema accepts the documented transition policies."""
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"]["transition_policy"] = policy
+
+    configuration = gribs.configuration_from_document(supplied)
+
+    assert configuration.config.transition_policy == policy
+
+
+@pytest.mark.fast
+def test_transition_policy_rejects_unknown_value():
+    """Unknown policies must fail rather than silently selecting a model."""
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"]["transition_policy"] = "interpolate"
+
+    with pytest.raises(
+        gribs.ConfigurationError,
+        match=r"transition_policy.*jump.*shock",
+    ):
+        gribs.configuration_from_document(supplied)
+
+
+@pytest.mark.fast
+def test_shock_transition_policy_is_reserved_for_future_model():
+    """The reserved shock policy must not silently use the jump model."""
+    c = gribs.Config(transition_policy="shock")
+
+    with pytest.raises(
+        NotImplementedError,
+        match=r"transition_policy.*shock.*not implemented",
+    ):
+        gribs.require_implemented_transition_policy(c)
+
+
+@pytest.mark.fast
+def test_jump_transition_policy_is_implemented():
+    """The current direct-switch model remains available."""
+    c = gribs.Config(transition_policy="jump")
+
+    assert gribs.require_implemented_transition_policy(c) is None
+
+
+@pytest.mark.fast
+def test_run_model_rejects_unimplemented_shock_transition_policy():
+    """The normal calculation path must reject the reserved shock model."""
+    source = ROOT / "gribs_config.json"
+    supplied = json.loads(source.read_text(encoding="utf-8"))
+    supplied["nozzle"]["transition_policy"] = "shock"
+    configuration = gribs.configuration_from_document(supplied)
+
+    with pytest.raises(
+        NotImplementedError,
+        match=r"transition_policy.*shock.*not implemented",
+    ):
+        gribs.run_model(configuration.config)

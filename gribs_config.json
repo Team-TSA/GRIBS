@@ -55,6 +55,7 @@
     "expansion_ratio": 1.0,
     "discharge_coefficient": 1.0,
     "thrust_efficiency": 1.0,
+    "transition_policy": "jump",
     "flow_separation": {
       "enabled": true,
       "pressure_ratio": 0.4

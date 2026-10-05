@@ -342,6 +342,7 @@ class Config:
     eps_nozzle: float = 1.0       # area ratio Ae/At (1.0 = converging nozzle)
     Cd: float = 1.0               # nozzle discharge coefficient [-]
     eta_thrust: float = 1.0       # thrust (momentum) efficiency [-]
+    transition_policy: str = "jump"  # 'jump' | 'shock' (shock reserved)
     use_separation: bool = True   # model overexpanded flow separation
     sep_ratio: float = 0.4        # Summerfield separation criterion pe/pa [-]
     ero_throat_c: float = 0.0     # throat erosion rate [m/s] at p_ref
@@ -2419,6 +2420,10 @@ def _event(fn, terminal=True, direction=0.0):
 def run_model(c: Config) -> dict:
     """Integrate the burning phase and (optionally) the blowdown phase."""
     validate(c)
+
+
+    require_implemented_transition_policy(c)
+
     At0 = math.pi * c.R_t0 ** 2
     Ae = c.eps_nozzle * At0                      # geometric exit area, fixed
     xw = web_thickness(c)
@@ -2516,7 +2521,18 @@ def validate(c: Config) -> None:
         raise ValueError("Require 0 < p_fit_min < p_fit_max.")
     if c.unchoked_policy not in ("switch", "stop"):
         raise ValueError("unchoked_policy must be 'switch' or 'stop'.")
+    if c.transition_policy not in ("jump", "shock"):
+        raise ValueError("transition_policy must be 'jump' or 'shock'.")
 
+
+def require_implemented_transition_policy(c: Config) -> None:
+    """Reject valid-but-not-yet-implemented nozzle transition models."""
+    if c.transition_policy == "shock":
+        raise NotImplementedError(
+            "nozzle.transition_policy = 'shock' is valid configuration syntax "
+            "but the internal-shock nozzle transition model is not implemented. "
+            "Use transition_policy = 'jump' for the current direct-switch model."
+        )
 
 # ==============================================================================
 # 8. POST-PROCESSING
@@ -4173,8 +4189,15 @@ _ERO_BURN_KEYS = ("enabled", "alpha", "beta")
 _REACTANT_KEYS = ("name", "wt_percent", "temperature_K", "density_kg_m3")
 _GRAIN_KEYS = ("initial_bore_radius_m", "outer_radius_m", "initial_length_m",
                "initial_free_volume_m3", "burning_end_faces")
-_NOZZLE_KEYS = ("initial_throat_radius_m", "expansion_ratio", "discharge_coefficient",
-                "thrust_efficiency", "flow_separation", "throat_erosion")
+_NOZZLE_KEYS = (
+    "initial_throat_radius_m",
+    "expansion_ratio",
+    "discharge_coefficient",
+    "thrust_efficiency",
+    "transition_policy",
+    "flow_separation",
+    "throat_erosion",
+)
 _SEPARATION_KEYS = ("enabled", "pressure_ratio")
 _THROAT_EROSION_KEYS = ("enabled", "rate_m_s_at_reference_pressure", "pressure_exponent")
 _ENV_KEYS = ("ambient_pressure_Pa", "initial_chamber_pressure_Pa")
@@ -4493,9 +4516,25 @@ def configuration_from_document(doc: dict) -> Configuration:
         eps_nozzle=float(_number(nozzle, "expansion_ratio", "nozzle", minimum=1.0)),
         Cd=float(_number(nozzle, "discharge_coefficient", "nozzle", exclusive_minimum=0.0)),
         eta_thrust=float(_number(nozzle, "thrust_efficiency", "nozzle", exclusive_minimum=0.0)),
-        use_separation=bool(_boolean(sep, "enabled", "nozzle.flow_separation")),
-        sep_ratio=float(_number(sep, "pressure_ratio", "nozzle.flow_separation",
-                                exclusive_minimum=0.0)),
+        transition_policy=str(_choice(
+            nozzle,
+            "transition_policy",
+            "nozzle",
+            ("jump", "shock"),
+            required=False,
+            default="jump",
+        )),
+        use_separation=bool(
+            _boolean(sep, "enabled", "nozzle.flow_separation")
+        ),
+        sep_ratio=float(
+            _number(
+                sep,
+                "pressure_ratio",
+                "nozzle.flow_separation",
+                exclusive_minimum=0.0,
+            )
+        ),
         ero_throat_c=(float(_number(tero, "rate_m_s_at_reference_pressure",
                                     "nozzle.throat_erosion", minimum=0.0))
                       if _boolean(tero, "enabled", "nozzle.throat_erosion") else 0.0),
