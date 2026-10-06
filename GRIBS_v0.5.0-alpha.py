@@ -248,10 +248,15 @@ TWO_PHASE_NOZZLE_ENTRAINMENT_CHOICES = ("complete",)
 
 BACKEND_CEA_PYTHON = "cea_python"
 BACKEND_CEA_LEGACY_EXECUTABLE = "cea_legacy_executable"
+BACKEND_REFERENCE_CONSTANT = "reference_constant"
 #: The complete set of selectable backends.  ``thermochemistry.backend`` is a
 #: required configuration key whose value must be one of these; the program never
 #: picks a backend on the user's behalf.
-KNOWN_BACKENDS = (BACKEND_CEA_PYTHON, BACKEND_CEA_LEGACY_EXECUTABLE)
+KNOWN_BACKENDS = (
+    BACKEND_CEA_PYTHON,
+    BACKEND_CEA_LEGACY_EXECUTABLE,
+    BACKEND_REFERENCE_CONSTANT,
+)
 #: Only used by the explicit v0.3 migration helper: the v0.3 name "cea2" meant
 #: "the external fcea2 executable", which is now named cea_legacy_executable.
 LEGACY_BACKEND_ALIASES = {"cea2": BACKEND_CEA_LEGACY_EXECUTABLE}
@@ -364,6 +369,11 @@ class Config:
     cea_rebuild_cache: bool = False
     cea_cache_dir: str = ""               # empty -> results/thermo_cache
 
+    # ---- reference_constant (Phase A-5 analytic reference) options ----
+    reference_temperature_K: float = 3000.0
+    reference_gamma: float = 1.2
+    reference_molecular_weight_kg_kmol: float = 25.0
+
     # ---- cea_python (official NASA CEA Python package) options ----
     cea_py_ions: bool = False
     cea_py_transport: bool = False
@@ -446,7 +456,12 @@ PARAM_DOC = {
     "ign_mdot": "igniter mass flow [kg/s]",
     "ign_time": "igniter duration [s]",
     "thermo_backend": ("mandatory explicit choice: 'cea_python' (official NASA CEA "
-                       "Python package) | 'cea_legacy_executable' (external fcea2)"),
+                       "Python package) | 'cea_legacy_executable' (external fcea2) | "
+                       "'reference_constant' (Phase A-5 analytic reference)"),
+    "reference_temperature_K": "reference_constant backend temperature [K]",
+    "reference_gamma": "reference_constant backend specific-heat ratio [-]",
+    "reference_molecular_weight_kg_kmol": (
+        "reference_constant backend molecular weight [kg/kmol]"),
     "cea_pressure_points": "number of logarithmic chamber-pressure grid points",
     "cea_cache_enabled": "reuse the reproducible chamber-property cache",
     "cea_rebuild_cache": "ignore and rebuild an existing chamber-property cache",
@@ -617,6 +632,29 @@ class ThermochemistryBackend:
 
     def metadata(self) -> Dict[str, Any]:
         raise NotImplementedError
+
+    def thermo_dump_table(self) -> Dict[str, List[float]]:
+        """Return deterministic chamber-property columns for --dump-thermo."""
+        table = getattr(self, "table", None)
+        if not isinstance(table, dict):
+            raise ThermochemistryError(
+                f"Backend {self.name!r} does not provide a thermochemistry dump."
+            )
+
+        keys = (
+            "pressure_Pa",
+            "temperature_K",
+            "gamma_s",
+            "gas_phase_molecular_weight_kg_kmol",
+            "gas_constant_J_kgK",
+            "gas_mass_fraction",
+            "condensed_mass_fraction",
+            "psi_J_kg",
+        )
+        return {
+            key: list(table.get(key, []))
+            for key in keys
+        }
 
     # -- convenience ---------------------------------------------------------
     def theta(self, pressure_pa: float) -> float:
@@ -2030,7 +2068,124 @@ class CEAPythonBackend(PressureTableBackend):
 
 
 # ------------------------------------------------------------------------------
-# 3.5 Backend factory and solver-facing accessors
+# 3.5 Constant-property analytic reference backend
+# ------------------------------------------------------------------------------
+class ReferenceConstantBackend(ThermochemistryBackend):
+    """Deterministic constant-property backend for Phase A-5 references.
+
+    This backend performs no CEA calculation and creates no property cache.
+    The gas is single-phase, with Yg = 1 and Yc = 0.  R, T0, gamma, Theta,
+    and Psi are independent of pressure, so their pressure derivatives vanish
+    exactly.  The backend is intended for analytic Level 0/1 verification, not
+    as a combustion-chemistry model.
+    """
+
+    name = BACKEND_REFERENCE_CONSTANT
+    uses_cea = False
+    supports_two_phase = True
+    equilibrium_formulation = (
+        "single-phase constant-property analytic reference"
+    )
+
+    def __init__(
+        self,
+        c: Config,
+        reactants: Sequence[ReactantSpec],
+        packing_fraction: float,
+    ):
+        self.c = c
+        self.reactants = list(reactants)
+        self.packing_fraction = float(packing_fraction)
+        self.ideal_mixture_density = ideal_mixture_density(self.reactants)
+        self.bulk_mixture_density = (
+            self.ideal_mixture_density * self.packing_fraction
+        )
+
+        self.pmin = float(c.p_fit_min)
+        self.pmax = float(c.p_fit_max)
+        self._temperature = float(c.reference_temperature_K) * float(c.eta_T0)
+        self._gamma = float(c.reference_gamma)
+        self._molecular_weight = float(
+            c.reference_molecular_weight_kg_kmol
+        )
+        self._gas_constant = R_UNIVERSAL / self._molecular_weight
+        self._theta = self._gas_constant * self._temperature
+
+        self.cache_path = None
+        self.cache_used = False
+        self.cache_written = False
+        self.property_validation = {
+            "passed": True,
+            "constant_properties": True,
+            "pressure_independent": True,
+        }
+
+    def props(self, pressure_pa: float) -> Tuple[float, float, float]:
+        return self._gas_constant, self._temperature, self._gamma
+
+    def theta_and_derivative(
+        self,
+        pressure_pa: float,
+    ) -> Tuple[float, float]:
+        return self._theta, 0.0
+
+    def psi_and_derivative(
+        self,
+        pressure_pa: float,
+    ) -> Tuple[float, float]:
+        return self._theta, 0.0
+
+    def phase_fractions(self, pressure_pa: float) -> Tuple[float, float]:
+        return 1.0, 0.0
+
+    def is_extrapolated(self, pressure_pa: float) -> bool:
+        return not (self.pmin <= float(pressure_pa) <= self.pmax)
+
+    @property
+    def outside_range_policy(self) -> str:
+        return self.c.property_policy
+
+    def metadata(self) -> Dict[str, Any]:
+        return {
+            "backend": self.name,
+            "uses_cea": False,
+            "constant_properties": True,
+            "analytic_reference_backend": True,
+            "temperature_K": self._temperature,
+            "gamma": self._gamma,
+            "molecular_weight_kg_kmol": self._molecular_weight,
+            "gas_constant_J_kgK": self._gas_constant,
+            "gas_mass_fraction": 1.0,
+            "condensed_mass_fraction": 0.0,
+            "equilibrium_formulation": self.equilibrium_formulation,
+            "pressure_range_Pa": [self.pmin, self.pmax],
+            "outside_range_policy": self.outside_range_policy,
+            "cache_enabled": False,
+        }
+
+    def thermo_dump_table(self) -> Dict[str, List[float]]:
+        """Return a two-point representation of the analytic constants."""
+        pressures = [self.pmin, self.pmax]
+        return {
+            "pressure_Pa": pressures,
+            "temperature_K": [self._temperature, self._temperature],
+            "gamma_s": [self._gamma, self._gamma],
+            "gas_phase_molecular_weight_kg_kmol": [
+                self._molecular_weight,
+                self._molecular_weight,
+            ],
+            "gas_constant_J_kgK": [
+                self._gas_constant,
+                self._gas_constant,
+            ],
+            "gas_mass_fraction": [1.0, 1.0],
+            "condensed_mass_fraction": [0.0, 0.0],
+            "psi_J_kg": [self._theta, self._theta],
+        }
+
+
+# ------------------------------------------------------------------------------
+# 3.6 Backend factory and solver-facing accessors
 # ------------------------------------------------------------------------------
 _THERMO: Optional[ThermochemistryBackend] = None
 
@@ -2048,6 +2203,8 @@ def build_backend(c: Config, reactants: Sequence[ReactantSpec],
         return CEAPythonBackend(c, reactants, packing_fraction, cache_root)
     if c.thermo_backend == BACKEND_CEA_LEGACY_EXECUTABLE:
         return CEALegacyExecutableBackend(c, reactants, packing_fraction, cache_root)
+    if c.thermo_backend == BACKEND_REFERENCE_CONSTANT:
+        return ReferenceConstantBackend(c, reactants, packing_fraction)
     if c.thermo_backend in REMOVED_BACKENDS:
         raise ConfigurationError(
             f"thermochemistry.backend: {c.thermo_backend!r} - "
@@ -4678,7 +4835,7 @@ _ROOT_KEYS = ("schema_version", "notes", "propellant", "grain", "nozzle",
 _TWO_PHASE_KEYS = ("mode", "condensed_volume", "nozzle_entrainment")
 _THERMO_ROOT_KEYS = ("backend", "temperature_efficiency", "outside_range_policy",
                      "pressure_range", "pressure_points", "cea_python",
-                     "cea_legacy_executable")
+                     "cea_legacy_executable", "reference_constant")
 _PROP_ROOT_KEYS = ("description", "packing_fraction", "reactants", "burn_law")
 _BURN_LAW_KEYS = ("coefficient_m_s", "pressure_exponent", "reference_pressure_Pa",
                   "temperature_sensitivity_1_K", "grain_temperature_K",
@@ -4708,6 +4865,11 @@ _CEA_PY_KEYS = ("ions", "transport", "trace", "products_from_reactants",
                 "cache_directory")
 _CEA_LEGACY_KEYS = ("executable", "data_directory", "timeout_s", "batch_size",
                     "trace", "cache_enabled", "rebuild_cache", "cache_directory")
+_REFERENCE_CONSTANT_KEYS = (
+    "temperature_K",
+    "gamma",
+    "molecular_weight_kg_kmol",
+)
 _SOLVER_KEYS = ("method", "relative_tolerance", "pressure_absolute_tolerance_Pa",
                 "burn_depth_absolute_tolerance_m", "burning_time_limit_s",
                 "maximum_burning_step_s", "unchoked_policy", "blowdown")
@@ -4892,6 +5054,18 @@ def configuration_from_document(doc: dict) -> Configuration:
                           required=(backend == BACKEND_CEA_LEGACY_EXECUTABLE))
     if cea_legacy is not None:
         _reject_unknown(cea_legacy, _CEA_LEGACY_KEYS, "thermochemistry.cea_legacy_executable")
+    reference_constant = _section(
+        th,
+        "reference_constant",
+        "thermochemistry",
+        required=(backend == BACKEND_REFERENCE_CONSTANT),
+    )
+    if reference_constant is not None:
+        _reject_unknown(
+            reference_constant,
+            _REFERENCE_CONSTANT_KEYS,
+            "thermochemistry.reference_constant",
+        )
 
     # Backend-specific defaults are only validated when the section is present, so
     # a cea_python configuration is never forced to carry fcea2 settings and vice
@@ -4953,6 +5127,35 @@ def configuration_from_document(doc: dict) -> Configuration:
                           required=False, default=False)
     py_cache_dir = _string(cea_py_block, "cache_directory", "thermochemistry.cea_python",
                            required=False, default="")
+
+    reference_block = _mapping(
+        reference_constant or {},
+        "thermochemistry.reference_constant",
+    )
+    reference_temperature = float(_number(
+        reference_block,
+        "temperature_K",
+        "thermochemistry.reference_constant",
+        required=(backend == BACKEND_REFERENCE_CONSTANT),
+        default=3000.0,
+        exclusive_minimum=0.0,
+    ))
+    reference_gamma = float(_number(
+        reference_block,
+        "gamma",
+        "thermochemistry.reference_constant",
+        required=(backend == BACKEND_REFERENCE_CONSTANT),
+        default=1.2,
+        exclusive_minimum=1.0,
+    ))
+    reference_molecular_weight = float(_number(
+        reference_block,
+        "molecular_weight_kg_kmol",
+        "thermochemistry.reference_constant",
+        required=(backend == BACKEND_REFERENCE_CONSTANT),
+        default=25.0,
+        exclusive_minimum=0.0,
+    ))
 
     legacy_block = _mapping(cea_legacy or {}, "thermochemistry.cea_legacy_executable")
     lg_exe = _string(legacy_block, "executable", "thermochemistry.cea_legacy_executable",
@@ -5047,6 +5250,9 @@ def configuration_from_document(doc: dict) -> Configuration:
         cea_cache_enabled=cache_enabled,
         cea_rebuild_cache=rebuild_cache,
         cea_cache_dir=cache_dir,
+        reference_temperature_K=reference_temperature,
+        reference_gamma=reference_gamma,
+        reference_molecular_weight_kg_kmol=reference_molecular_weight,
         cea_py_ions=bool(py_ions),
         cea_py_transport=bool(py_transport),
         cea_py_trace=float(py_trace),
@@ -5185,9 +5391,27 @@ def _print_backend_banner(cfg: Config, backend: ThermochemistryBackend) -> None:
     elif backend.name == BACKEND_CEA_LEGACY_EXECUTABLE:
         print("  COMPATIBILITY BACKEND (transitional, v0.4-alpha only).")
         print("  Prefer 'cea_python' (official package) for new work.")
-    print(f"  property table        : {backend.c.p_fit_min/1e5:g} - "
-          f"{backend.c.p_fit_max/1e5:g} bar, {backend.c.cea_pressure_points} points, "
-          f"eta_T0 = {backend.c.eta_T0:g}, policy = {backend.c.property_policy}")
+    elif backend.name == BACKEND_REFERENCE_CONSTANT:
+        print("  property model        : constant analytic properties")
+        print(
+            "  reference properties : "
+            f"T0 = {backend._temperature:g} K, "
+            f"gamma = {backend._gamma:g}, "
+            f"M = {backend._molecular_weight:g} kg/kmol"
+        )
+        print("  CEA used              : no")
+        print("  property cache        : disabled")
+        print(
+            f"  validity range        : {backend.pmin/1e5:g} - "
+            f"{backend.pmax/1e5:g} bar, "
+            f"policy = {backend.outside_range_policy}"
+        )
+    else:
+        print(f"  property table        : {backend.c.p_fit_min/1e5:g} - "
+              f"{backend.c.p_fit_max/1e5:g} bar, "
+              f"{backend.c.cea_pressure_points} points, "
+              f"eta_T0 = {backend.c.eta_T0:g}, "
+              f"policy = {backend.c.property_policy}")
     if getattr(backend, "cache_path", None):
         print(f"  cache file            : {backend.cache_path}")
         print(f"  cache reused          : {backend.cache_used}")
@@ -5261,18 +5485,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         payload = {
             "backend": backend.name,
             "provenance": backend.metadata(),
-            "pressure_Pa": list(backend.table.get("pressure_Pa", [])),
-            "temperature_K": list(backend.table.get("temperature_K", [])),
-            "gamma_s": list(backend.table.get("gamma_s", [])),
-            "gas_phase_molecular_weight_kg_kmol":
-                list(backend.table.get("gas_phase_molecular_weight_kg_kmol", [])),
-            "gas_constant_J_kgK": list(backend.table.get("gas_constant_J_kgK", [])),
-            "gas_mass_fraction": list(backend.table.get("gas_mass_fraction", [])),
-            "condensed_mass_fraction":
-                list(backend.table.get("condensed_mass_fraction", [])),
-            "psi_J_kg": list(backend.table.get("psi_J_kg", [])),
+            **backend.thermo_dump_table(),
         }
-        args.dump_thermo.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        args.dump_thermo.write_text(
+            json.dumps(payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
         print(f"Chamber-property table written to {args.dump_thermo}")
         return 0
 

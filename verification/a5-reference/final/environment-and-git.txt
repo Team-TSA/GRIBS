@@ -1,0 +1,16 @@
+2026-10-06T22:48:32+09:00
+Python 3.14.4
+pytest 9.1.1
+## phase-a-a5-reference-problems
+ M GRIBS_v0.5.0-alpha.py
+?? cases/reference/level1_end_faces_0.json
+?? cases/reference/level1_end_faces_1.json
+?? cases/reference/level1_end_faces_2.json
+?? tests/reference/test_reference_constant_backend.py
+?? verification/a5-reference/A5_DESIGN.md
+?? verification/a5-reference/final/environment-and-git.txt
+?? verification/a5-reference/final/json-validation.txt
+?? verification/a5-reference/final/py-compile-exit.txt
+?? verification/a5-reference/final/py-compile.txt
+37748de3841f9f7ab0c297c0890689848ec05ba0
+37748de3841f9f7ab0c297c0890689848ec05ba0
