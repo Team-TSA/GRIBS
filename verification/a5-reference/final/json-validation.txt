@@ -1,0 +1,3 @@
+cases/reference/level1_end_faces_0.json exit=0
+cases/reference/level1_end_faces_1.json exit=0
+cases/reference/level1_end_faces_2.json exit=0
