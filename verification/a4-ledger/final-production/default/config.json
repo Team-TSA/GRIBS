@@ -125,7 +125,7 @@
     }
   },
   "output": {
-    "directory": "results",
+    "directory": "verification/a4-ledger/final-production/default/results",
     "figure_filename": "ballistics.png",
     "history_filename": "time_history.csv",
     "summary_text_filename": "summary.txt",

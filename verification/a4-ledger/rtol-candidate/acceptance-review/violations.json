@@ -1,0 +1,127 @@
+{
+  "schema": "a4-rtol-candidate-violations-1",
+  "metadata_acceptance": null,
+  "row_count": 20,
+  "failed_row_count": 4,
+  "violation_count": 8,
+  "failed_rows": [
+    {
+      "setting": "cea_pressure_points",
+      "value": "21",
+      "comparison_kind": "convergence"
+    },
+    {
+      "setting": "cea_pressure_points",
+      "value": "41",
+      "comparison_kind": "convergence"
+    },
+    {
+      "setting": "cea_pressure_points",
+      "value": "81",
+      "comparison_kind": "convergence"
+    },
+    {
+      "setting": "rtol",
+      "value": "1e-06",
+      "comparison_kind": "convergence"
+    }
+  ],
+  "violations": [
+    {
+      "setting": "rtol",
+      "value": "1e-06",
+      "comparison_kind": "convergence",
+      "status": "PASS",
+      "reference_value": "1e-11",
+      "category": "relative",
+      "metric": "p_max_Pa",
+      "measured": 1.2771297302623438e-06,
+      "limit": 1e-06,
+      "ratio_to_limit": 1.2771297302623439
+    },
+    {
+      "setting": "rtol",
+      "value": "1e-06",
+      "comparison_kind": "convergence",
+      "status": "PASS",
+      "reference_value": "1e-11",
+      "category": "relative",
+      "metric": "F_max_N",
+      "measured": 1.3119576471638082e-06,
+      "limit": 1e-06,
+      "ratio_to_limit": 1.3119576471638084
+    },
+    {
+      "setting": "cea_pressure_points",
+      "value": "21",
+      "comparison_kind": "convergence",
+      "status": "PASS",
+      "reference_value": "161",
+      "category": "relative",
+      "metric": "burn_time_s",
+      "measured": 8.50434400596841e-06,
+      "limit": 1e-06,
+      "ratio_to_limit": 8.504344005968411
+    },
+    {
+      "setting": "cea_pressure_points",
+      "value": "21",
+      "comparison_kind": "convergence",
+      "status": "PASS",
+      "reference_value": "161",
+      "category": "relative",
+      "metric": "impulse_total_Ns",
+      "measured": 2.7543719889518697e-06,
+      "limit": 1e-06,
+      "ratio_to_limit": 2.7543719889518696
+    },
+    {
+      "setting": "cea_pressure_points",
+      "value": "41",
+      "comparison_kind": "convergence",
+      "status": "PASS",
+      "reference_value": "161",
+      "category": "relative",
+      "metric": "burn_time_s",
+      "measured": 2.8181389955399643e-05,
+      "limit": 1e-06,
+      "ratio_to_limit": 28.181389955399645
+    },
+    {
+      "setting": "cea_pressure_points",
+      "value": "41",
+      "comparison_kind": "convergence",
+      "status": "PASS",
+      "reference_value": "161",
+      "category": "relative",
+      "metric": "impulse_total_Ns",
+      "measured": 8.599723375317607e-06,
+      "limit": 1e-06,
+      "ratio_to_limit": 8.599723375317607
+    },
+    {
+      "setting": "cea_pressure_points",
+      "value": "81",
+      "comparison_kind": "convergence",
+      "status": "PASS",
+      "reference_value": "161",
+      "category": "relative",
+      "metric": "burn_time_s",
+      "measured": 9.448954226523935e-06,
+      "limit": 1e-06,
+      "ratio_to_limit": 9.448954226523936
+    },
+    {
+      "setting": "cea_pressure_points",
+      "value": "81",
+      "comparison_kind": "convergence",
+      "status": "PASS",
+      "reference_value": "161",
+      "category": "relative",
+      "metric": "impulse_total_Ns",
+      "measured": 2.9106306817427547e-06,
+      "limit": 1e-06,
+      "ratio_to_limit": 2.910630681742755
+    }
+  ]
+}
