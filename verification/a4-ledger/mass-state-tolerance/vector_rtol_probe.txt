@@ -1,0 +1,17 @@
+
+[LSODA]
+accepted_vector_rtol=True
+success=True
+message=The solver successfully reached the end of the integration interval.
+nfev=121
+final=[0.3678794411708338, 0.2706705664682645]
+exact=[0.36787944117144233, 0.2706705664732254]
+relative_error=[1.654110482117058e-12, 1.8328260172041208e-11]
+
+[BDF]
+accepted_vector_rtol=False
+exception=ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()
+
+[Radau]
+accepted_vector_rtol=False
+exception=ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()

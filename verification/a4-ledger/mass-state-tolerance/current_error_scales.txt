@@ -1,0 +1,12 @@
+configured_rtol=1.0000000000000001e-09
+mass_state_atol=9.9999999999999998e-13
+m_gen_final_kg=6.2031184769999997e-02
+m_igniter_final_kg=2.0000000000000000e-03
+m_gen_relative_error_scale_kg=6.2031184769999998e-11
+m_gen_total_error_scale_kg=6.3031184769999994e-11
+m_igniter_relative_error_scale_kg=2.0000000000000004e-12
+m_igniter_total_error_scale_kg=3.0000000000000001e-12
+propellant_signed_residual_kg=1.1181154613293387e-10
+propellant_relative_residual=1.8625577152312386e-09
+m_gen_relative_term_over_atol=6.2031184769999996e+01
+m_igniter_relative_term_over_atol=2.0000000000000004e+00

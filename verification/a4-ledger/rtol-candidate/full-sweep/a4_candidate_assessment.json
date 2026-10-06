@@ -1,0 +1,19 @@
+{
+  "schema": "a4-rtol-candidate-assessment-1",
+  "candidate_default_rtol": 1e-10,
+  "row_count": 20,
+  "failed_case_count": 0,
+  "all_required_metrics_finite": true,
+  "rtol_1e-10_case_found": true,
+  "rtol_1e-10_case": {
+    "status": "PASS",
+    "p_max_Pa": 3168091.98049835,
+    "burn_time_s": 11.23604237447096,
+    "F_max_N": 26.901139823064007,
+    "impulse_total_Ns": 131.5111248533997,
+    "total_mass_consistency_error": 9.432903467396914e-08,
+    "propellant_mass_balance_error": 1.472169053329253e-10
+  },
+  "metadata_available": true,
+  "passed": true
+}

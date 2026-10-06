@@ -71,8 +71,8 @@
     "initial_chamber_pressure_Pa": 200000.0
   },
   "igniter": {
-    "mass_flow_kg_s": 0.0,
-    "duration_s": 0.0
+    "mass_flow_kg_s": 0.02,
+    "duration_s": 0.1
   },
   "thermochemistry": {
     "backend": "cea_python",
@@ -111,7 +111,7 @@
     }
   },
   "solver": {
-    "method": "LSODA",
+    "method": "BDF",
     "relative_tolerance": 1e-10,
     "pressure_absolute_tolerance_Pa": 0.001,
     "burn_depth_absolute_tolerance_m": 1e-13,
@@ -125,7 +125,7 @@
     }
   },
   "output": {
-    "directory": "results",
+    "directory": "verification/a4-ledger/final-production/igniter-bdf/results",
     "figure_filename": "ballistics.png",
     "history_filename": "time_history.csv",
     "summary_text_filename": "summary.txt",

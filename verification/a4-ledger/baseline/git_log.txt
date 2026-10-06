@@ -1,0 +1,5 @@
+f12be54 (HEAD -> phase-a-a4-mass-energy-ledger, origin/phase-a-foundation, phase-a-foundation) Merge pull request #4 from Team-TSA/phase-a-a3-convergence-harness
+eb52158 feat: add Phase A-3 convergence harness
+955d0d3 Merge pull request #3 from Team-TSA/phase-a-a2-nozzle-transition
+c5826dc test: record final Phase A-2 verification
+057ee91 docs: preserve Phase A verification specifications

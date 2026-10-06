@@ -137,7 +137,8 @@ THERMOCHEMISTRY BACKENDS  (v0.4)
 --------------------------------------------------------------------------------
 NUMERICS
 --------------------------------------------------------------------------------
-  State y = [p0, x, Rt, m_out_total, Impulse, m_gen_total] integrated with
+  State y = [p0, x, Rt, m_out_total, Impulse, m_gen_total,
+  m_igniter_total] integrated with
   solve_ivp (LSODA/BDF/Radau, dense output, tight tolerances).  The integrated
   mass quadratures are TOTAL product masses (gas + condensed) in the
   homogeneous-equilibrium mode.  Quadratures for impulse and integrated masses
@@ -407,7 +408,7 @@ class Config:
 
     # ---------------- solver ----------------
     method: str = "LSODA"         # LSODA | BDF | Radau
-    rtol: float = 1.0e-9
+    rtol: float = 1.0e-10
     atol_p: float = 1.0e-3        # [Pa]
     atol_x: float = 1.0e-13       # [m]
     t_max: float = 600.0          # integration horizon of the burning phase [s]
@@ -2363,7 +2364,8 @@ def equilibrium_pressure(Ab: float, Ri: float, At: float, Ae: float,
 
 # ==============================================================================
 # 7. ODE SYSTEM
-#    y = [p0, x, Rt, m_out_total, Impulse, m_gen_total]
+#    y = [p0, x, Rt, m_out_total, Impulse, m_gen_total,
+#         m_igniter_total]
 #    The mass quadratures are TOTAL product masses (gas + condensed) in the
 #    homogeneous-equilibrium mode.  Pressure equation (two-phase model B):
 #      dp0/dt = [ Psi*(mdot_gen_total - mdot_out_total) - p0*Ab*r ]
@@ -2371,11 +2373,17 @@ def equilibrium_pressure(Ab: float, Ri: float, At: float, Ae: float,
 #    with Psi = Yg*Rg*T0 and the ANALYTIC dPsi/dp.  In the single-phase legacy
 #    mode Psi := Theta = Rg*T0 (exact v0.4.3-alpha behaviour).
 # ==============================================================================
-IP, IX, IRT, IMO, IIMP, IMG = range(6)
+IP, IX, IRT, IMO, IIMP, IMG, IMIGN = range(7)
 
 
 def igniter_mdot(t: float, c: Config) -> float:
     return c.ign_mdot if (c.ign_time > 0.0 and t <= c.ign_time) else 0.0
+
+
+def igniter_injected_mass(c: Config, simulation_end_s: float) -> float:
+    """Return the igniter mass admitted over the simulated time interval."""
+    duration = min(max(float(simulation_end_s), 0.0), max(c.ign_time, 0.0))
+    return max(c.ign_mdot, 0.0) * duration
 
 
 def make_rhs(c: Config, Ae: float, burning: bool) -> Callable:
@@ -2406,7 +2414,15 @@ def make_rhs(c: Config, Ae: float, burning: bool) -> Callable:
 
         dp = (psi * (m_gen_total - nz["mdot_total"]) - p0 * Ab * r) / denom
         dRt = c.ero_throat_c * (p0 / c.p_ref) ** c.ero_throat_m
-        return np.array([dp, r, dRt, nz["mdot_total"], nz["F"], m_gen_total])
+        return np.array([
+            dp,
+            r,
+            dRt,
+            nz["mdot_total"],
+            nz["F"],
+            m_gen_total,
+            igniter_mdot(t, c),
+        ])
 
     return rhs
 
@@ -2435,7 +2451,15 @@ def run_model(c: Config) -> dict:
 
     theta0, _ = theta_and_deriv(c.p0_init, c)
     psi0, _ = psi_and_deriv(c.p0_init, c)
-    y0 = np.array([c.p0_init, 0.0, c.R_t0, 0.0, 0.0, 0.0])
+    y0 = np.array([
+        c.p0_init,
+        0.0,
+        c.R_t0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    ])
     # Initial chamber inventory as TOTAL product mass:
     #   mt0 = p0*Vg0/Psi(p0)   (two-phase mode; Psi = Yg*Rg*T0)
     #   m0  = p0*Vg0/Theta(p0) (single-phase legacy mode)
@@ -2446,7 +2470,15 @@ def run_model(c: Config) -> dict:
     m_total0 = c.p0_init * c.V_g0 / psi0
     m_gas0 = c.p0_init * c.V_g0 / theta0      # diagnostic (legacy-basis value)
 
-    atol = np.array([c.atol_p, c.atol_x, 1e-14, 1e-12, 1e-9, 1e-12])
+    atol = np.array([
+        c.atol_p,
+        c.atol_x,
+        1e-14,
+        1e-12,
+        1e-9,
+        1e-12,
+        1e-12,
+    ])
 
     ev_burn = _event(lambda t, y: y[IX] - xw, True, +1.0)
     ev_unch = _event(lambda t, y: choke_margin(max(y[IP], 1.0),
@@ -2563,6 +2595,7 @@ def sample(res: dict, c: Config) -> dict:
       mdot_gen_total        generated TOTAL product mass flow [kg/s]
       mdot_out_total/gas/condensed  nozzle outflow decomposition [kg/s]
       m_gen, m_out          integrated TOTAL product masses [kg] (ODE states)
+      m_igniter           integrated igniter-source mass [kg] (ODE state)
       m_total_eos           TOTAL product mass from the EOS: p0*Vg/Psi(p0) [kg]
                             (replaces the v0.4.3 column m_gas_eos, whose meaning
                             changed - the old name is deliberately NOT kept)
@@ -2583,7 +2616,8 @@ def sample(res: dict, c: Config) -> dict:
             "r", "mdot_gen_total", "mdot_out_total", "mdot_out_gas",
             "mdot_out_condensed", "F", "Me", "pe", "ve", "regime",
             "R", "T0", "gamma", "Y_gas", "Y_condensed", "Psi",
-            "m_out", "impulse", "m_gen", "m_total_eos", "m_total_balance",
+            "m_out", "impulse", "m_gen", "m_igniter",
+            "m_total_eos", "m_total_balance",
             "m_gas_equilibrium", "m_condensed", "extrap", "cstar", "CF")}
 
     first = True
@@ -2605,9 +2639,11 @@ def sample(res: dict, c: Config) -> dict:
             nz = nozzle_state(p0, At, Ae, c)
             if phase == "burn":
                 r = burn_rate(p0, c, Ab, Ri)
-                m_gen_rate = c.rho_p * r * Ab + igniter_mdot(t, c)
             else:
-                r, Ab, m_gen_rate = 0.0, 0.0, 0.0
+                r, Ab = 0.0, 0.0
+            # Match make_rhs(): igniter injection is part of the total
+            # generated-product rate in every integrated phase.
+            m_gen_rate = c.rho_p * r * Ab + igniter_mdot(t, c)
             m_total_eos = p0 * Vg / psi
             m_total_bal = res["m_total0"] + float(ys[IMG, k]) - float(ys[IMO, k])
 
@@ -2630,6 +2666,7 @@ def sample(res: dict, c: Config) -> dict:
             rec["m_out"].append(float(ys[IMO, k]))
             rec["impulse"].append(float(ys[IIMP, k]))
             rec["m_gen"].append(float(ys[IMG, k]))
+            rec["m_igniter"].append(float(ys[IMIGN, k]))
             rec["m_total_eos"].append(m_total_eos)
             rec["m_total_balance"].append(m_total_bal)
             rec["m_gas_equilibrium"].append(Yg * m_total_eos)
@@ -2850,6 +2887,7 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
 
     backend = thermochemistry()
     pv_table = getattr(backend, "property_validation", {})
+    ledger = mass_energy_ledger(res, h, c)
     two_phase_active = (c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
                         and bool(getattr(backend, "supports_two_phase", False)))
     s = dict(
@@ -2881,6 +2919,8 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
         throat_radius_final_mm=float(h["Rt"][-1]) * 1e3,
         propellant_mass_balance_error=abs(m_gen_tot / m_prop - 1.0) if m_prop > 0 else float("nan"),
         total_mass_consistency_error=mass_err,
+        # ---------------- Phase A-4 ledger ----------------
+        ledger=ledger,
         # ---------------- two-phase model ----------------
         two_phase_model={
             "mode": c.two_phase_mode,
@@ -2950,6 +2990,160 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
         event_times=res["t_events"],
     )
     return s
+
+
+MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE = 1.0e-6
+MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE = 1.0e-9
+
+
+def mass_energy_ledger(res: dict, h: dict, c: Config) -> dict:
+    """Build the Phase A-4 mass ledger and energy-availability metadata."""
+    tiny = 1.0e-30
+
+    t = np.asarray(h["t"], dtype=float)
+    x = np.asarray(h["x"], dtype=float)
+    if t.size == 0 or x.size == 0:
+        raise ValueError("The mass ledger requires a non-empty history.")
+    if t.size != x.size:
+        raise ValueError("Ledger history arrays t and x must have equal length.")
+
+    igniter_commanded = max(c.ign_mdot, 0.0) * max(c.ign_time, 0.0)
+    igniter_history = np.asarray(h["m_igniter"], dtype=float)
+    if igniter_history.shape != t.shape:
+        raise ValueError(
+            "Ledger history array m_igniter must match the time array."
+        )
+    igniter_injected = float(igniter_history[-1])
+
+    initial_chamber = float(res["m_total0"])
+    generated_total = float(np.asarray(h["m_gen"], dtype=float)[-1])
+    generated_propellant = generated_total - igniter_injected
+    discharged_total = float(np.asarray(h["m_out"], dtype=float)[-1])
+    final_chamber = float(np.asarray(h["m_total_eos"], dtype=float)[-1])
+
+    initial_propellant = propellant_mass(c)
+    xw = web_thickness(c)
+    x_final = min(max(float(x[-1]), 0.0), xw)
+    Ri = min(c.R_i0 + x_final, c.R_p)
+    Lp = max(c.L_p0 - c.n_end * x_final, 0.0)
+    remaining_volume = (
+        math.pi
+        * max(c.R_p * c.R_p - Ri * Ri, 0.0)
+        * Lp
+    )
+    final_unburned = c.rho_p * remaining_volume
+    burned_geometry = initial_propellant - final_unburned
+
+    total_signed = (
+        initial_chamber
+        + generated_total
+        - discharged_total
+        - final_chamber
+    )
+    total_scale = max(
+        abs(initial_chamber + generated_total),
+        tiny,
+    )
+    total_relative = abs(total_signed) / total_scale
+
+    propellant_signed = generated_propellant - burned_geometry
+    propellant_scale = max(abs(initial_propellant), tiny)
+    propellant_relative = abs(propellant_signed) / propellant_scale
+
+    mdot_total = np.asarray(h["mdot_out_total"], dtype=float)
+    mdot_gas = np.asarray(h["mdot_out_gas"], dtype=float)
+    mdot_condensed = np.asarray(
+        h["mdot_out_condensed"],
+        dtype=float,
+    )
+    expected_shape = t.shape
+    for name, values in (
+        ("mdot_out_total", mdot_total),
+        ("mdot_out_gas", mdot_gas),
+        ("mdot_out_condensed", mdot_condensed),
+    ):
+        if values.shape != expected_shape:
+            raise ValueError(
+                f"Ledger history array {name} must match the time array."
+            )
+
+    total_quadrature = float(_TRAPZ(mdot_total, t))
+    gas_quadrature = float(_TRAPZ(mdot_gas, t))
+    condensed_quadrature = float(_TRAPZ(mdot_condensed, t))
+    quadrature_scale = max(abs(discharged_total), tiny)
+    quadrature_mismatch = (
+        abs(total_quadrature - discharged_total) / quadrature_scale
+    )
+
+    total_passed = bool(
+        total_relative <= MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE
+    )
+    propellant_passed = bool(
+        propellant_relative
+        <= MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE
+    )
+    mass_passed = bool(total_passed and propellant_passed)
+
+    mass = {
+        "basis": "total_product_mass",
+        "initial_chamber_inventory_kg": initial_chamber,
+        "generated_mass_total_kg": generated_total,
+        "generated_mass_propellant_kg": generated_propellant,
+        "igniter_mass_commanded_kg": igniter_commanded,
+        "igniter_mass_injected_kg": igniter_injected,
+        "discharged_mass_total_kg": discharged_total,
+        "final_chamber_inventory_kg": final_chamber,
+        "initial_propellant_mass_kg": initial_propellant,
+        "final_unburned_propellant_kg": final_unburned,
+        "burned_propellant_geometry_kg": burned_geometry,
+        "total_system": {
+            "signed_residual_kg": total_signed,
+            "relative_residual": total_relative,
+            "tolerance": MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE,
+            "passed": total_passed,
+        },
+        "propellant": {
+            "signed_residual_kg": propellant_signed,
+            "relative_residual": propellant_relative,
+            "tolerance": MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE,
+            "passed": propellant_passed,
+        },
+        "phase_discharge_diagnostic": {
+            "method": "sampled_history_trapezoid",
+            "grid_dependent": True,
+            "gas_mass_kg": gas_quadrature,
+            "condensed_mass_kg": condensed_quadrature,
+            "total_quadrature_mass_kg": total_quadrature,
+            "ode_total_mass_kg": discharged_total,
+            "relative_quadrature_mismatch": quadrature_mismatch,
+        },
+        "passed": mass_passed,
+    }
+
+    energy = {
+        "available": False,
+        "closure_residual_available": False,
+        "reason": (
+            "No independent energy state is integrated by the current "
+            "GRIBS model."
+        ),
+        "model": {
+            "equilibrium_constraint": "HP (assigned enthalpy and pressure)",
+            "temperature_treatment": (
+                "T0 is the CEA equilibrium temperature multiplied by eta_T0."
+            ),
+            "psi_definition": "Psi = Y_gas * R_gas * T0",
+            "state_relation": "p0 * Vg = m_total * Psi",
+            "state_relation_is_energy_closure": False,
+        },
+    }
+
+    return {
+        "schema_version": "a4-ledger-1",
+        "mass": mass,
+        "energy": energy,
+        "passed": mass_passed,
+    }
 
 
 # ==============================================================================
@@ -3142,7 +3336,15 @@ def self_tests(c: Config, verbose=True) -> bool:
         # T6 finite and physical right-hand side at t = 0
         try:
             dy = make_rhs(c, c.eps_nozzle * math.pi * c.R_t0 ** 2, True)(
-                0.0, np.array([c.p0_init, 0.0, c.R_t0, 0.0, 0.0, 0.0]))
+                0.0, np.array([
+                    c.p0_init,
+                    0.0,
+                    c.R_t0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ]))
             chk("finite initial derivatives", np.all(np.isfinite(dy)),
                 f"dp/dt = {dy[0]:+.3e} Pa/s, r = {dy[1]:.3e} m/s")
         except Exception as exc:                              # pragma: no cover
@@ -3251,8 +3453,15 @@ def self_tests(c: Config, verbose=True) -> bool:
                 e_dpsi = max(e_dpsi, abs(dpsi_h / dth_l - 1.0))
             else:
                 e_dpsi = max(e_dpsi, abs(dpsi_h - dth_l))
-            y0 = np.array([float(p), 0.3 * web_thickness(c_hom), c.R_t0,
-                           1e-5, 1e-4, 2e-5])
+            y0 = np.array([
+                float(p),
+                0.3 * web_thickness(c_hom),
+                c.R_t0,
+                1e-5,
+                1e-4,
+                2e-5,
+                0.0,
+            ])
             dy_h = make_rhs(c_hom, Ae, True)(0.0, y0)
             dy_l = make_rhs(c_leg, Ae, True)(0.0, y0)
             e_rhs = max(e_rhs, float(np.max(np.abs(dy_h - dy_l)
@@ -3321,7 +3530,7 @@ def self_tests(c: Config, verbose=True) -> bool:
 
 
 #: Tolerance of the post-simulation mass-conservation tests.  The integrated
-#: mass quadratures inherit the ODE error control (rtol ~ 1e-9), so a relative
+#: mass quadratures inherit the ODE error control (default rtol = 1e-10), so a relative
 #: consistency of 1e-6 is far above the numerical noise floor while still
 #: catching structural mass-basis errors (which are O(1) or O(Yc)).
 POST_RUN_MASS_TOLERANCE = 1.0e-6
@@ -3798,7 +4007,8 @@ def make_figure(res, h, s, c: Config, path: Path, cea_diag: Optional[dict] = Non
 #: basis: gas + condensed).  m_gen / m_out are the integrated TOTAL masses.
 CSV_COLUMNS = ["t", "phase", "p0", "x", "Ri", "Lp", "Ab", "Vg", "Kn", "Rt", "At",
                "r", "mdot_gen_total", "mdot_out_total", "mdot_out_gas",
-               "mdot_out_condensed", "m_gen", "m_out", "m_total_eos",
+               "mdot_out_condensed", "m_gen", "m_igniter", "m_out",
+               "m_total_eos",
                "m_total_balance", "m_gas_equilibrium", "m_condensed",
                "Y_gas", "Y_condensed", "Psi",
                "regime", "Me", "pe", "ve", "F", "impulse",
@@ -3807,7 +4017,7 @@ CSV_UNITS = {"t": "s", "p0": "Pa", "x": "m", "Ri": "m", "Lp": "m", "Ab": "m2",
              "Vg": "m3", "Kn": "-", "Rt": "m", "At": "m2", "r": "m/s",
              "mdot_gen_total": "kg/s", "mdot_out_total": "kg/s",
              "mdot_out_gas": "kg/s", "mdot_out_condensed": "kg/s",
-             "m_gen": "kg", "m_out": "kg",
+             "m_gen": "kg", "m_igniter": "kg", "m_out": "kg",
              "m_total_eos": "kg", "m_total_balance": "kg",
              "m_gas_equilibrium": "kg", "m_condensed": "kg",
              "Y_gas": "-", "Y_condensed": "-", "Psi": "J/kg",
@@ -4013,8 +4223,71 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
     ):
         A(line)
     A("")
+    A("[ mass ledger ]")
+    ledger = s["ledger"]
+    mass = ledger["mass"]
+    total = mass["total_system"]
+    propellant = mass["propellant"]
+    phase = mass["phase_discharge_diagnostic"]
+    A(f"  basis                            : {mass['basis']}")
+    A(f"  initial chamber inventory        : "
+      f"{mass['initial_chamber_inventory_kg']:.9e} kg")
+    A(f"  generated products, total        : "
+      f"{mass['generated_mass_total_kg']:.9e} kg")
+    A(f"    propellant-derived             : "
+      f"{mass['generated_mass_propellant_kg']:.9e} kg")
+    A(f"    igniter-derived, injected      : "
+      f"{mass['igniter_mass_injected_kg']:.9e} kg")
+    A(f"    igniter charge, commanded      : "
+      f"{mass['igniter_mass_commanded_kg']:.9e} kg")
+    A(f"  discharged products, ODE state   : "
+      f"{mass['discharged_mass_total_kg']:.9e} kg")
+    A(f"  final chamber inventory, EOS     : "
+      f"{mass['final_chamber_inventory_kg']:.9e} kg")
+    A(f"  initial solid propellant         : "
+      f"{mass['initial_propellant_mass_kg']:.9e} kg")
+    A(f"  final unburned propellant        : "
+      f"{mass['final_unburned_propellant_kg']:.9e} kg")
+    A(f"  burned propellant, geometry      : "
+      f"{mass['burned_propellant_geometry_kg']:.9e} kg")
+    A(f"  total-system signed residual     : "
+      f"{total['signed_residual_kg']:+.9e} kg")
+    A(f"  total-system relative residual   : "
+      f"{total['relative_residual']:.3e} "
+      f"(limit {total['tolerance']:.1e}, "
+      f"{'PASS' if total['passed'] else 'FAIL'})")
+    A(f"  propellant signed residual       : "
+      f"{propellant['signed_residual_kg']:+.9e} kg")
+    A(f"  propellant relative residual     : "
+      f"{propellant['relative_residual']:.3e} "
+      f"(limit {propellant['tolerance']:.1e}, "
+      f"{'PASS' if propellant['passed'] else 'FAIL'})")
+    A(f"  phase-discharge diagnostic       : {phase['method']} "
+      f"(grid dependent)")
+    A(f"    gas / condensed                : "
+      f"{phase['gas_mass_kg']:.9e} / "
+      f"{phase['condensed_mass_kg']:.9e} kg")
+    A(f"    quadrature mismatch            : "
+      f"{phase['relative_quadrature_mismatch']:.3e}")
+    A(f"  mass-ledger result               : "
+      f"{'PASS' if mass['passed'] else 'FAIL'}")
+    A("")
+    A("[ energy ledger ]")
+    energy = ledger["energy"]
+    A(f"  closure residual available       : "
+      f"{energy['closure_residual_available']}")
+    A(f"  reason                           : {energy['reason']}")
+    A(f"  equilibrium constraint           : "
+      f"{energy['model']['equilibrium_constraint']}")
+    A(f"  temperature treatment            : "
+      f"{energy['model']['temperature_treatment']}")
+    A(f"  state relation                   : "
+      f"{energy['model']['state_relation']}")
+    A("  NOTE: the state relation is not a complete energy-conservation law.")
+    A("")
     A("[ verification ]")
-    A(f"  propellant mass balance error    : {s['propellant_mass_balance_error']:.3e}")
+    A(f"  legacy propellant balance metric : "
+      f"{s['propellant_mass_balance_error']:.3e}")
     A(f"  total-mass (EOS vs balance) error: {s['total_mass_consistency_error']:.3e}")
     A(f"  property-range extrapolation used: {s['property_extrapolation']}"
       f"   (policy = {c.property_policy})")

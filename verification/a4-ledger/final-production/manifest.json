@@ -1,0 +1,34 @@
+[
+  {
+    "case": "default",
+    "method": "LSODA",
+    "igniter_mass_flow_kg_s": 0.0,
+    "igniter_duration_s": 0.0,
+    "relative_tolerance": 1e-10,
+    "config": "verification/a4-ledger/final-production/default/config.json"
+  },
+  {
+    "case": "igniter-lsoda",
+    "method": "LSODA",
+    "igniter_mass_flow_kg_s": 0.02,
+    "igniter_duration_s": 0.1,
+    "relative_tolerance": 1e-10,
+    "config": "verification/a4-ledger/final-production/igniter-lsoda/config.json"
+  },
+  {
+    "case": "igniter-bdf",
+    "method": "BDF",
+    "igniter_mass_flow_kg_s": 0.02,
+    "igniter_duration_s": 0.1,
+    "relative_tolerance": 1e-10,
+    "config": "verification/a4-ledger/final-production/igniter-bdf/config.json"
+  },
+  {
+    "case": "igniter-radau",
+    "method": "Radau",
+    "igniter_mass_flow_kg_s": 0.02,
+    "igniter_duration_s": 0.1,
+    "relative_tolerance": 1e-10,
+    "config": "verification/a4-ledger/final-production/igniter-radau/config.json"
+  }
+]
