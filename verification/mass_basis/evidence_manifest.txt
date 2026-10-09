@@ -1,0 +1,33 @@
+GRIBS Phase A-5.1-0 Evidence Manifest
+=====================================
+
+purpose=Freeze the pre-fix evidence for the CEA mass-basis audit.
+scope=Evidence preservation only; no product-code modification.
+gate=G0
+created_utc=2026-10-09T01:12:02Z
+branch=phase-a-a5-1-cea-mass-basis-audit
+baseline_head=2eb2ce596fc6f720b14b60afff63b98576ca9ad2
+cea_version=3.3.4
+cea_R_J_per_kmol_K=8314.51
+python_version=Python 3.14.4
+pytest_result=75 passed in 18.54s
+pytest_exit=0
+git_diff_check_exit=0
+high_condensation_AP_Al_case=not_available
+high_condensation_scope_status=out_of_scope_pending_complete_input_and_output
+
+Frozen source evidence SHA-256:
+235561ada2b13aa7bc16eb85bae6c99e6c7a0fbaffa53a4ea68cc56a2082b657  verification/mass_basis/gribs_mass_basis_review_context.txt
+47d314848dd93e84e207af818eed293574515c7d09ec568649524094be35cfde  verification/mass_basis/gribs_thermo_dump_before_mass_basis_fix.json
+
+Evidence files:
+environment.txt
+evidence_manifest.txt
+evidence_sha256.txt
+git_baseline.txt
+git_diff_check_exit.txt
+git_diff_check.txt
+gribs_mass_basis_review_context.txt
+gribs_thermo_dump_before_mass_basis_fix.json
+pytest_baseline.txt
+pytest_exit.txt

@@ -1,0 +1,21 @@
+timestamp_utc=2026-10-09T01:11:42Z
+VIRTUAL_ENV=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv
+python_executable=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/bin/python
+Python 3.14.4
+platform=Linux-7.0.0-34-generic-x86_64-with-glibc2.43
+numpy=2.5.3
+numpy_path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/numpy/__init__.py
+scipy=1.18.1
+scipy_path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/scipy/__init__.py
+matplotlib=3.11.2
+matplotlib_path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/matplotlib/__init__.py
+pytest=9.1.1
+pytest_path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/pytest/__init__.py
+cea_lib_version=3.3.4
+cea_R=8314.51
+cea_path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py
+
+--- CEA support files ---
+1c9a36d7684b4e3434397a4083157a113c51ce871461c49c8482952b7a8c9b7b  fcea2
+e417b3a173958a69d15b1ab41395e328ac1d314a1ee8e134822e0aa5f2374a09  thermo.lib
+c203d9330746405e1b57008cd697354745ab991694b4ca11ed556b18cb834111  trans.lib

@@ -1,0 +1,37 @@
+timestamp_utc=2026-10-09T01:11:42Z
+repository=/home/hikaru-kurokawa/Rocket/GRIBS-dev
+branch=phase-a-a5-1-cea-mass-basis-audit
+head=2eb2ce596fc6f720b14b60afff63b98576ca9ad2
+head_description=2eb2ce596fc6f720b14b60afff63b98576ca9ad2 | 2026-10-06 | Hikaru Kurokawa | Merge pull request #6 from Team-TSA/phase-a-a5-reference-problems
+upstream=<none>
+
+--- status ---
+## phase-a-a5-1-cea-mass-basis-audit
+?? verification/mass_basis/
+
+--- worktrees ---
+worktree /home/hikaru-kurokawa/Rocket/GRIBS-dev
+HEAD 2eb2ce596fc6f720b14b60afff63b98576ca9ad2
+branch refs/heads/phase-a-a5-1-cea-mass-basis-audit
+
+
+--- recent history ---
+*   2eb2ce5 (HEAD -> phase-a-a5-1-cea-mass-basis-audit, origin/phase-a-foundation, phase-a-foundation) Merge pull request #6 from Team-TSA/phase-a-a5-reference-problems
+|\
+| * 35b599c feat: add Phase A-5 reference problems
+|/
+*   37748de Merge pull request #5 from Team-TSA/phase-a-a4-mass-energy-ledger
+|\
+| * 648c942 feat: add Phase A-4 mass and energy ledger
+|/
+*   f12be54 Merge pull request #4 from Team-TSA/phase-a-a3-convergence-harness
+|\
+| * eb52158 feat: add Phase A-3 convergence harness
+|/
+*   955d0d3 Merge pull request #3 from Team-TSA/phase-a-a2-nozzle-transition
+|\
+| * c5826dc test: record final Phase A-2 verification
+| * 057ee91 docs: preserve Phase A verification specifications
+| * e451e43 feat: report nozzle transition diagnostics
+| * 26641dd feat: add nozzle transition policy guard
+| * c45d917 fix: classify nozzle transition continuity by geometry

@@ -1,0 +1,171 @@
+=== timestamp ===
+2026-10-07T12:02:51+09:00
+
+=== git status ===
+## phase-a-foundation...origin/phase-a-foundation
+?? gribs_mass_basis_review_context.txt
+
+=== git head and recent history ===
+2eb2ce596fc6f720b14b60afff63b98576ca9ad2
+2eb2ce5 (HEAD -> phase-a-foundation, origin/phase-a-foundation) Merge pull request #6 from Team-TSA/phase-a-a5-reference-problems
+35b599c feat: add Phase A-5 reference problems
+37748de Merge pull request #5 from Team-TSA/phase-a-a4-mass-energy-ledger
+648c942 feat: add Phase A-4 mass and energy ledger
+f12be54 Merge pull request #4 from Team-TSA/phase-a-a3-convergence-harness
+eb52158 feat: add Phase A-3 convergence harness
+955d0d3 Merge pull request #3 from Team-TSA/phase-a-a2-nozzle-transition
+c5826dc test: record final Phase A-2 verification
+057ee91 docs: preserve Phase A verification specifications
+e451e43 feat: report nozzle transition diagnostics
+
+=== branches ===
+  main                           75cfc64 [origin/main] Refactor self-test execution and code formatting
+  phase-a-a0-version-alignment   dd23906 [origin/phase-a-a0-version-alignment] test: record post-A-0 verification baseline
+  phase-a-a1-test-reorganization 4f633fa [origin/phase-a-a1-test-reorganization: gone] refactor: stop running self-tests before normal CLI runs
+* phase-a-foundation             2eb2ce5 [origin/phase-a-foundation] Merge pull request #6 from Team-TSA/phase-a-a5-reference-problems
+
+=== platform ===
+Linux YokoWorld 7.0.0-34-generic #34-Ubuntu SMP PREEMPT_DYNAMIC Wed Sep  2 14:29:37 UTC 2026 x86_64 GNU/Linux
+python: Python 3.14.4
+python executable: /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/bin/python
+
+=== package versions ===
+numpy: version=2.5.3 path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/numpy/__init__.py
+scipy: version=1.18.1 path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/scipy/__init__.py
+matplotlib: version=3.11.2 path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/matplotlib/__init__.py
+pytest: version=9.1.1 path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/pytest/__init__.py
+cea: version=3.3.4 path=/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py
+cea.lib_version: 3.3.4
+cea.R: 8314.51
+
+=== relevant files ===
+./gribs_config.json
+./GRIBS_v0.5.0-alpha.py
+./pytest.ini
+./tests/reference/test_reference_constant_backend.py
+./tests/test_gribs.py
+
+=== targeted implementation references ===
+126:  analytic derivative of Psi = Yg*R*T0 (two-phase mode) and of Theta = R*T0
+236:#: condensed), EOS acts on the gas phase through Psi = Yg*Rg*T0 (standard).
+487:                       "EOS on the gas phase via Psi = Yg*Rg*T0) | "
+542:#      psi_and_derivative(p)     -> (Psi = Yg*Rg*T0 [J/kg], dPsi/dp [J/(kg Pa)])
+565:                        "gas_phase_molecular_weight_kg_kmol", "gas_constant_J_kgK")
+648:            "gas_phase_molecular_weight_kg_kmol",
+681:    interpolators in z = ln(p).  The derivatives of Psi = Yg*Rg*T0 (two-phase
+839:        M = np.asarray(table["gas_phase_molecular_weight_kg_kmol"], dtype=float)
+922:        # Psi = Yg * Rg * T_used with T_used = eta_T0 * T_CEA.  Interpolated as
+927:        psi = Yg * R * T
+944:            psi = Yg * theta
+975:            "gas_phase_molecular_weight_min_kg_kmol":
+976:                float(np.min(self.table["gas_phase_molecular_weight_kg_kmol"])),
+977:            "gas_phase_molecular_weight_max_kg_kmol":
+978:                float(np.max(self.table["gas_phase_molecular_weight_kg_kmol"])),
+1079:        """Psi = Yg*Rg*T0 [J/kg] and its ANALYTIC derivative dPsi/dp [J/(kg Pa)].
+1137:                "quantities": ["Rg", "T0", "gamma_s", "Yg", "Psi = Yg*Rg*T0",
+1152:            "specific_gas_constant_definition": ("Rg(p) = Ru / M_gas(p); the "
+1348:            "gas_phase_molecular_weight_kg_kmol": M.tolist(),
+1764:            M = float(solution.M)          # gas-phase molecular weight [kg/kmol]
+1765:            MW = float(solution.MW)        # total molecular weight (diagnostic)
+1832:        R_out = [R_UNIVERSAL / m for m in M_out]
+1833:        # Psi = Yg * Rg * (eta_T0 * T_CEA); stored for a cache round-trip
+1835:        psi_out = [yg * r * c.eta_T0 * t
+1849:            "gas_phase_molecular_weight_kg_kmol": M_out,
+1853:            "psi_J_kg": psi_out,
+1870:                "density_note": ("EqSolution.density equals the gas-phase ideal "
+1998:        mach = np.asarray(rocket_solution.Mach, dtype=float)
+2004:        mw = np.asarray(rocket_solution.M, dtype=float)
+2173:            "gas_phase_molecular_weight_kg_kmol": [
+2240:    """Return Psi = Yg*Rg*T0 [J/kg] and its analytic dPsi/dp [J/(kg Pa)].
+2344:        mdot_total = mdot_gas_reference / Yg_chamber
+2530:#    with Psi = Yg*Rg*T0 and the ANALYTIC dPsi/dp.  In the single-phase legacy
+2621:    #   mt0 = p0*Vg0/Psi(p0)   (two-phase mode; Psi = Yg*Rg*T0)
+3365:            "gas_phase_molecular_weight_kg_kmol": [M] * n,
+3550:    # T10 Psi consistency: Psi = Yg*Rg*T_used at every table point.
+3568:    chk("Psi = Yg*Rg*T0 (table + interpolator)",
+
+=== test collection ===
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_configuration_is_explicit_and_selectable
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_requires_its_configuration_section
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_rejects_unknown_property_key
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_rejects_nonphysical_properties[temperature_K-0.0]
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_rejects_nonphysical_properties[temperature_K--1.0]
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_rejects_nonphysical_properties[gamma-1.0]
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_rejects_nonphysical_properties[gamma-0.9]
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_rejects_nonphysical_properties[molecular_weight_kg_kmol-0.0]
+tests/reference/test_reference_constant_backend.py::test_reference_constant_backend_rejects_nonphysical_properties[molecular_weight_kg_kmol--1.0]
+tests/reference/test_reference_constant_backend.py::test_build_backend_creates_reference_constant_backend
+tests/reference/test_reference_constant_backend.py::test_initialize_reference_backend_uses_normal_product_path
+tests/reference/test_reference_constant_backend.py::test_level0_constant_property_blowdown_matches_analytic_solution
+tests/reference/test_reference_constant_backend.py::test_level1_quasi_steady_pressure_tracks_equilibrium[0]
+tests/reference/test_reference_constant_backend.py::test_level1_quasi_steady_pressure_tracks_equilibrium[1]
+tests/reference/test_reference_constant_backend.py::test_level1_quasi_steady_pressure_tracks_equilibrium[2]
+tests/reference/test_reference_constant_backend.py::test_level1_reference_case_file_runs_without_cea[end-faces-0]
+tests/reference/test_reference_constant_backend.py::test_level1_reference_case_file_runs_without_cea[end-faces-1]
+tests/reference/test_reference_constant_backend.py::test_level1_reference_case_file_runs_without_cea[end-faces-2]
+tests/reference/test_reference_constant_backend.py::test_reference_constant_cli_dumps_deterministic_properties
+tests/reference/test_reference_constant_backend.py::test_reference_constant_banner_reports_analytic_properties
+tests/reference/test_reference_constant_backend.py::test_reference_constant_parameters_are_documented
+tests/reference/test_reference_constant_backend.py::test_cli_backend_override_uses_documented_reference_defaults
+tests/test_convergence_sweep.py::test_build_cases_returns_expected_20_case_matrix
+tests/test_convergence_sweep.py::test_each_setting_has_exactly_one_reference_case
+tests/test_convergence_sweep.py::test_reference_values_are_the_documented_values
+tests/test_convergence_sweep.py::test_comparison_kinds_separate_convergence_and_event_sensitivity
+tests/test_convergence_sweep.py::test_relative_difference[10.0-10.0-0.0]
+tests/test_convergence_sweep.py::test_relative_difference[11.0-10.0-0.1]
+tests/test_convergence_sweep.py::test_relative_difference[9.0-10.0-0.1]
+tests/test_convergence_sweep.py::test_relative_difference[0.0-0.0-0.0]
+tests/test_convergence_sweep.py::test_relative_difference[1.0-0.0-inf]
+tests/test_convergence_sweep.py::test_relative_difference_rejects_unusable_values[None-1.0]
+tests/test_convergence_sweep.py::test_relative_difference_rejects_unusable_values[1.0-None]
+tests/test_convergence_sweep.py::test_relative_difference_rejects_unusable_values[not-a-number-1.0]
+tests/test_convergence_sweep.py::test_relative_difference_rejects_unusable_values[nan-1.0]
+tests/test_convergence_sweep.py::test_relative_difference_rejects_unusable_values[1.0-inf]
+tests/test_convergence_sweep.py::test_add_comparisons_uses_group_reference
+tests/test_convergence_sweep.py::test_add_comparisons_leaves_difference_empty_without_reference
+tests/test_convergence_sweep.py::test_failure_row_records_exception
+tests/test_convergence_sweep.py::test_load_default_sweep_configuration
+tests/test_convergence_sweep.py::test_build_cases_uses_supplied_configuration
+tests/test_convergence_sweep.py::test_load_sweep_configuration_rejects_missing_reference
+tests/test_convergence_sweep.py::test_evaluate_acceptance_passes_within_limits
+tests/test_convergence_sweep.py::test_evaluate_acceptance_reports_relative_violation
+tests/test_convergence_sweep.py::test_evaluate_acceptance_uses_absolute_residual_limits
+tests/test_convergence_sweep.py::test_event_sensitivity_skips_relative_tolerances
+tests/test_convergence_sweep.py::test_acceptance_summary_records_enforcement_flag
+tests/test_gribs.py::test_default_self_tests_pass
+tests/test_gribs.py::test_cd_nozzle_transition_classification
+tests/test_gribs.py::test_geometry_identity_finite_difference
+tests/test_gribs.py::test_example_configuration_keys_are_valid
+tests/test_gribs.py::test_transition_policy_defaults_to_jump
+tests/test_gribs.py::test_transition_policy_accepts_known_values[jump]
+tests/test_gribs.py::test_transition_policy_accepts_known_values[shock]
+tests/test_gribs.py::test_transition_policy_rejects_unknown_value
+tests/test_gribs.py::test_shock_transition_policy_is_reserved_for_future_model
+tests/test_gribs.py::test_jump_transition_policy_is_implemented
+tests/test_gribs.py::test_run_model_rejects_unimplemented_shock_transition_policy
+tests/test_gribs.py::test_masked_trapezoid_does_not_bridge_disjoint_regions
+tests/test_gribs.py::test_nozzle_transition_diagnostics_reports_contiguous_band_cost
+tests/test_gribs.py::test_nozzle_transition_summary_lines_include_warning_code
+tests/test_gribs.py::test_igniter_injected_mass_is_limited_by_simulation_duration[0.0-0.0]
+tests/test_gribs.py::test_igniter_injected_mass_is_limited_by_simulation_duration[0.025-0.0005]
+tests/test_gribs.py::test_igniter_injected_mass_is_limited_by_simulation_duration[0.1-0.002]
+tests/test_gribs.py::test_igniter_injected_mass_is_limited_by_simulation_duration[0.5-0.002]
+tests/test_gribs.py::test_igniter_injected_mass_is_zero_when_igniter_is_disabled
+tests/test_gribs.py::test_mass_energy_ledger_separates_igniter_from_propellant
+tests/test_gribs.py::test_mass_energy_ledger_records_failed_acceptance_without_hiding_residual
+tests/test_gribs.py::test_sampled_generation_rate_includes_igniter_during_blowdown
+tests/test_gribs.py::test_summarize_preserves_legacy_metrics_and_adds_ledger
+tests/test_gribs.py::test_summary_text_contains_mass_and_energy_ledger_sections
+tests/test_gribs.py::test_rhs_exposes_integrated_igniter_mass_as_appended_state
+tests/test_gribs.py::test_mass_energy_ledger_uses_integrated_igniter_state
+tests/test_gribs.py::test_default_solver_relative_tolerance_is_1e_10
+tests/test_gribs.py::test_example_configuration_uses_default_solver_relative_tolerance
+
+75 tests collected in 1.49s
+
+=== full tests ===
+........................................................................ [ 96%]
+...                                                                      [100%]
+75 passed in 18.94s
+
+=== whitespace validation ===
