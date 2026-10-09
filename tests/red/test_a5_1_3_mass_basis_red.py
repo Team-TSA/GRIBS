@@ -122,10 +122,10 @@ def product_psi_backend(monkeypatch):
         "pressure_Pa": pressures,
         "temperature_K": [T_USED_K] * len(pressures),
         "gamma_s": [GAMMA] * len(pressures),
-        "gas_phase_molecular_weight_kg_kmol": [
+        "equilibrium_molecular_weight_kg_kmol": [
             M_CEA_KG_KMOL
         ] * len(pressures),
-        "gas_constant_J_kgK": [
+        "effective_gas_constant_J_kgK": [
             R_EFF_J_KGK
         ] * len(pressures),
         "gas_mass_fraction": [YG] * len(pressures),
@@ -390,8 +390,8 @@ def test_cache_schema_3_is_rejected(tmp_path):
         "pressure_Pa": [1.0e5, 2.0e5, 4.0e5, 8.0e5],
         "temperature_K": [T_USED_K] * 4,
         "gamma_s": [GAMMA] * 4,
-        "gas_phase_molecular_weight_kg_kmol": [M_CEA_KG_KMOL] * 4,
-        "gas_constant_J_kgK": [R_EFF_J_KGK] * 4,
+        "equilibrium_molecular_weight_kg_kmol": [M_CEA_KG_KMOL] * 4,
+        "effective_gas_constant_J_kgK": [R_EFF_J_KGK] * 4,
         "gas_mass_fraction": [YG] * 4,
         "condensed_mass_fraction": [YC] * 4,
         "psi_J_kg": [R_EFF_J_KGK * T_USED_K] * 4,

@@ -533,7 +533,7 @@ def test_reference_constant_cli_dumps_deterministic_properties(tmp_path):
         [1.2, 1.2]
     )
     assert payload[
-        "gas_phase_molecular_weight_kg_kmol"
+        "equilibrium_molecular_weight_kg_kmol"
     ] == pytest.approx(
         [25.0, 25.0]
     )
@@ -547,7 +547,7 @@ def test_reference_constant_cli_dumps_deterministic_properties(tmp_path):
     expected_gas_constant = gribs.R_UNIVERSAL / 25.0
     expected_psi = expected_gas_constant * 3000.0
 
-    assert payload["gas_constant_J_kgK"] == pytest.approx(
+    assert payload["effective_gas_constant_J_kgK"] == pytest.approx(
         [expected_gas_constant, expected_gas_constant]
     )
     assert payload["psi_J_kg"] == pytest.approx(
@@ -661,6 +661,6 @@ def test_cli_backend_override_uses_documented_reference_defaults(tmp_path):
     assert payload["gamma_s"] == pytest.approx([1.2, 1.2])
 
     molecular_weight = payload[
-        "gas_phase_molecular_weight_kg_kmol"
+        "equilibrium_molecular_weight_kg_kmol"
     ]
     assert molecular_weight == pytest.approx([25.0, 25.0])

@@ -1211,3 +1211,115 @@ def test_reference_constant_phase_fraction_contract():
     table = backend.thermo_dump_table()
     assert table["gas_mass_fraction"] == pytest.approx([1.0, 1.0])
     assert table["condensed_mass_fraction"] == pytest.approx([0.0, 0.0])
+
+
+def _cache_reader_probe(tmp_path, table):
+    """Build the minimal backend shell needed by _read_cache()."""
+    backend = gribs.PressureTableBackend.__new__(
+        gribs.PressureTableBackend
+    )
+    backend.cache_path = tmp_path / "cache-schema-probe.json"
+    backend.cache_path.write_text(
+        json.dumps(table, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return backend
+
+
+@pytest.mark.fast
+def test_cache_schema_identity_rejects_missing_schema(tmp_path):
+    backend = _cache_reader_probe(tmp_path, {})
+
+    with pytest.raises(
+        gribs.ThermochemistryCacheError,
+        match="no schema identity",
+    ):
+        backend._read_cache()
+
+
+@pytest.mark.fast
+def test_cache_schema_identity_rejects_noninteger_schema(tmp_path):
+    backend = _cache_reader_probe(
+        tmp_path,
+        {"schema": "4"},
+    )
+
+    with pytest.raises(
+        gribs.ThermochemistryCacheError,
+        match="schema must be an integer",
+    ):
+        backend._read_cache()
+
+
+@pytest.mark.fast
+def test_cache_schema_identity_rejects_schema_3_mass_basis(tmp_path):
+    backend = _cache_reader_probe(
+        tmp_path,
+        {"schema": 3},
+    )
+
+    with pytest.raises(
+        gribs.ThermochemistryCacheError,
+        match="schema 3 uses obsolete CEA mass-basis semantics",
+    ):
+        backend._read_cache()
+
+
+@pytest.mark.fast
+def test_cache_schema_identity_accepts_schema_4_identity(tmp_path):
+    backend = _cache_reader_probe(
+        tmp_path,
+        {"schema": 4},
+    )
+
+    with pytest.raises(
+        gribs.ThermochemistryCacheError,
+        match="cache is missing",
+    ) as exc_info:
+        backend._read_cache()
+
+    message = str(exc_info.value)
+    assert "schema identity" not in message
+    assert "incompatible with required schema" not in message
+    assert "schema 3 uses obsolete" not in message
+
+
+@pytest.mark.fast
+def test_corrected_mass_basis_metadata_contract():
+    backend = gribs.PressureTableBackend.__new__(
+        gribs.PressureTableBackend
+    )
+    backend.name = "metadata-contract-probe"
+    backend.reactants = []
+    backend.supports_two_phase = True
+    backend.equilibrium_formulation = "HP equilibrium"
+    backend.c = type(
+        "MetadataProbeConfig",
+        (),
+        {
+            "p_fit_min": 1.0e5,
+            "p_fit_max": 8.0e6,
+            "cea_pressure_points": 4,
+            "eta_T0": 1.0,
+        },
+    )()
+
+    payload = backend.cache_key_payload()
+    definition = payload["molecular_weight_definition"]
+
+    assert payload["cache_schema"] == 4
+    assert "gas_phase_M compatibility token" in definition
+    assert "M_CEA = 1 / EqSolution.n = M_gas / Yg" in definition
+    assert "gas-phase M" not in definition
+
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    assert "R_eff(p) = Ru / M_CEA(p) = Yg(p) * R_gas(p)" in source
+    assert "no additional Yg factor" in source
+    assert "p/(rho*T) = R_eff" in source
+
+    forbidden_claims = (
+        "EqSolution.M (gas-phase, kg/kmol)",
+        "EqSolution.M - the GAS-PHASE molecular weight",
+        "gas_phase_M (gas-phase M;",
+    )
+    assert all(claim not in source for claim in forbidden_claims)
