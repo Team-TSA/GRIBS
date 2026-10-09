@@ -687,13 +687,14 @@ class PressureTableBackend(ThermochemistryBackend):
     so that the ODE pressure equation never sees finite-difference noise and CEA is
     never called from inside solve_ivp.
 
-    Cache schema 3 (v0.5.0-alpha) adds the equilibrium phase split
-    (gas_mass_fraction, condensed_mass_fraction) and the gas-phase molecular
-    weight key name; caches from schema 2 (v0.4.3-alpha, no phase split) are
-    rejected for the two-phase model and never silently reused.
+    Cache schema 4 (v0.5.0-alpha, A-5.1-4) tabulates the total
+    equilibrium-mixture mass basis: the molecular weight is
+    M_CEA = 1 / EqSolution.n and the gas constant is R_eff = Ru / M_CEA.
+    Schema 3 caches (obsolete gas-phase mass basis) and schema 2 caches
+    (v0.4.3-alpha, no phase split) are rejected and never silently reused.
     """
 
-    cache_schema = 3
+    cache_schema = 4
     table_stem = "thermo_table"
     #: human-readable identification of the equilibrium formulation (metadata)
     equilibrium_formulation = "unspecified"
@@ -790,6 +791,36 @@ class PressureTableBackend(ThermochemistryBackend):
         if not isinstance(table, dict):
             raise ThermochemistryCacheError(
                 f"Chamber-property cache is malformed (expected a JSON object): {self.cache_path}")
+        schema = table.get("schema")
+        if schema is None:
+            raise ThermochemistryCacheError(
+                f"Chamber-property cache has no schema identity: "
+                f"{self.cache_path}\n"
+                "The A-5.1-4 CEA mass-basis correction requires an explicit "
+                "integer cache schema.\n"
+                "Rebuild it: set 'rebuild_cache' to true once, or delete the "
+                "file, or run with --no-cache.")
+        if isinstance(schema, bool) or not isinstance(schema, int):
+            raise ThermochemistryCacheError(
+                f"Chamber-property cache schema must be an integer, got "
+                f"{schema!r}: {self.cache_path}\n"
+                "Rebuild it: set 'rebuild_cache' to true once, or delete the "
+                "file, or run with --no-cache.")
+        if schema == 3:
+            raise ThermochemistryCacheError(
+                f"Chamber-property cache schema 3 uses obsolete CEA mass-basis "
+                f"semantics and is never reused: {self.cache_path}\n"
+                "Schema 3 tabulates a gas-phase molecular weight and gas "
+                "constant; schema 4 tabulates the total equilibrium-mixture "
+                "basis.\n"
+                "Rebuild it: set 'rebuild_cache' to true once, or delete the "
+                "file, or run with --no-cache.")
+        if schema != self.cache_schema:
+            raise ThermochemistryCacheError(
+                f"Chamber-property cache schema {schema} is incompatible with "
+                f"required schema {self.cache_schema}: {self.cache_path}\n"
+                "Rebuild it: set 'rebuild_cache' to true once, or delete the "
+                "file, or run with --no-cache.")
         missing = [k for k in _TABLE_REQUIRED_KEYS if k not in table]
         if missing:
             raise ThermochemistryCacheError(
