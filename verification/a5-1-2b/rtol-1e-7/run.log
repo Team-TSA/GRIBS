@@ -1,0 +1,21 @@
+WARNING: schema_version: '0.4.4-alpha' -> '0.5.0-alpha'; no physical or numerical setting changed.
+WARNING: config.json: 0.4.4-alpha configuration migrated automatically to 0.5.0-alpha; physical and numerical settings were preserved.
+Post-run conservation tests failed; aborting before writing output.
+GRIBS v0.5.0-alpha  (schema 0.5.0-alpha)
+thermochemistry backend : cea_python
+  two-phase model       : homogeneous_equilibrium  (ACTIVE: total product mass conserved, EOS on the gas phase)
+  nozzle entrainment    : complete (no particle slip)
+  condensed volume      : neglected
+  official CEA package  : 3.3.4 at /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py
+  CEA library version   : 3.3.4
+  equilibrium           : HP (assigned enthalpy and pressure)
+  cache file            : /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_62977944a749076ca9a584b2.json
+  cache reused          : True
+  ideal mixture density : 1724.445846 kg/m3
+  packing fraction      : 0.970000
+  bulk rho_p used       : 1672.712471 kg/m3
+Running the internal-ballistics simulation ...
+Post-run conservation tests
+  [PASS] total mass conservation (final)                mt0 + m_gen = 6.609961658e-01 kg vs m_out + mt = 6.609961639e-01 kg (rel. err = 2.94e-09)
+  [FAIL] EOS mass vs balance mass (history)             max rel. err = 3.05e-05 (tol 1e-06)
+  -> FAILURES DETECTED

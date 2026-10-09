@@ -1,0 +1,6 @@
+2026-10-02 13:07:32.8333910410 19878 /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_597b0dbf0d507c753a825f11.json
+2026-10-05 14:06:11.0026449330 7949 /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_de6c90cc7378a332efd8d880.json
+2026-10-05 14:06:13.5623634170 48739 /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_ff842d1bd5b500a74abbd63d.json
+2026-10-05 14:32:52.2164724180 13771 /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_354bcbadbd899688ec16805d.json
+2026-10-07 12:13:42.4807498110 25331 /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_496fe2fad88c70ea2c8c4b55.json
+2026-10-09 12:55:11.7318951210 26337 /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_62977944a749076ca9a584b2.json

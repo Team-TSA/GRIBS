@@ -1,0 +1,9 @@
+2026-10-09T12:55:08+09:00
+pwd=/home/hikaru-kurokawa/Rocket/GRIBS-dev
+python=Python 3.14.4
+HEAD=4449132623804a017113bf5f25a37727bc02d11d
+## phase-a-a5-1-cea-mass-basis-audit
+?? verification/a5-1-2b/
+cea_package_version=3.3.4
+cea_library_version=3.3.4
+cea_R=8314.51

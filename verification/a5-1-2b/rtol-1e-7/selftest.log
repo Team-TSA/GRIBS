@@ -1,0 +1,32 @@
+WARNING: schema_version: '0.4.4-alpha' -> '0.5.0-alpha'; no physical or numerical setting changed.
+WARNING: config.json: 0.4.4-alpha configuration migrated automatically to 0.5.0-alpha; physical and numerical settings were preserved.
+GRIBS v0.5.0-alpha  (schema 0.5.0-alpha)
+thermochemistry backend : cea_python
+  two-phase model       : homogeneous_equilibrium  (ACTIVE: total product mass conserved, EOS on the gas phase)
+  nozzle entrainment    : complete (no particle slip)
+  condensed volume      : neglected
+  official CEA package  : 3.3.4 at /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py
+  CEA library version   : 3.3.4
+  equilibrium           : HP (assigned enthalpy and pressure)
+  cache file            : /home/hikaru-kurokawa/Rocket/GRIBS-dev/results/thermo_cache/thermo_cea_python_62977944a749076ca9a584b2.json
+  cache reused          : False
+  ideal mixture density : 1724.445846 kg/m3
+  packing fraction      : 0.970000
+  bulk rho_p used       : 1672.712471 kg/m3
+Self-tests  (thermochemistry backend: cea_python, two-phase mode: homogeneous_equilibrium)
+  [PASS] analytic vs numerical dTheta/dp                max rel. err = 6.08e-10 (tol 1e-05)
+  [PASS] geometry consistency dVg/dx = Ab               max rel. err = 1.63e-10
+  [PASS] area-Mach inversion round trip                 max rel. err = 1.33e-15
+  [PASS] converging-nozzle continuity (mdot, F)         Ae/At = 1, mdot jump = 1.98e-09, F jump = 3.57e-09
+  [PASS] closed-form choked thrust identity             max rel. err = 4.44e-16
+  [PASS] finite initial derivatives                     dp/dt = +1.538e+09 Pa/s, r = 3.923e-03 m/s
+  [PASS] chamber-property table physical                81 points, T0 = 3001.4-3472.4 K, gamma = 1.1163-1.1429
+  [PASS] phase fractions sum to 1 (table)               max |Yg+Yc-1| = 0.00e+00 (tol 1e-12)
+  [PASS] phase fractions physical (table)               Yg in [0.72384, 0.726554], Yc in [0.273446, 0.27616]
+  [PASS] Psi = Yg*Rg*T0 (table + interpolator)          stored-vs-product rel. err = 0.00e+00, node interp err = 2.22e-16
+  [PASS] analytic vs numerical dPsi/dp                  max rel. err = 6.37e-10 (tol 1e-05)
+  [PASS] pressure factor 1 - p*Psi'/Psi > 0             min D(p) = 0.975568
+  [PASS] single-phase limit: model B == Theta model     Psi err = 0.00e+00, dPsi err = 0.00e+00, rhs err = 0.00e+00 (tol 1e-12)
+  [PASS] nozzle decomposition mdot_total = gas + condensed max rel. err = 1.48e-16
+  [PASS] no-condensed compatibility (hom. vs legacy run) summary/trajectory rel. err = 0.00e+00 (tol 1e-9)
+  -> all checks passed
