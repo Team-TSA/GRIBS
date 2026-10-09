@@ -1,0 +1,78 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0 -- /home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/hikaru-kurokawa/Rocket/GRIBS-dev
+configfile: pytest.ini
+collecting ... collected 12 items
+
+tests/red/test_a5_1_3_mass_basis_red.py::test_cea_molecular_weight_and_gas_constant_relations PASSED [  8%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_density_identity_uses_effective_gas_constant PASSED [ 16%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_chamber_psi_is_reff_times_temperature FAILED [ 25%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_chamber_psi_rejects_legacy_extra_yg FAILED [ 33%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_nozzle_formula_returns_total_flow_without_extra_yg FAILED [ 41%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_nozzle_phase_decomposition_is_conservative PASSED [ 50%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_momentum_thrust_uses_total_flow_once PASSED [ 58%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_single_phase_limit_is_unchanged PASSED [ 66%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_corrected_and_legacy_total_flow_relation FAILED [ 75%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_cache_schema_3_is_rejected FAILED [ 83%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_metadata_does_not_claim_eqsolution_m_is_pure_gas_basis FAILED [ 91%]
+tests/red/test_a5_1_3_mass_basis_red.py::test_public_v043_default_gas_phase_m_comparison_is_available XFAILt been obtained; this is an
+external comparison gap, not evidence for or against the corrected
+equations.)                                                              [100%]
+
+=================================== FAILURES ===================================
+__________________ test_chamber_psi_is_reff_times_temperature __________________
+tests/red/test_a5_1_3_mass_basis_red.py:196: in test_chamber_psi_is_reff_times_temperature
+    assert actual == pytest.approx(expected), (
+E   AssertionError: A-5.1-3 expected product Psi = R_eff*T_used; actual=698418.84, expected=997741.2, actual/expected=0.7, Yg=0.7
+E   assert 698418.84 == 997741.2 ± 0.997741
+E
+E     comparison failed
+E     Obtained: 698418.84
+E     Expected: 997741.2 ± 0.997741
+___________________ test_chamber_psi_rejects_legacy_extra_yg ___________________
+tests/red/test_a5_1_3_mass_basis_red.py:212: in test_chamber_psi_rejects_legacy_extra_yg
+    assert actual != pytest.approx(legacy), (
+E   AssertionError: A-5.1-3 rejects the product's legacy extra Yg in Psi: actual=698418.84, legacy=698418.84, Yg=0.7
+E   assert 698418.84 != 698418.84 \xb1 0.698419
+E    +  where 698418.84 \xb1 0.698419 = <function approx at 0x7977da22be20>(698418.84)
+E    +    where <function approx at 0x7977da22be20> = pytest.approx
+___________ test_nozzle_formula_returns_total_flow_without_extra_yg ____________
+tests/red/test_a5_1_3_mass_basis_red.py:237: in test_nozzle_formula_returns_total_flow_without_extra_yg
+    assert state["mdot_total"] == pytest.approx(expected_total), (
+E   AssertionError: A-5.1-3 forbids an additional /Yg in nozzle flow: actual_total=0.04498477993188038, expected_total=0.03148934595231626, ratio=1.428571428571429, Yg=0.7
+E   assert 0.04498477993188038 == 0.03148934595231626 ± 3.1e-08
+E
+E     comparison failed
+E     Obtained: 0.04498477993188038
+E     Expected: 0.03148934595231626 ± 3.1e-08
+________________ test_corrected_and_legacy_total_flow_relation _________________
+tests/red/test_a5_1_3_mass_basis_red.py:365: in test_corrected_and_legacy_total_flow_relation
+    assert corrected / legacy == pytest.approx(1.0 / math.sqrt(YG)), (
+E   AssertionError: A-5.1-3 corrected/legacy total-flow relation failed: actual_ratio=1.707469441906277, expected_ratio=1.195228609334394, Yg=0.7
+E   assert 1.7074694419062768 == 1.1952286093343936 ± 1.2e-06
+E
+E     comparison failed
+E     Obtained: 1.7074694419062768
+E     Expected: 1.1952286093343936 ± 1.2e-06
+_______________________ test_cache_schema_3_is_rejected ________________________
+tests/red/test_a5_1_3_mass_basis_red.py:404: in test_cache_schema_3_is_rejected
+    with pytest.raises(
+E   Failed: DID NOT RAISE ThermochemistryCacheError
+_________ test_metadata_does_not_claim_eqsolution_m_is_pure_gas_basis __________
+tests/red/test_a5_1_3_mass_basis_red.py:423: in test_metadata_does_not_claim_eqsolution_m_is_pure_gas_basis
+    assert present == [], (
+E   AssertionError: A-5.1-3 found obsolete pure-gas-basis claims for EqSolution.M: ['EqSolution.M (gas-phase, kg/kmol)', 'gas_phase_M (gas-phase M;']
+E   assert ['EqSolution.M (gas-phase, kg/kmol)', 'gas_phase_M (gas-phase M;'] == []
+E
+E     Left contains 2 more items, first extra item: 'EqSolution.M (gas-phase, kg/kmol)'
+E
+E     Full diff:
+E     - []
+E     + [
+E     +     'EqSolution.M (gas-phase, kg/kmol)',
+E     +     'gas_phase_M (gas-phase M;',
+E     + ]
+=========================== short test summary info ============================
+XFAIL tests/red/test_a5_1_3_mass_basis_red.py::test_public_v043_default_gas_phase_m_comparison_is_available - Public v0.4.3-alpha default gas_phase_M comparison artifact has not yet been obtained; this is an external comparison gap, not evidence for or against the corrected equations.
+==================== 6 failed, 5 passed, 1 xfailed in 0.75s ====================

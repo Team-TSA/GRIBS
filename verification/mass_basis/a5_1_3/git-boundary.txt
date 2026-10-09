@@ -1,0 +1,15 @@
+A-5.1-3 pre-commit Git boundary
+branch=phase-a-a5-1-cea-mass-basis-audit
+head=e83825636a8db166ee0436b432309e8d86af2ca6
+expected_head_commit=fix: harden mass-consistency inspection contracts
+git_diff_check_status=0
+product_code_modified=0
+stage_performed=0
+commit_performed=0
+tracked_change=pytest.ini
+untracked_change=tests/red/test_a5_1_3_mass_basis_red.py
+untracked_change=verification/mass_basis/a5_1_3/
+normal_suite_result=83 passed
+normal_suite_exit_status=0
+red_suite_result=6 failed, 5 passed, 1 xfailed
+red_suite_exit_status=1

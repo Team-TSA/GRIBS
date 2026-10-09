@@ -1,0 +1,13 @@
+test_name	expected_pre_fix	actual_pre_fix	acceptance_contract
+test_cea_molecular_weight_and_gas_constant_relations	PASS	PASS	M_CEA=M_gas/Yg and R_eff=Yg*R_gas
+test_density_identity_uses_effective_gas_constant	PASS	PASS	p/(rho*T)=R_eff
+test_chamber_psi_is_reff_times_temperature	FAIL	FAIL	Psi=R_eff*T_used
+test_chamber_psi_rejects_legacy_extra_yg	FAIL	FAIL	Reject Psi=Yg*R_eff*T_used
+test_nozzle_formula_returns_total_flow_without_extra_yg	FAIL	FAIL	Nozzle base formula directly returns mdot_total
+test_nozzle_phase_decomposition_is_conservative	PASS	PASS	Phase flows sum to mdot_total
+test_momentum_thrust_uses_total_flow_once	PASS	PASS	Momentum thrust uses mdot_total once
+test_single_phase_limit_is_unchanged	PASS	PASS	Yg=1 limit remains unchanged
+test_corrected_and_legacy_total_flow_relation	FAIL	FAIL	Corrected/legacy totals follow 1/sqrt(Yg)
+test_cache_schema_3_is_rejected	FAIL	FAIL	Legacy cache schema 3 is incompatible
+test_metadata_does_not_claim_eqsolution_m_is_pure_gas_basis	FAIL	FAIL	EqSolution.M is not labeled pure-gas basis
+test_public_v043_default_gas_phase_m_comparison_is_available	XFAIL	XFAIL	External public comparison artifact not yet obtained
