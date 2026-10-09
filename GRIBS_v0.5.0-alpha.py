@@ -73,19 +73,20 @@ GOVERNING MODEL  (two-phase model B, new in v0.5.0-alpha)
       r0 = a*(p0/p_ref)^n * exp(sigma_p*(T_grain - T_ref))
       r  = r0 + alpha*G^0.8/D_h^0.2 * exp(-beta*rho_p*r/G)
 
-  Nozzle (isentropic GAS-PHASE reference flow, discharge coefficient Cd, thrust
-  efficiency eta_F; two-phase mass split by the chamber composition)
-      gas reference flow:
-        choked      :  mdot_gas_ref = Cd*At*p0*sqrt(g/(R*T0))
+  Nozzle (isentropic reference flow on the corrected mass basis, discharge
+  coefficient Cd, thrust efficiency eta_F; two-phase split from the chamber
+  composition)
+      reference flow (R = R_eff = Ru/M_CEA = Yg*R_gas):
+        choked      :  mdot_total_ref = Cd*At*p0*sqrt(g/(R*T0))
                                    *(2/(g+1))^((g+1)/(2(g-1)))
         unchoked    :  pe = pa, subsonic exit Mach from the pressure ratio
                        (this branch is *continuous* with the choked branch)
         separated   :  Summerfield criterion pe < f_sep*pa (only for Ae/At > 1)
       homogeneous-equilibrium mode (standard, complete entrainment):
-        mdot_total     = mdot_gas_ref / Yg_chamber
+        mdot_total     = mdot_total_ref   (R_eff already carries Yg)
         mdot_gas       = Yg_chamber * mdot_total
         mdot_condensed = Yc_chamber * mdot_total
-      single-phase legacy mode:  mdot_total = mdot_gas = mdot_gas_ref (Yg = 1)
+      single-phase legacy mode:  mdot_total = mdot_gas = mdot_total_ref (Yg = 1)
       thrust (complete velocity equilibrium, particle slip neglected):
         F = eta_F*mdot_total*ve + (pe - pa)*Ae_effective
       NOTE: with complete entrainment the momentum term can OVERESTIMATE the
@@ -403,7 +404,8 @@ class Config:
     # ---------------- two-phase chamber / nozzle model ----------------
     # 'homogeneous_equilibrium' (standard): the conserved chamber mass is the
     #   TOTAL product mass mt = mg + mc; EOS p*Vg = mt*Yg(p)*Rg(p)*T0(p); the
-    #   nozzle total flow is the gas reference flow divided by Yg_chamber
+    #   nozzle total flow comes directly from the isentropic formula
+    #   evaluated with R_eff = Yg(p)*Rg(p), with no additional /Yg factor
     #   (complete entrainment, no particle slip).
     # 'single_phase_legacy': exact GRIBS v0.4.3-alpha behaviour (Yg := 1),
     #   kept ONLY for regression comparison.
@@ -2343,19 +2345,21 @@ class NozzleTwoPhaseModel:
     """Two-phase mass split of the nozzle flow (isolated for future upgrades).
 
     Implemented model: HOMOGENEOUS EQUILIBRIUM, COMPLETE ENTRAINMENT.
-      * The gas-phase isentropic reference flow mdot_gas_ref is computed from
-        the gas-phase properties Rg, T0, gamma_s (see ``_gas_reference``).
-      * Both phases are assumed to leave with the same velocity, so the total
-        flow is the gas flow divided by the chamber gas mass fraction:
-            mdot_total = mdot_gas_ref / Yg_chamber
+      * The isentropic formula is evaluated with the effective gas constant
+        R_eff = Ru / M_CEA = Yg * R_gas, so it returns the TOTAL-mixture
+        flow directly.  No additional /Yg factor is applied anywhere.
+      * Both phases are assumed to leave with the same velocity, so the
+        total flow is decomposed with the chamber phase split:
+            mdot_total     = mdot_total_reference
             mdot_gas       = Yg_chamber * mdot_total
             mdot_condensed = Yc_chamber * mdot_total
       * This is a FIRST APPROXIMATION: it is not a rigorous two-phase choking
         model (no particle slip, no two-phase sound speed, no non-equilibrium
         nozzle chemistry, no particle-size effects).  For large condensed
         fractions it tends to OVERESTIMATE the delivered mass flow and thrust.
-      * In 'single_phase_legacy' mode Yg := 1 and mdot_total = mdot_gas_ref,
-        i.e. exactly the v0.4.3-alpha behaviour (regression comparison only).
+      * In 'single_phase_legacy' mode Yg := 1, so R_eff is the gas constant
+        itself and the total flow equals the gas reference flow, i.e. exactly
+        the v0.4.3-alpha behaviour (regression comparison only).
 
     A future rigorous model (e.g. frozen/non-equilibrium two-phase choking,
     particle lag) should replace ``split`` without touching the ODE, which only
@@ -2371,22 +2375,29 @@ class NozzleTwoPhaseModel:
 
     @property
     def entrainment_assumption(self) -> str:
-        return ("complete entrainment: mdot_total = mdot_gas_ref / Yg_chamber, "
-                "both phases share the exit velocity (no particle slip)"
+        return ("complete entrainment: the isentropic formula evaluated with "
+                "R_eff returns mdot_total directly (no additional /Yg); both "
+                "phases share the exit velocity (no particle slip)"
                 if self.mode == TWO_PHASE_HOMOGENEOUS else
                 "single-phase legacy: the total flow equals the gas reference "
                 "flow (Yg := 1)")
 
-    def split(self, mdot_gas_reference: float,
+    def split(self, mdot_total_reference: float,
               Yg_chamber: float) -> Tuple[float, float, float]:
-        """Return (mdot_total, mdot_gas, mdot_condensed) [kg/s]."""
+        """Return (mdot_total, mdot_gas, mdot_condensed) [kg/s].
+
+        ``mdot_total_reference`` is the total-mixture flow produced by the
+        isentropic formula evaluated with R_eff = Ru/M_CEA = Yg*R_gas.  It
+        already carries the phase split through R_eff, so it is returned
+        unchanged as ``mdot_total``: no additional /Yg factor is applied.
+        """
         if self.mode == TWO_PHASE_SINGLE_LEGACY:
-            return mdot_gas_reference, mdot_gas_reference, 0.0
+            return mdot_total_reference, mdot_total_reference, 0.0
         if not (0.0 < Yg_chamber <= 1.0):
             raise ThermochemistryError(
                 f"Nozzle two-phase split received Yg_chamber = {Yg_chamber!r}; "
                 "require 0 < Yg <= 1.")
-        mdot_total = mdot_gas_reference / Yg_chamber
+        mdot_total = mdot_total_reference
         mdot_gas = Yg_chamber * mdot_total
         return mdot_total, mdot_gas, mdot_total - mdot_gas
 
@@ -2449,11 +2460,12 @@ def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
     ``mdot`` is retained as a backward-compatible ALIAS of ``mdot_total`` (it is
     NOT the gas-only flow); prefer the explicit names in new code.
 
-    The gas-phase isentropic reference flow uses the GAS-PHASE properties
-    Rg(p0), T0(p0), gamma_s(p0).  In the homogeneous-equilibrium mode the total
-    flow is mdot_gas_ref / Yg(p0) (complete entrainment, see
-    ``NozzleTwoPhaseModel``); in the single-phase legacy mode it equals the
-    gas reference flow.
+    The isentropic reference flow is evaluated with the effective gas
+    constant R_eff(p0) = Ru / M_CEA(p0) = Yg(p0) * R_gas(p0), so it returns
+    the TOTAL-mixture flow directly with no additional Yg factor (complete
+    entrainment, see ``NozzleTwoPhaseModel``).  In the single-phase legacy
+    mode Yg := 1, so R_eff is the gas constant itself and the total flow
+    equals the gas reference flow.
     """
     split_model = NozzleTwoPhaseModel(c.two_phase_mode)
     Yg, Yc = phase_fractions(p0, c)
@@ -2463,7 +2475,7 @@ def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
                     mdot_total=0.0,
                     mdot_gas=0.0,
                     mdot_condensed=0.0,
-                    mdot_gas_reference=0.0,
+                    mdot_total_reference=0.0,
                     gas_mass_fraction=Yg,
                     condensed_mass_fraction=Yc,
                     F=0.0, Me=0.0, pe=p0, ve=0.0,
@@ -2506,7 +2518,7 @@ def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
                     mdot_total=mdot_total,
                     mdot_gas=mdot_gas,
                     mdot_condensed=mdot_cond,
-                    mdot_gas_reference=mdot_ref,
+                    mdot_total_reference=mdot_ref,
                     gas_mass_fraction=Yg,
                     condensed_mass_fraction=Yc,
                     F=F, Me=Me, pe=pe_eff, ve=ve_eff,
@@ -2524,7 +2536,7 @@ def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
                 mdot_total=mdot_total,
                 mdot_gas=mdot_gas,
                 mdot_condensed=mdot_cond,
-                mdot_gas_reference=mdot_ref,
+                mdot_total_reference=mdot_ref,
                 gas_mass_fraction=Yg,
                 condensed_mass_fraction=Yc,
                 F=F, Me=Me, pe=c.p_a, ve=ve,
@@ -3238,10 +3250,11 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
         min_pressure_factor_1_minus_pPsi_over_Psi=float(
             pv_table.get("min_pressure_factor_1_minus_pPsi_over_Psi", float("nan"))),
         nozzle_entrainment_assumption=(
-            "complete entrainment: mdot_total = mdot_gas_ref / Yg_chamber; both "
-            "phases leave with the same exit velocity (particle slip NOT "
-            "modelled; momentum thrust may be overestimated for large "
-            "condensed fractions)" if two_phase_active else
+            "complete entrainment: the isentropic formula evaluated with R_eff "
+            "returns mdot_total directly (no additional /Yg); both phases "
+            "leave with the same exit velocity (particle slip NOT modelled; "
+            "momentum thrust may be overestimated for large condensed "
+            "fractions)" if two_phase_active else
             "single-phase legacy: total flow = gas reference flow (Yg := 1)"),
         condensed_volume_assumption=(
             "condensed-phase volume neglected against the chamber free volume; "
@@ -3789,13 +3802,13 @@ def self_tests(c: Config, verbose=True) -> bool:
                 "(diagnostic; known jump-model limitation)")
 
         # T5 closed-form check of the converging-nozzle choked thrust.
-        # Two-phase momentum basis: only the momentum term scales with the
-        # entrained condensed mass (mdot_total = mdot_gas/Yg), the pressure
-        # thrust does not:
+        # Mass basis: mdot_total comes from the isentropic formula evaluated
+        # with R_eff and ve = sqrt(g*R_eff*Te), so the momentum term carries
+        # the phase split through R_eff alone.  The pressure thrust does not:
         #   F = mdot_total*ve + (pe - pa)*At
-        #     = At*(crit*p*(g/Yg + 1) - pa),  crit = (2/(g+1))^(g/(g-1))
-        # With Yg = 1 this reduces to the classical single-phase identity
-        # F = At*((g+1)*crit*p - pa).
+        #     = At*(crit*p*(g + 1) - pa),  crit = (2/(g+1))^(g/(g-1))
+        # This is the classical single-phase identity; no /Yg factor appears
+        # because R_eff already carries Yg.
         cc5 = Config(**{**asdict(c), "eps_nozzle": 1.0, "Cd": 1.0,
                         "eta_thrust": 1.0, "use_separation": False})
         At0 = math.pi * cc5.R_t0 ** 2
@@ -3803,8 +3816,7 @@ def self_tests(c: Config, verbose=True) -> bool:
         for p in np.geomspace(cc5.p_a / 0.5, 50e6, 20):
             nz = nozzle_state(p, At0, At0, cc5)
             _, _, g = gas_props(p, cc5)
-            Yg_p, _ = phase_fractions(p, cc5)
-            F_ref = At0 * (critical_ratio(g) * p * (g / Yg_p + 1.0) - cc5.p_a)
+            F_ref = At0 * (critical_ratio(g) * p * (g + 1.0) - cc5.p_a)
             e = max(e, abs(nz["F"] / F_ref - 1.0))
         chk("closed-form choked thrust identity", e < 1e-12,
             f"max rel. err = {e:.2e}")
@@ -3962,8 +3974,8 @@ def self_tests(c: Config, verbose=True) -> bool:
                             - nz["mdot_total"]) / nz["mdot_total"],
                         abs(nz["mdot_gas"] / nz["mdot_total"] - Yg_p),
                         abs(nz["mdot_condensed"] / nz["mdot_total"] - Yc_p),
-                        abs(nz["mdot_total"] * Yg_p
-                            - nz["mdot_gas_reference"]) / nz["mdot_gas_reference"])
+                        abs(nz["mdot_total"] - nz["mdot_total_reference"])
+                        / nz["mdot_total_reference"])
         chk("nozzle decomposition mdot_total = gas + condensed",
             e_dec < 1.0e-12, f"max rel. err = {e_dec:.2e}")
 
