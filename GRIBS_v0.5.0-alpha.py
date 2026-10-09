@@ -123,7 +123,7 @@ THERMOCHEMISTRY BACKENDS  (v0.4)
 
   Both backends build a pressure-indexed chamber-property table, cache it as
   reproducible JSON, and interpolate it with PCHIP in ln(p) - including an
-  analytic derivative of Psi = Yg*R*T0 (two-phase mode) and of Theta = R*T0
+  analytic derivative of Psi = R_eff*T0 (two-phase mode) and of Theta = R*T0
   (single-phase legacy mode) used by the ODE pressure equation.
 
   Gas / condensed mass fractions are taken from the OFFICIAL CEA phase
@@ -233,7 +233,7 @@ PRE_TWO_PHASE_SCHEMA_VERSION = "0.4.3-alpha"
 PRE_V050_SCHEMA_VERSION = "0.4.4-alpha"
 
 #: Chamber two-phase model: conserved mass = total product mass (gas +
-#: condensed), EOS acts on the gas phase through Psi = Yg*Rg*T0 (standard).
+#: condensed), EOS acts on the gas phase through Psi = R_eff*T0 (standard).
 TWO_PHASE_HOMOGENEOUS = "homogeneous_equilibrium"
 #: Chamber model identical to GRIBS v0.4.3-alpha (Yg := 1, Psi := Theta): the
 #: full generated product mass feeds a gas-only EOS.  Kept ONLY as an isolated
@@ -484,7 +484,7 @@ PARAM_DOC = {
     "eta_T0": "combustion efficiency applied to T0 [-]",
     "property_policy": "'clamp' or 'extrapolate' outside the table range",
     "two_phase_mode": ("'homogeneous_equilibrium' (total product mass conserved, "
-                       "EOS on the gas phase via Psi = Yg*Rg*T0) | "
+                       "EOS on the gas phase via Psi = R_eff*T0) | "
                        "'single_phase_legacy' (v0.4.3 behaviour, regression only)"),
     "two_phase_condensed_volume": "condensed-phase volume treatment ('neglected')",
     "two_phase_nozzle_entrainment": ("nozzle two-phase treatment ('complete' = both "
@@ -539,7 +539,7 @@ def geometry(x: float, c: Config):
 #  The internal-ballistics solver only ever asks a backend for:
 #      props(p)                  -> (Rg [J/(kg K)], T0 [K], gamma_s [-])
 #                                   GAS-PHASE properties only
-#      psi_and_derivative(p)     -> (Psi = Yg*Rg*T0 [J/kg], dPsi/dp [J/(kg Pa)])
+#      psi_and_derivative(p)     -> (Psi = R_eff*T0 [J/kg], dPsi/dp [J/(kg Pa)])
 #                                   (two-phase mode; Psi := Theta in legacy mode)
 #      theta_and_derivative(p)   -> (Theta = Rg*T0 [J/kg], dTheta/dp [J/(kg Pa)])
 #                                   (single-phase legacy pathway)
@@ -678,7 +678,7 @@ class PressureTableBackend(ThermochemistryBackend):
     """Base class for backends that tabulate chamber properties on a pressure grid.
 
     The table is built once, cached as JSON, and interpolated with monotonic PCHIP
-    interpolators in z = ln(p).  The derivatives of Psi = Yg*Rg*T0 (two-phase
+    interpolators in z = ln(p).  The derivatives of Psi = R_eff*T0 (two-phase
     mode) and Theta = Rg*T0 (single-phase legacy mode) are taken from the
     analytic derivative of the interpolators and converted with
 
@@ -959,12 +959,13 @@ class PressureTableBackend(ThermochemistryBackend):
         self.gi = PchipInterpolator(z, g, extrapolate=True)
         self.thi = PchipInterpolator(z, R * T, extrapolate=True)
         self.dthi = self.thi.derivative()
-        # Psi = Yg * Rg * T_used with T_used = eta_T0 * T_CEA.  Interpolated as
+        # Psi = R_eff * T_used with T_used = eta_T0 * T_CEA.  Interpolated as
         # its own PCHIP column so that the analytic derivative dPsi/dp used by
         # the pressure ODE is consistent with the interpolated Psi itself
         # (never a finite difference, never a product of separately
-        # interpolated factors).
-        psi = Yg * R * T
+        # interpolated factors).  R_eff already carries Yg, so no second
+        # Yg factor may appear here.
+        psi = R * T
         self.psi_tab = psi
         self.psii = PchipInterpolator(z, psi, extrapolate=True)
         self.dpsii = self.psii.derivative()
@@ -981,7 +982,7 @@ class PressureTableBackend(ThermochemistryBackend):
         if two_phase:
             Yg = np.asarray(self.table["gas_mass_fraction"], dtype=float)
             Yc = np.asarray(self.table["condensed_mass_fraction"], dtype=float)
-            psi = Yg * theta
+            psi = theta
         else:
             Yg = np.ones_like(p)
             Yc = np.zeros_like(p)
@@ -998,7 +999,7 @@ class PressureTableBackend(ThermochemistryBackend):
         theta_f = np.asarray(self.thi(z), dtype=float)
         dtheta_f = np.asarray(self.dthi(z), dtype=float) / np.exp(z)
         factor_theta = 1.0 - np.exp(z) * dtheta_f / theta_f
-        # Psi consistency with Yg*R*T at the table nodes (self-test 3 preview)
+        # Psi consistency with R_eff*T at the table nodes (self-test 3 preview)
         psi_err = float(np.max(np.abs(self.psi_tab - psi) / np.maximum(psi, 1e-300))) \
             if two_phase else 0.0
 
@@ -1024,7 +1025,7 @@ class PressureTableBackend(ThermochemistryBackend):
             "theta_max_J_kg": float(np.max(theta)),
             "psi_min_J_kg": float(np.min(psi)),
             "psi_max_J_kg": float(np.max(psi)),
-            "psi_vs_YgRT_max_rel_error": psi_err,
+            "psi_vs_ReffT_max_rel_error": psi_err,
             "min_pressure_factor_1_minus_pPsi_over_Psi": float(np.min(factor)),
             "min_pressure_factor_1_minus_pTheta_over_Theta": float(np.min(factor_theta)),
             "all_points_finite": bool(np.all(np.isfinite(p))),
@@ -1044,7 +1045,7 @@ class PressureTableBackend(ThermochemistryBackend):
                 f"{report['min_pressure_factor_1_minus_pTheta_over_Theta']:.6g} <= 0.")
         if two_phase and psi_err > 1.0e-12:
             raise ThermochemistryError(
-                "Cached Psi column is inconsistent with Yg*Rg*T0 (max rel. err "
+                "Cached Psi column is inconsistent with R_eff*T0 (max rel. err "
                 f"{psi_err:.3e} > 1e-12); rebuild the chamber-property cache.")
         return report
 
@@ -1116,7 +1117,7 @@ class PressureTableBackend(ThermochemistryBackend):
         return Yg, 1.0 - Yg
 
     def psi_and_derivative(self, p: float) -> Tuple[float, float]:
-        """Psi = Yg*Rg*T0 [J/kg] and its ANALYTIC derivative dPsi/dp [J/(kg Pa)].
+        """Psi = R_eff*T0 [J/kg] and its ANALYTIC derivative dPsi/dp [J/(kg Pa)].
 
         In the single-phase legacy mode Psi := Theta = Rg*T0, i.e. the exact
         v0.4.3-alpha quantity.
@@ -1174,7 +1175,7 @@ class PressureTableBackend(ThermochemistryBackend):
             "interpolation": {
                 "variable": "z = ln(p)",
                 "method": "PCHIP (monotone cubic Hermite, scipy PchipInterpolator)",
-                "quantities": ["Rg", "T0", "gamma_s", "Yg", "Psi = Yg*Rg*T0",
+                "quantities": ["Rg", "T0", "gamma_s", "Yg", "Psi = R_eff*T0",
                                "Theta = Rg*T0"],
                 "derivative": ("dPsi/dp = d/dz[PCHIP(Psi)](z) / p (analytic; "
                                "never a finite difference)"),
@@ -1871,10 +1872,9 @@ class CEAPythonBackend(PressureTableBackend):
                 condensed_top = condensed_fractions
 
         R_out = [R_UNIVERSAL / m for m in M_out]
-        # Psi = Yg * Rg * (eta_T0 * T_CEA); stored for a cache round-trip
-        # consistency check - it is recomputed from Yg, R, T at load time.
-        psi_out = [yg * r * c.eta_T0 * t
-                   for yg, r, t in zip(Yg_out, R_out, T_out)]
+        # Psi = R_eff * (eta_T0 * T_CEA); stored for a cache round-trip
+        # consistency check - it is recomputed from R, T at load time.
+        psi_out = [r * c.eta_T0 * t for r, t in zip(R_out, T_out)]
         return {
             "schema": self.cache_schema,
             "backend": self.name,
@@ -2282,7 +2282,7 @@ def gas_props(p0: float, c: Config) -> Tuple[float, float, float]:
 
 
 def psi_and_deriv(p0: float, c: Config) -> Tuple[float, float]:
-    """Return Psi = Yg*Rg*T0 [J/kg] and its analytic dPsi/dp [J/(kg Pa)].
+    """Return Psi = R_eff*T0 [J/kg] and its analytic dPsi/dp [J/(kg Pa)].
 
     In the single-phase legacy mode this is Theta = Rg*T0 and dTheta/dp.
     """
@@ -2572,7 +2572,7 @@ def equilibrium_pressure(Ab: float, Ri: float, At: float, Ae: float,
 #    homogeneous-equilibrium mode.  Pressure equation (two-phase model B):
 #      dp0/dt = [ Psi*(mdot_gen_total - mdot_out_total) - p0*Ab*r ]
 #               / [ Vg*(1 - p0*Psi'/Psi) ]
-#    with Psi = Yg*Rg*T0 and the ANALYTIC dPsi/dp.  In the single-phase legacy
+#    with Psi = R_eff*T0 and the ANALYTIC dPsi/dp.  In the single-phase legacy
 #    mode Psi := Theta = Rg*T0 (exact v0.4.3-alpha behaviour).
 # ==============================================================================
 IP, IX, IRT, IMO, IIMP, IMG, IMIGN = range(7)
@@ -2663,7 +2663,7 @@ def run_model(c: Config) -> dict:
         0.0,
     ])
     # Initial chamber inventory as TOTAL product mass:
-    #   mt0 = p0*Vg0/Psi(p0)   (two-phase mode; Psi = Yg*Rg*T0)
+    #   mt0 = p0*Vg0/Psi(p0)   (two-phase mode; Psi = R_eff*T0)
     #   m0  = p0*Vg0/Theta(p0) (single-phase legacy mode)
     # ASSUMPTION: the initial chamber gas is equilibrium combustion products of
     # the main propellant at p0_init.  An initial fill of air or igniter gas of
@@ -2805,7 +2805,7 @@ def sample(res: dict, c: Config) -> dict:
       m_gas_equilibrium     Yg(p0)*m_total_eos [kg] (gas part of m_total_eos)
       m_condensed           Yc(p0)*m_total_eos [kg] (condensed part)
       Y_gas, Y_condensed    equilibrium phase mass fractions [-]
-      Psi                   Yg*Rg*T0 [J/kg]
+      Psi                   R_eff*T0 [J/kg]
     """
     Ae = res["Ae"]
     xw = web_thickness(c)
@@ -3526,7 +3526,7 @@ def mass_energy_ledger(res: dict, h: dict, c: Config) -> dict:
             "temperature_treatment": (
                 "T0 is the CEA equilibrium temperature multiplied by eta_T0."
             ),
-            "psi_definition": "Psi = Y_gas * R_gas * T0",
+            "psi_definition": "Psi = R_eff * T0",
             "state_relation": "p0 * Vg = m_total * Psi",
             "state_relation_is_energy_closure": False,
         },
@@ -3603,7 +3603,7 @@ class _SyntheticTestBackend(PressureTableBackend):
             "effective_gas_constant_J_kgK": [R] * n,
             "gas_mass_fraction": [Yg] * n,
             "condensed_mass_fraction": [self._ycond] * n,
-            "psi_J_kg": [Yg * R * T0 * c.eta_T0] * n,
+            "psi_J_kg": [R * T0 * c.eta_T0] * n,
         }
 
     def metadata(self) -> Dict[str, Any]:
@@ -3625,7 +3625,7 @@ SELF_TEST_COMMON_NAMES = (
     "chamber-property table physical",
     "phase fractions sum to 1 (table)",
     "phase fractions physical (table)",
-    "Psi = Yg*Rg*T0 (table + interpolator)",
+    "Psi = R_eff*T0 (table + interpolator)",
     "analytic vs numerical dPsi/dp",
     "pressure factor 1 - p*Psi'/Psi > 0",
     "single-phase limit: model B == Theta model",
@@ -3866,15 +3866,14 @@ def self_tests(c: Config, verbose=True) -> bool:
         f"Yg in [{Yg_tab.min():.6g}, {Yg_tab.max():.6g}], "
         f"Yc in [{Yc_tab.min():.6g}, {Yc_tab.max():.6g}]")
 
-    # T10 Psi consistency: Psi = Yg*Rg*T_used at every table point.
-    # The interpolator check is mode-consistent: in the two-phase mode the
-    # solver-facing Psi is Yg*Rg*T_used; in the single-phase legacy mode it is
-    # Theta = Rg*T_used by definition (Yg := 1), while the stored table column
-    # keeps the physical Yg*Rg*T_used product in both cases.
+    # T10 Psi consistency: Psi = R_eff*T_used at every table point.
+    # R_eff already carries Yg, so the solver-facing Psi and the stored
+    # table column are the same quantity in both the two-phase mode and
+    # the single-phase legacy mode (where Yg := 1 by definition).
     R_tab = np.asarray(table["effective_gas_constant_J_kgK"], dtype=float)
     T_tab = np.asarray(table["temperature_K"], dtype=float) * c.eta_T0
-    psi_ref = Yg_tab * R_tab * T_tab
-    psi_solver_ref = psi_ref if two_phase_active else R_tab * T_tab
+    psi_ref = R_tab * T_tab
+    psi_solver_ref = psi_ref
     if "psi_J_kg" in table:
         psi_tab = np.asarray(table["psi_J_kg"], dtype=float)
     else:
@@ -3884,7 +3883,7 @@ def self_tests(c: Config, verbose=True) -> bool:
     e_node = 0.0
     for p, ref in zip(table["pressure_Pa"], psi_solver_ref):
         e_node = max(e_node, abs(psi_and_deriv(float(p), c)[0] / ref - 1.0))
-    chk("Psi = Yg*Rg*T0 (table + interpolator)",
+    chk("Psi = R_eff*T0 (table + interpolator)",
         e <= 1.0e-12 and e_node <= 1.0e-10,
         f"stored-vs-product rel. err = {e:.2e}, node interp err = {e_node:.2e}")
 
