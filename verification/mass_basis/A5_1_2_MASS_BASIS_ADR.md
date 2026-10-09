@@ -8,6 +8,8 @@
 - Baseline commit: 95e25731586229627e8ccd8f39a6215c7a69d60c
 - Scope: model decision only
 - Product-code modification authorized by this document: no
+- Independent-review addendum: `A5_1_2A_INDEPENDENT_REVIEW_ADDENDUM.md`
+- Supersession rule: the addendum governs evidence grading, validation scope, and implementation order where it differs from this original G2 record.
 
 ## 1. Context
 
