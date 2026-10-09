@@ -1,0 +1,59 @@
+NASA CEA Python package 3.3.4 runtime API semantics
+===================================================
+
+EqSolution.M
+------------
+Molecular weight, gasses only (1/n).
+
+EqSolution.MW
+-------------
+Molecular weight, including condensed species.
+
+EqSolution.n
+------------
+Total moles.
+
+EqSolution.nj
+-------------
+Species concentrations (kg-mol of species j per kg of mixture).
+
+EqSolution.ln_nj
+----------------
+Natural logarithm of gas phase species concentrations (gasses only).
+The runtime descriptor notes that ln_nj is not simply log(nj), because nj
+is truncated for trace species while ln_nj preserves small amounts.
+
+EqSolver.num_gas
+----------------
+Number of gas phase species.
+
+EqSolver.num_condensed
+----------------------
+Number of condensed phase species.
+
+Mixture.species_names
+---------------------
+Ordered list of species names in the mixture.
+
+Official package implementation observation
+-------------------------------------------
+The installed cea/matlab.py reconstructs total moles as:
+
+    total_moles = 1.0 / soln.M
+
+Official example output convention
+----------------------------------
+The bundled RP-1311 and other sample programs label EqSolution.M as:
+
+    M, (1/n)
+
+Interpretation
+--------------
+Because nj is in kg-mol per kg of total mixture, 1/n is not the pure-gas
+mass-basis molecular weight when condensed material is present.
+
+If Yg is gas mass per total mixture mass, then:
+
+    M_gas = Yg / n
+    M_CEA = 1 / n = M_gas / Yg
+    Ru / M_CEA = Yg * Ru / M_gas
