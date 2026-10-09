@@ -562,7 +562,7 @@ Official project:
     {CEA_PROJECT_URL}"""
 
 _TABLE_REQUIRED_KEYS = ("pressure_Pa", "temperature_K", "gamma_s",
-                        "gas_phase_molecular_weight_kg_kmol", "gas_constant_J_kgK")
+                        "equilibrium_molecular_weight_kg_kmol", "effective_gas_constant_J_kgK")
 #: Extra columns every cache must carry once the homogeneous-equilibrium
 #: two-phase model is used (cache schema >= 3).  A cache without them cannot be
 #: used for the two-phase model - it is rejected with an actionable message.
@@ -645,8 +645,8 @@ class ThermochemistryBackend:
             "pressure_Pa",
             "temperature_K",
             "gamma_s",
-            "gas_phase_molecular_weight_kg_kmol",
-            "gas_constant_J_kgK",
+            "equilibrium_molecular_weight_kg_kmol",
+            "effective_gas_constant_J_kgK",
             "gas_mass_fraction",
             "condensed_mass_fraction",
             "psi_J_kg",
@@ -866,8 +866,8 @@ class PressureTableBackend(ThermochemistryBackend):
     # -- table -> interpolators ---------------------------------------------
     def _load_table(self, table: Dict[str, Any]) -> None:
         p = np.asarray(table["pressure_Pa"], dtype=float)
-        R = np.asarray(table["gas_constant_J_kgK"], dtype=float)
-        M = np.asarray(table["gas_phase_molecular_weight_kg_kmol"], dtype=float)
+        R = np.asarray(table["effective_gas_constant_J_kgK"], dtype=float)
+        M = np.asarray(table["equilibrium_molecular_weight_kg_kmol"], dtype=float)
         T = np.asarray(table["temperature_K"], dtype=float) * self.c.eta_T0
         g = np.asarray(table["gamma_s"], dtype=float)
         if p.ndim != 1 or R.shape != p.shape or T.shape != p.shape or g.shape != p.shape:
@@ -965,7 +965,7 @@ class PressureTableBackend(ThermochemistryBackend):
         """Numerical sanity report for the table (recorded in summary.json)."""
         p = np.asarray(self.table["pressure_Pa"], dtype=float)
         T_used = (np.asarray(self.table["temperature_K"], dtype=float) * self.c.eta_T0)
-        R = np.asarray(self.table["gas_constant_J_kgK"], dtype=float)
+        R = np.asarray(self.table["effective_gas_constant_J_kgK"], dtype=float)
         theta = R * T_used
         two_phase = (self.c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
                      and self.supports_two_phase)
@@ -1004,9 +1004,9 @@ class PressureTableBackend(ThermochemistryBackend):
             "gamma_min": float(np.min(self.table["gamma_s"])),
             "gamma_max": float(np.max(self.table["gamma_s"])),
             "gas_phase_molecular_weight_min_kg_kmol":
-                float(np.min(self.table["gas_phase_molecular_weight_kg_kmol"])),
+                float(np.min(self.table["equilibrium_molecular_weight_kg_kmol"])),
             "gas_phase_molecular_weight_max_kg_kmol":
-                float(np.max(self.table["gas_phase_molecular_weight_kg_kmol"])),
+                float(np.max(self.table["equilibrium_molecular_weight_kg_kmol"])),
             "gas_mass_fraction_min": float(np.min(Yg)),
             "gas_mass_fraction_max": float(np.max(Yg)),
             "condensed_mass_fraction_min": float(np.min(Yc)),
@@ -1376,8 +1376,8 @@ class CEALegacyExecutableBackend(PressureTableBackend):
             "pressure_Pa": pp.tolist(),
             "temperature_K": T.tolist(),
             "gamma_s": gamma.tolist(),
-            "gas_phase_molecular_weight_kg_kmol": M.tolist(),
-            "gas_constant_J_kgK": R.tolist(),
+            "equilibrium_molecular_weight_kg_kmol": M.tolist(),
+            "effective_gas_constant_J_kgK": R.tolist(),
         }
 
     def option_metadata(self) -> Dict[str, Any]:
@@ -1877,8 +1877,8 @@ class CEAPythonBackend(PressureTableBackend):
             "pressure_Pa": pressures.tolist(),
             "temperature_K": T_out,
             "gamma_s": g_out,
-            "gas_phase_molecular_weight_kg_kmol": M_out,
-            "gas_constant_J_kgK": R_out,
+            "equilibrium_molecular_weight_kg_kmol": M_out,
+            "effective_gas_constant_J_kgK": R_out,
             "gas_mass_fraction": Yg_out,
             "condensed_mass_fraction": Yc_out,
             "psi_J_kg": psi_out,
@@ -2185,7 +2185,7 @@ class ReferenceConstantBackend(ThermochemistryBackend):
             "temperature_K": self._temperature,
             "gamma": self._gamma,
             "molecular_weight_kg_kmol": self._molecular_weight,
-            "gas_constant_J_kgK": self._gas_constant,
+            "effective_gas_constant_J_kgK": self._gas_constant,
             "gas_mass_fraction": 1.0,
             "condensed_mass_fraction": 0.0,
             "equilibrium_formulation": self.equilibrium_formulation,
@@ -2201,11 +2201,11 @@ class ReferenceConstantBackend(ThermochemistryBackend):
             "pressure_Pa": pressures,
             "temperature_K": [self._temperature, self._temperature],
             "gamma_s": [self._gamma, self._gamma],
-            "gas_phase_molecular_weight_kg_kmol": [
+            "equilibrium_molecular_weight_kg_kmol": [
                 self._molecular_weight,
                 self._molecular_weight,
             ],
-            "gas_constant_J_kgK": [
+            "effective_gas_constant_J_kgK": [
                 self._gas_constant,
                 self._gas_constant,
             ],
@@ -3585,8 +3585,8 @@ class _SyntheticTestBackend(PressureTableBackend):
             "pressure_Pa": pressures.tolist(),
             "temperature_K": [T0] * n,
             "gamma_s": [gamma] * n,
-            "gas_phase_molecular_weight_kg_kmol": [M] * n,
-            "gas_constant_J_kgK": [R] * n,
+            "equilibrium_molecular_weight_kg_kmol": [M] * n,
+            "effective_gas_constant_J_kgK": [R] * n,
             "gas_mass_fraction": [Yg] * n,
             "condensed_mass_fraction": [self._ycond] * n,
             "psi_J_kg": [Yg * R * T0 * c.eta_T0] * n,
@@ -3857,7 +3857,7 @@ def self_tests(c: Config, verbose=True) -> bool:
     # solver-facing Psi is Yg*Rg*T_used; in the single-phase legacy mode it is
     # Theta = Rg*T_used by definition (Yg := 1), while the stored table column
     # keeps the physical Yg*Rg*T_used product in both cases.
-    R_tab = np.asarray(table["gas_constant_J_kgK"], dtype=float)
+    R_tab = np.asarray(table["effective_gas_constant_J_kgK"], dtype=float)
     T_tab = np.asarray(table["temperature_K"], dtype=float) * c.eta_T0
     psi_ref = Yg_tab * R_tab * T_tab
     psi_solver_ref = psi_ref if two_phase_active else R_tab * T_tab
