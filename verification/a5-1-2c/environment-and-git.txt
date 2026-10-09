@@ -1,0 +1,18 @@
+2026-10-09T12:57:20+09:00
+pwd=/home/hikaru-kurokawa/Rocket/GRIBS-dev
+python=Python 3.14.4
+numpy=2.5.3
+scipy=1.18.1
+matplotlib=3.11.2
+pytest=9.1.1
+cea_package=3.3.4
+cea_library=3.3.4
+cea_R=8314.51
+HEAD=4449132623804a017113bf5f25a37727bc02d11d
+## phase-a-a5-1-cea-mass-basis-audit
+?? verification/a5-1-2b/
+?? verification/a5-1-2c/
+4449132 (HEAD -> phase-a-a5-1-cea-mass-basis-audit) docs: record mass-basis model decision
+95e2573 docs: establish CEA mass-basis semantics
+b1c9d0b docs: freeze pre-fix CEA mass-basis evidence
+2eb2ce5 (origin/phase-a-foundation, phase-a-foundation) Merge pull request #6 from Team-TSA/phase-a-a5-reference-problems
