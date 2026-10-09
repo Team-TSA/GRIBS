@@ -1,0 +1,19 @@
+{
+  "policy_version": "a5-1-2d-prechange-1",
+  "excluded_existing_fields": [
+    "configuration_source",
+    "output_files"
+  ],
+  "allowed_new_fields": [
+    "post_run_consistency",
+    "total_mass_consistency_error_invariant",
+    "total_mass_consistency_reference_mass_kg",
+    "total_mass_consistency_metric_version"
+  ],
+  "allowed_warning_codes": [
+    "W_POST_RUN_CONSISTENCY",
+    "W_MASS_LEDGER"
+  ],
+  "require_all_other_existing_fields_identical": true,
+  "require_history_cells_identical": true
+}

@@ -1,0 +1,12 @@
+2026-10-09T13:29:28+09:00
+HEAD=d88651fba71bdcf15216013df86feee3b14f6e03
+## phase-a-a5-1-cea-mass-basis-audit
+?? verification/a5-1-2d/
+Python 3.14.4
+numpy=2.5.3
+scipy=1.18.1
+matplotlib=3.11.2
+pytest=9.1.1
+cea_package=3.3.4
+cea_library=3.3.4
+cea_R=8314.51
