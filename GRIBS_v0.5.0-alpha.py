@@ -692,6 +692,14 @@ class PressureTableBackend(ThermochemistryBackend):
     M_CEA = 1 / EqSolution.n and the gas constant is R_eff = Ru / M_CEA.
     Schema 3 caches (obsolete gas-phase mass basis) and schema 2 caches
     (v0.4.3-alpha, no phase split) are rejected and never silently reused.
+
+    Corrected mass basis (cache schema 4):
+
+        M_CEA(p) = 1 / EqSolution.n      [kg/kmol, total mixture]
+        R_eff(p) = Ru / M_CEA(p) = Yg(p) * R_gas(p)
+        p/(rho*T) = R_eff
+
+    The chamber EOS uses Psi = R_eff * T_used with no additional Yg factor.
     """
 
     cache_schema = 4
@@ -757,8 +765,9 @@ class PressureTableBackend(ThermochemistryBackend):
             "temperature_efficiency": float(self.c.eta_T0),
             # factors that change the tabulated two-phase properties:
             "phase_fractions_tabulated": bool(self.supports_two_phase),
-            "molecular_weight_definition": "gas_phase_M (gas-phase M; total MW is "
-                                           "diagnostic only since v0.5.0-alpha)",
+            "molecular_weight_definition": (
+                "gas_phase_M compatibility token; M_CEA = 1 / EqSolution.n "
+                "= M_gas / Yg on the total equilibrium mixture mass basis"),
             "options": self.option_signature(),
         }
 
@@ -1524,10 +1533,11 @@ class CEAPythonBackend(PressureTableBackend):
       solver as ``h/R`` [K] (the convention of the official examples).
     * Pressure units: Pa in the configuration, converted to **bar** for the API.
     * Temperature units: K.
-    * Molecular weight: ``EqSolution.M`` - the GAS-PHASE molecular weight in
-      kg/kmol (= g/mol), i.e. the same quantity the legacy ``plot m`` column
-      provided.  The v0.4.3 option ``total_MW`` is REJECTED in v0.4.4: the
-      total molecular weight ``EqSolution.MW`` is tabulated as a diagnostic
+    * Molecular weight: ``EqSolution.M`` is M_CEA = 1 / EqSolution.n, the
+      molecular weight of the TOTAL equilibrium mixture in kg/kmol
+      (= g/mol) on the total-mixture mass basis - i.e. the same quantity the
+      legacy ``plot m`` column provided.  The v0.4.3 option ``total_MW`` is
+      REJECTED in v0.4.4: ``EqSolution.MW`` is tabulated as a diagnostic
       only and never enters the equation of state or the nozzle model.
     * gamma: ``EqSolution.gamma_s`` (isentropic exponent of the equilibrium gas).
     * Specific gas constant: Rg = Ru/M with Ru = 8314.51 J/(kmol K) - the value
@@ -1890,8 +1900,10 @@ class CEAPythonBackend(PressureTableBackend):
             "reactant_enthalpy_J_kg": h_c,
             "reactant_enthalpy_over_R_K": h_R,
             "reactant_enthalpy_recomputed_kJ_kg": h_out,
-            "molecular_weight_definition": "gas_phase_M (EqSolution.M); EqSolution.MW "
-                                           "is tabulated as a diagnostic only",
+            "molecular_weight_definition": (
+                "gas_phase_M compatibility token; EqSolution.M is M_CEA on the "
+                "total equilibrium mixture mass basis; EqSolution.MW is "
+                "tabulated as a diagnostic only"),
             "product_species_count": int(product_mixture.num_species),
             "num_gas": int(solver.num_gas),
             "num_condensed": int(solver.num_condensed),
@@ -1940,8 +1952,10 @@ class CEAPythonBackend(PressureTableBackend):
                 "temperatures; passed to CEA as h/R [K]."),
             "pressure_units": "configuration in Pa, official API in bar",
             "temperature_units": "K",
-            "molecular_weight_definition": "EqSolution.M (gas-phase, kg/kmol); "
-                                           "EqSolution.MW is diagnostic only",
+            "molecular_weight_definition": (
+                "EqSolution.M is M_CEA = 1 / EqSolution.n on the total "
+                "equilibrium mixture mass basis (kg/kmol); EqSolution.MW is "
+                "diagnostic only"),
             "gamma_definition": "EqSolution.gamma_s (equilibrium isentropic exponent)",
             "heat_capacity_treatment": "equilibrium (cp_eq reported as a diagnostic)",
             "phase_fractions": ("Yg = sum of gas-species mass fractions, Yc = sum "
