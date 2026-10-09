@@ -3009,6 +3009,86 @@ def nozzle_transition_diagnostics(
     return result
 
 
+def post_run_consistency_report(res: dict, h: dict) -> dict:
+    """Return one authoritative post-simulation mass-consistency report.
+
+    The invariant EOS-history metric uses one run-wide reference mass and
+    therefore does not amplify a fixed absolute error as the chamber
+    inventory approaches zero during blowdown.
+
+    The former instantaneous-mass-normalized metric remains available as a
+    deprecated diagnostic for historical comparison, but it is not used as
+    the post-run gate.
+    """
+    m_total0 = float(res["m_total0"])
+    m_gen = np.asarray(h["m_gen"], dtype=float)
+    m_out = np.asarray(h["m_out"], dtype=float)
+    m_eos = np.asarray(h["m_total_eos"], dtype=float)
+    m_balance = np.asarray(h["m_total_balance"], dtype=float)
+
+    if m_gen.size == 0:
+        raise ValueError("Post-run consistency requires a non-empty history.")
+
+    expected_shape = m_eos.shape
+    for name, values in (
+        ("m_gen", m_gen),
+        ("m_out", m_out),
+        ("m_total_balance", m_balance),
+    ):
+        if values.shape != expected_shape:
+            raise ValueError(
+                f"Post-run history array {name} must match m_total_eos."
+            )
+
+    lhs = m_total0 + float(m_gen[-1])
+    rhs = float(m_out[-1]) + float(m_eos[-1])
+    final_relative_error = abs(lhs - rhs) / max(abs(lhs), 1.0e-300)
+
+    absolute_difference = np.abs(m_balance - m_eos)
+
+    legacy_denominator = np.maximum(np.abs(m_eos), 1.0e-15)
+    legacy_relative_error = float(
+        np.max(absolute_difference / legacy_denominator)
+    )
+
+    reference_mass = max(
+        float(np.max(np.abs(m_balance))),
+        1.0e-30,
+    )
+    invariant_relative_error = float(
+        np.max(absolute_difference) / reference_mass
+    )
+
+    final_passed = bool(
+        final_relative_error < POST_RUN_MASS_TOLERANCE
+    )
+    eos_history_passed = bool(
+        invariant_relative_error < POST_RUN_MASS_TOLERANCE
+    )
+
+    return {
+        "schema_version": "a5-1-2d-post-run-1",
+        "tolerance": POST_RUN_MASS_TOLERANCE,
+        "final_total_mass": {
+            "lhs_initial_plus_generated_kg": lhs,
+            "rhs_discharged_plus_remaining_kg": rhs,
+            "relative_error": final_relative_error,
+            "passed": final_passed,
+        },
+        "eos_history": {
+            "metric_version": "run_wide_balance_mass_reference_v1",
+            "reference_mass_kg": reference_mass,
+            "invariant_relative_error": invariant_relative_error,
+            "legacy_instantaneous_mass_relative_error": (
+                legacy_relative_error
+            ),
+            "legacy_metric_deprecated": True,
+            "passed": eos_history_passed,
+        },
+        "passed": bool(final_passed and eos_history_passed),
+    }
+
+
 def summarize(res: dict, h: dict, c: Config) -> dict:
     t = h["t"]
     burn = h["phase"] == "burn"
@@ -3028,9 +3108,12 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
     CF_eff = I_burn / pAt_int if pAt_int > 0 else float("nan")
     p_mean = float(pAt_int / (At0 * (t_bo - t[0]))) if t_bo > t[0] else float("nan")
 
-    # EOS mass vs balance mass (TOTAL product mass basis in the two-phase mode)
-    denom = np.maximum(np.abs(h["m_total_eos"]), 1e-15)
-    mass_err = float(np.max(np.abs(h["m_total_balance"] - h["m_total_eos"]) / denom))
+    # One authoritative post-run consistency report.  The legacy metric is
+    # retained under its existing field name for output compatibility.
+    post_run = post_run_consistency_report(res, h)
+    mass_err = post_run["eos_history"][
+        "legacy_instantaneous_mass_relative_error"
+    ]
 
     # two-phase statistics over the computed history
     Yg_h = np.asarray(h["Y_gas"], dtype=float)
@@ -3076,6 +3159,16 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
         throat_radius_final_mm=float(h["Rt"][-1]) * 1e3,
         propellant_mass_balance_error=abs(m_gen_tot / m_prop - 1.0) if m_prop > 0 else float("nan"),
         total_mass_consistency_error=mass_err,
+        total_mass_consistency_error_invariant=(
+            post_run["eos_history"]["invariant_relative_error"]
+        ),
+        total_mass_consistency_reference_mass_kg=(
+            post_run["eos_history"]["reference_mass_kg"]
+        ),
+        total_mass_consistency_metric_version=(
+            post_run["eos_history"]["metric_version"]
+        ),
+        post_run_consistency=post_run,
         # ---------------- Phase A-4 ledger ----------------
         ledger=ledger,
         # ---------------- two-phase model ----------------
@@ -3147,6 +3240,105 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
         event_times=res["t_events"],
     )
     return s
+
+
+def append_run_verdict_warnings(summary: dict) -> None:
+    """Append machine-readable warnings for failed run-level verdicts.
+
+    This function changes only the external diagnostic contract.  It does not
+    modify simulation histories, ledger equations, or acceptance tolerances.
+    """
+    warnings = summary.setdefault("warnings", [])
+    existing_codes = {
+        warning.get("code")
+        for warning in warnings
+        if isinstance(warning, dict)
+    }
+
+    post_run = summary["post_run_consistency"]
+    if not post_run["passed"] and "W_POST_RUN_CONSISTENCY" not in existing_codes:
+        final = post_run["final_total_mass"]
+        eos = post_run["eos_history"]
+        warnings.append(
+            {
+                "code": "W_POST_RUN_CONSISTENCY",
+                "severity": "error",
+                "message": (
+                    "The post-run mass-consistency contract failed. "
+                    "Diagnostic output was preserved before returning a "
+                    "nonzero process status."
+                ),
+                "context": {
+                    "final_total_mass_passed": final["passed"],
+                    "final_total_mass_relative_error": (
+                        final["relative_error"]
+                    ),
+                    "eos_history_passed": eos["passed"],
+                    "eos_history_invariant_relative_error": (
+                        eos["invariant_relative_error"]
+                    ),
+                    "eos_history_reference_mass_kg": (
+                        eos["reference_mass_kg"]
+                    ),
+                    "legacy_instantaneous_mass_relative_error": (
+                        eos[
+                            "legacy_instantaneous_mass_relative_error"
+                        ]
+                    ),
+                    "tolerance": post_run["tolerance"],
+                },
+            }
+        )
+
+    ledger = summary["ledger"]
+    if not ledger["passed"] and "W_MASS_LEDGER" not in existing_codes:
+        mass = ledger["mass"]
+        total = mass["total_system"]
+        propellant = mass["propellant"]
+        warnings.append(
+            {
+                "code": "W_MASS_LEDGER",
+                "severity": "error",
+                "message": (
+                    "The mass-ledger acceptance contract failed. "
+                    "Diagnostic output was preserved before returning a "
+                    "nonzero process status."
+                ),
+                "context": {
+                    "mass_passed": mass["passed"],
+                    "total_system_passed": total["passed"],
+                    "total_system_signed_residual_kg": (
+                        total["signed_residual_kg"]
+                    ),
+                    "total_system_relative_residual": (
+                        total["relative_residual"]
+                    ),
+                    "total_system_tolerance": total["tolerance"],
+                    "propellant_passed": propellant["passed"],
+                    "propellant_signed_residual_kg": (
+                        propellant["signed_residual_kg"]
+                    ),
+                    "propellant_relative_residual": (
+                        propellant["relative_residual"]
+                    ),
+                    "propellant_tolerance": propellant["tolerance"],
+                    "igniter_mass_commanded_kg": (
+                        mass["igniter_mass_commanded_kg"]
+                    ),
+                    "igniter_mass_injected_kg": (
+                        mass["igniter_mass_injected_kg"]
+                    ),
+                },
+            }
+        )
+
+
+def run_verdict_passed(summary: dict) -> bool:
+    """Return the combined post-run and mass-ledger verdict."""
+    return bool(
+        summary["post_run_consistency"]["passed"]
+        and summary["ledger"]["passed"]
+    )
 
 
 MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE = 1.0e-6
@@ -3379,6 +3571,86 @@ class _SyntheticTestBackend(PressureTableBackend):
 SINGLE_PHASE_LIMIT_TOLERANCE = 1.0e-12
 
 
+SELF_TEST_COMMON_NAMES = (
+    "analytic vs numerical dTheta/dp",
+    "geometry consistency dVg/dx = Ab",
+    "area-Mach inversion round trip",
+    "closed-form choked thrust identity",
+    "finite initial derivatives",
+    "chamber-property table physical",
+    "phase fractions sum to 1 (table)",
+    "phase fractions physical (table)",
+    "Psi = Yg*Rg*T0 (table + interpolator)",
+    "analytic vs numerical dPsi/dp",
+    "pressure factor 1 - p*Psi'/Psi > 0",
+    "single-phase limit: model B == Theta model",
+    "nozzle decomposition mdot_total = gas + condensed",
+    "no-condensed compatibility (hom. vs legacy run)",
+)
+
+
+def expected_self_test_names(c: Config) -> Tuple[str, ...]:
+    """Return the exact ordered self-test names for a configuration."""
+    if math.isclose(
+        c.eps_nozzle,
+        1.0,
+        rel_tol=0.0,
+        abs_tol=1.0e-12,
+    ):
+        nozzle_name = "converging-nozzle continuity (mdot, F)"
+    else:
+        nozzle_name = "C-D nozzle transition mass-flow continuity"
+
+    return (
+        SELF_TEST_COMMON_NAMES[0],
+        SELF_TEST_COMMON_NAMES[1],
+        SELF_TEST_COMMON_NAMES[2],
+        nozzle_name,
+        *SELF_TEST_COMMON_NAMES[3:],
+    )
+
+
+def self_test_name_contract(
+    c: Config,
+    actual_names: Sequence[str],
+) -> dict:
+    """Compare reported self-test names with the exact expected contract."""
+    expected = expected_self_test_names(c)
+    actual = tuple(actual_names)
+
+    missing = [
+        name
+        for name in expected
+        if name not in actual
+    ]
+    unexpected = [
+        name
+        for name in actual
+        if name not in expected
+    ]
+    duplicates = sorted({
+        name
+        for name in actual
+        if actual.count(name) > 1
+    })
+
+    return {
+        "expected_names": list(expected),
+        "actual_names": list(actual),
+        "expected_count": len(expected),
+        "actual_count": len(actual),
+        "missing_names": missing,
+        "unexpected_names": unexpected,
+        "duplicate_names": duplicates,
+        "passed": bool(
+            actual == expected
+            and not missing
+            and not unexpected
+            and not duplicates
+        ),
+    }
+
+
 def self_tests(c: Config, verbose=True) -> bool:
     """Numerical self-tests executed explicitly with ``--selftest``.
 
@@ -3388,10 +3660,12 @@ def self_tests(c: Config, verbose=True) -> bool:
     """
     global _THERMO
     out, ok_all = [], True
+    result_names = []
 
     def chk(name, ok, detail=""):
         nonlocal ok_all
         ok_all &= bool(ok)
+        result_names.append(name)
         out.append(f"  [{'PASS' if ok else 'FAIL'}] {name:<46s} {detail}")
 
     backend = thermochemistry()
@@ -3677,11 +3951,37 @@ def self_tests(c: Config, verbose=True) -> bool:
     finally:
         _THERMO = saved_thermo
 
+    name_contract = self_test_name_contract(c, result_names)
+    ok_all &= bool(name_contract["passed"])
+
     if verbose:
         print(f"Self-tests  (thermochemistry backend: {backend.name}, "
               f"two-phase mode: {c.two_phase_mode}"
               f"{'' if two_phase_active else ' (phase split inactive)'})")
         print("\n".join(out))
+        if not name_contract["passed"]:
+            print("SELF-TEST CONTRACT ERROR")
+            print(
+                "  expected count: "
+                f"{name_contract['expected_count']}, "
+                "actual count: "
+                f"{name_contract['actual_count']}"
+            )
+            if name_contract["missing_names"]:
+                print(
+                    "  missing names: "
+                    + ", ".join(name_contract["missing_names"])
+                )
+            if name_contract["unexpected_names"]:
+                print(
+                    "  unexpected names: "
+                    + ", ".join(name_contract["unexpected_names"])
+                )
+            if name_contract["duplicate_names"]:
+                print(
+                    "  duplicate names: "
+                    + ", ".join(name_contract["duplicate_names"])
+                )
         print(f"  -> {'all checks passed' if ok_all else 'FAILURES DETECTED'}\n")
     return ok_all
 
@@ -3693,40 +3993,67 @@ def self_tests(c: Config, verbose=True) -> bool:
 POST_RUN_MASS_TOLERANCE = 1.0e-6
 
 
-def self_tests_post_run(res: dict, h: dict, c: Config, verbose=True) -> bool:
-    """Conservation tests that require the completed simulation (tests 7-8)."""
-    out, ok_all = [], True
+def self_tests_post_run(
+    res: dict,
+    h: dict,
+    c: Config,
+    verbose=True,
+    report: Optional[dict] = None,
+) -> bool:
+    """Display and return the structured post-run consistency verdict."""
+    report = (
+        post_run_consistency_report(res, h)
+        if report is None
+        else report
+    )
 
-    def chk(name, ok, detail=""):
-        nonlocal ok_all
-        ok_all &= bool(ok)
-        out.append(f"  [{'PASS' if ok else 'FAIL'}] {name:<46s} {detail}")
+    final = report["final_total_mass"]
+    eos = report["eos_history"]
 
-    m_total0 = float(res["m_total0"])
-    m_gen_final = float(h["m_gen"][-1])
-    m_out_final = float(h["m_out"][-1])
-    m_eos_final = float(h["m_total_eos"][-1])
-
-    # Test 7: total mass conservation  mt0 + m_gen = m_out + mt_remaining
-    lhs = m_total0 + m_gen_final
-    rhs = m_out_final + m_eos_final
-    e7 = abs(lhs - rhs) / max(abs(lhs), 1e-300)
-    chk("total mass conservation (final)", e7 < POST_RUN_MASS_TOLERANCE,
-        f"mt0 + m_gen = {lhs:.9e} kg vs m_out + mt = {rhs:.9e} kg "
-        f"(rel. err = {e7:.2e})")
-
-    # Test 8: EOS mass vs balance mass over the whole history
-    denom = np.maximum(np.abs(np.asarray(h["m_total_eos"], dtype=float)), 1e-15)
-    e8 = float(np.max(np.abs(np.asarray(h["m_total_balance"], dtype=float)
-                             - np.asarray(h["m_total_eos"], dtype=float)) / denom))
-    chk("EOS mass vs balance mass (history)", e8 < POST_RUN_MASS_TOLERANCE,
-        f"max rel. err = {e8:.2e} (tol {POST_RUN_MASS_TOLERANCE:.0e})")
+    out = [
+        (
+            "  [{status}] {name:<46s} "
+            "mt0 + m_gen = {lhs:.9e} kg vs "
+            "m_out + mt = {rhs:.9e} kg "
+            "(rel. err = {error:.2e})"
+        ).format(
+            status="PASS" if final["passed"] else "FAIL",
+            name="total mass conservation (final)",
+            lhs=final["lhs_initial_plus_generated_kg"],
+            rhs=final["rhs_discharged_plus_remaining_kg"],
+            error=final["relative_error"],
+        ),
+        (
+            "  [{status}] {name:<46s} "
+            "max rel. err = {error:.2e} "
+            "(fixed reference = {reference:.9e} kg, "
+            "tol {tolerance:.0e})"
+        ).format(
+            status="PASS" if eos["passed"] else "FAIL",
+            name="EOS mass vs balance mass (history)",
+            error=eos["invariant_relative_error"],
+            reference=eos["reference_mass_kg"],
+            tolerance=report["tolerance"],
+        ),
+        (
+            "  [INFO] {name:<46s} "
+            "max rel. err = {error:.2e}"
+        ).format(
+            name="legacy shrinking-mass metric (deprecated)",
+            error=eos[
+                "legacy_instantaneous_mass_relative_error"
+            ],
+        ),
+    ]
 
     if verbose:
         print("Post-run conservation tests")
         print("\n".join(out))
-        print(f"  -> {'all checks passed' if ok_all else 'FAILURES DETECTED'}\n")
-    return ok_all
+        print(
+            f"  -> {'all checks passed' if report['passed'] else 'FAILURES DETECTED'}\n"
+        )
+
+    return bool(report["passed"])
 
 
 # ==============================================================================
@@ -4380,6 +4707,24 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
     ):
         A(line)
     A("")
+    run_warnings = [
+        warning
+        for warning in s["warnings"]
+        if warning.get("code") in {
+            "W_POST_RUN_CONSISTENCY",
+            "W_MASS_LEDGER",
+        }
+    ]
+    if run_warnings:
+        A("[ verification warnings ]")
+        for warning in run_warnings:
+            A(
+                f"  WARNING [{warning['code']}] "
+                f"severity={warning['severity']}"
+            )
+            A(f"    {warning['message']}")
+        A("")
+
     A("[ mass ledger ]")
     ledger = s["ledger"]
     mass = ledger["mass"]
@@ -4444,8 +4789,16 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
     A("")
     A("[ verification ]")
     A(f"  legacy propellant balance metric : "
-      f"{s['propellant_mass_balance_error']:.3e}")
-    A(f"  total-mass (EOS vs balance) error: {s['total_mass_consistency_error']:.3e}")
+      f"{s['propellant_mass_balance_error']:.3e} "
+      f"(includes igniter in the legacy numerator)")
+    A(f"  EOS-history invariant error      : "
+      f"{s['total_mass_consistency_error_invariant']:.3e}")
+    A(f"  invariant reference mass         : "
+      f"{s['total_mass_consistency_reference_mass_kg']:.9e} kg")
+    A(f"  invariant metric version         : "
+      f"{s['total_mass_consistency_metric_version']}")
+    A(f"  legacy shrinking-mass error      : "
+      f"{s['total_mass_consistency_error']:.3e} (deprecated)")
     A(f"  property-range extrapolation used: {s['property_extrapolation']}"
       f"   (policy = {c.property_policy})")
     if s["property_extrapolation"] and c.property_policy == "extrapolate":
@@ -5504,11 +5857,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except (GribsError, ValueError, RuntimeError) as exc:
         print(f"Simulation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 4
-    if not self_tests_post_run(res, hist, cfg):
-        print("Post-run conservation tests failed; aborting before writing output.",
-              file=sys.stderr)
-        return 1
     summ = summarize(res, hist, cfg)
+    append_run_verdict_warnings(summ)
+    run_passed = run_verdict_passed(summ)
+
     thermo_md = backend.metadata()
     cea_diag = _cea_theoretical_diagnostics(cfg, backend, summ)
 
@@ -5519,10 +5871,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     txtp = outdir / loaded.output_names["summary_text_filename"]
     jsnp = outdir / loaded.output_names["summary_json_filename"]
 
-    write_csv(hist, csvp)
-    make_figure(res, hist, summ, cfg, png, cea_diag)
-    text = summary_text(summ, cfg, thermo_md, cea_diag, loaded.migration_notes)
-    txtp.write_text(text, encoding="utf-8")
+    text = summary_text(
+        summ,
+        cfg,
+        thermo_md,
+        cea_diag,
+        loaded.migration_notes,
+    )
 
     derived = {
         "propellant_density_kg_m3": cfg.rho_p,
@@ -5550,14 +5905,46 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "output_files": {"figure": str(png), "history_csv": str(csvp),
                          "summary_text": str(txtp), "summary_json": str(jsnp)},
     }
-    jsnp.write_text(json.dumps(summary_json, indent=2, ensure_ascii=False) + "\n",
-                    encoding="utf-8")
+
+    # Preserve machine-readable diagnostics before any verdict-based exit
+    # and before figure generation.
+    write_csv(hist, csvp)
+    txtp.write_text(text, encoding="utf-8")
+    jsnp.write_text(
+        json.dumps(summary_json, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    make_figure(res, hist, summ, cfg, png, cea_diag)
+
+    self_tests_post_run(
+        res,
+        hist,
+        cfg,
+        report=summ["post_run_consistency"],
+    )
 
     print()
     print(text)
     print("Output files")
     for pth in (png, csvp, txtp, jsnp):
         print(f"  {pth}")
+
+    if not run_passed:
+        failed_codes = [
+            warning["code"]
+            for warning in summ["warnings"]
+            if warning.get("code") in {
+                "W_POST_RUN_CONSISTENCY",
+                "W_MASS_LEDGER",
+            }
+        ]
+        print(
+            "Run verification failed after diagnostic output was written: "
+            + ", ".join(failed_codes),
+            file=sys.stderr,
+        )
+        return 1
+
     return 0
 
 

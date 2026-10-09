@@ -1,0 +1,32 @@
+difference_count=10
+unexpected_difference_count=0
+CHANGED: configuration_source
+  before='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/baseline-rtol-1e-10/config.json'
+  after ='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/unit-2-rtol-1e-10/config.json'
+CHANGED: original_configuration.output.directory
+  before='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/baseline-rtol-1e-10/output'
+  after ='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/unit-2-rtol-1e-10/output'
+CHANGED: output_files.figure
+  before='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/baseline-rtol-1e-10/output/conv_nozzle_result.png'
+  after ='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/unit-2-rtol-1e-10/output/conv_nozzle_result.png'
+CHANGED: output_files.history_csv
+  before='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/baseline-rtol-1e-10/output/conv_nozzle_history.csv'
+  after ='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/unit-2-rtol-1e-10/output/conv_nozzle_history.csv'
+CHANGED: output_files.summary_json
+  before='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/baseline-rtol-1e-10/output/conv_nozzle_summary.json'
+  after ='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/unit-2-rtol-1e-10/output/conv_nozzle_summary.json'
+CHANGED: output_files.summary_text
+  before='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/baseline-rtol-1e-10/output/conv_nozzle_summary.txt'
+  after ='/home/hikaru-kurokawa/Rocket/GRIBS-dev/verification/a5-1-2d/unit-2-rtol-1e-10/output/conv_nozzle_summary.txt'
+ADDED: results.post_run_consistency
+  before=None
+  after ={'schema_version': 'a5-1-2d-post-run-1', 'tolerance': 1e-06, 'final_total_mass': {'lhs_initial_plus_generated_kg': 0.6609961351981267, 'rhs_discharged_plus_remaining_kg': 0.6609961352211073, 'relative_error': 3.4766644137987854e-11, 'passed': True}, 'eos_history': {'metric_version': 'run_wide_balance_mass_reference_v1', 'reference_mass_kg': 0.0061107926089148945, 'invariant_relative_error': 3.8407655452640866e-09, 'legacy_instantaneous_mass_relative_error': 3.601669931212943e-07, 'legacy_metric_deprecated': True, 'passed': True}, 'passed': True}
+ADDED: results.total_mass_consistency_error_invariant
+  before=None
+  after =3.8407655452640866e-09
+ADDED: results.total_mass_consistency_metric_version
+  before=None
+  after ='run_wide_balance_mass_reference_v1'
+ADDED: results.total_mass_consistency_reference_mass_kg
+  before=None
+  after =0.0061107926089148945

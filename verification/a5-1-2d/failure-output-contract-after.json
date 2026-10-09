@@ -1,0 +1,32 @@
+{
+  "process_exit_status": 1,
+  "post_run_passed": true,
+  "ledger_passed": false,
+  "warning_codes": [
+    "W_MASS_LEDGER"
+  ],
+  "total_system_passed": true,
+  "propellant_passed": false,
+  "output_files": {
+    "conv_nozzle_history.csv": {
+      "exists": true,
+      "size": 4596858,
+      "mtime_ns": 1791521477771396785
+    },
+    "conv_nozzle_summary.txt": {
+      "exists": true,
+      "size": 8098,
+      "mtime_ns": 1791521475923207307
+    },
+    "conv_nozzle_summary.json": {
+      "exists": true,
+      "size": 23917,
+      "mtime_ns": 1791521475923637286
+    },
+    "conv_nozzle_result.png": {
+      "exists": true,
+      "size": 845835,
+      "mtime_ns": 1791521477503392750
+    }
+  }
+}

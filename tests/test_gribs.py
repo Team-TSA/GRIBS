@@ -669,7 +669,7 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
         "p0": gribs.np.array([2.0e5, 3.0e5]),
         "F": gribs.np.array([0.0, 1.0]),
         "impulse": gribs.np.array([0.0, 1.0]),
-        "m_out": gribs.np.array([0.0, 0.5]),
+        "m_out": gribs.np.array([0.0, m_prop]),
         "m_gen": gribs.np.array([0.0, m_prop]),
         "At": gribs.np.array([At0, At0]),
         "Kn": gribs.np.array([1.0, 1.0]),
@@ -685,6 +685,7 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
         ),
     }
     result = {
+        "m_total0": 1.0,
         "At0": At0,
         "Ae": At0,
         "stop_burn": "time-limit",
@@ -698,6 +699,17 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
     assert summary["ledger"] is sentinel_ledger
     assert summary["propellant_mass_balance_error"] == pytest.approx(0.0)
     assert summary["total_mass_consistency_error"] == pytest.approx(0.0)
+    assert summary["total_mass_consistency_error_invariant"] == pytest.approx(
+        0.0
+    )
+    assert summary["total_mass_consistency_reference_mass_kg"] == pytest.approx(
+        1.0
+    )
+    assert (
+        summary["total_mass_consistency_metric_version"]
+        == "run_wide_balance_mass_reference_v1"
+    )
+    assert summary["post_run_consistency"]["passed"] is True
 
 
 @pytest.mark.fast
@@ -818,6 +830,14 @@ def test_summary_text_contains_mass_and_energy_ledger_sections():
         },
         "propellant_mass_balance_error": 0.002,
         "total_mass_consistency_error": 1.0e-10,
+        "total_mass_consistency_error_invariant": 1.0e-12,
+        "total_mass_consistency_reference_mass_kg": 1.0,
+        "total_mass_consistency_metric_version": (
+            "run_wide_balance_mass_reference_v1"
+        ),
+        "post_run_consistency": {
+            "passed": True,
+        },
     }
 
     text = gribs.summary_text(summary, c)
@@ -829,6 +849,10 @@ def test_summary_text_contains_mass_and_energy_ledger_sections():
     assert "closure residual available" in text
     assert "not a complete energy-conservation law" in text
     assert "legacy propellant balance metric" in text
+    assert "includes igniter in the legacy numerator" in text
+    assert "EOS-history invariant error" in text
+    assert "legacy shrinking-mass error" in text
+    assert "(deprecated)" in text
 
 
 @pytest.mark.fast
@@ -975,3 +999,215 @@ def test_example_configuration_uses_default_solver_relative_tolerance():
         rel=0.0,
         abs=0.0,
     )
+
+
+@pytest.mark.fast
+def test_post_run_consistency_uses_time_invariant_reference_mass():
+    """The A-5.1-2d gate must not shrink with final chamber inventory."""
+    result = {
+        "m_total0": 1.0,
+    }
+    history = {
+        "m_gen": gribs.np.array([0.0, 0.0]),
+        "m_out": gribs.np.array([0.0, 0.9989995]),
+        "m_total_eos": gribs.np.array([1.0, 0.001]),
+        "m_total_balance": gribs.np.array([1.0, 0.0010005]),
+    }
+
+    report = gribs.post_run_consistency_report(result, history)
+    eos = report["eos_history"]
+
+    assert eos["reference_mass_kg"] == pytest.approx(1.0)
+    assert eos["invariant_relative_error"] == pytest.approx(5.0e-7)
+    assert eos["legacy_instantaneous_mass_relative_error"] == pytest.approx(
+        5.0e-4
+    )
+    assert eos["legacy_metric_deprecated"] is True
+    assert eos["metric_version"] == "run_wide_balance_mass_reference_v1"
+    assert eos["passed"] is True
+    assert report["final_total_mass"]["passed"] is True
+    assert report["passed"] is True
+
+
+@pytest.mark.fast
+def test_post_run_consistency_rejects_mismatched_history_shapes():
+    result = {
+        "m_total0": 1.0,
+    }
+    history = {
+        "m_gen": gribs.np.array([0.0, 0.0]),
+        "m_out": gribs.np.array([0.0, 0.0]),
+        "m_total_eos": gribs.np.array([1.0, 1.0]),
+        "m_total_balance": gribs.np.array([1.0]),
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="m_total_balance must match m_total_eos",
+    ):
+        gribs.post_run_consistency_report(result, history)
+
+
+@pytest.mark.fast
+def test_run_verdict_warning_exposes_failed_ledger_context():
+    summary = {
+        "warnings": [],
+        "post_run_consistency": {
+            "passed": True,
+        },
+        "ledger": {
+            "passed": False,
+            "mass": {
+                "passed": False,
+                "igniter_mass_commanded_kg": 0.002,
+                "igniter_mass_injected_kg": 0.002,
+                "total_system": {
+                    "passed": True,
+                    "signed_residual_kg": 1.0e-10,
+                    "relative_residual": 1.0e-9,
+                    "tolerance": 1.0e-6,
+                },
+                "propellant": {
+                    "passed": False,
+                    "signed_residual_kg": 2.0e-8,
+                    "relative_residual": 4.0e-8,
+                    "tolerance": 1.0e-9,
+                },
+            },
+        },
+    }
+
+    gribs.append_run_verdict_warnings(summary)
+
+    assert gribs.run_verdict_passed(summary) is False
+    assert len(summary["warnings"]) == 1
+
+    warning = summary["warnings"][0]
+    assert warning["code"] == "W_MASS_LEDGER"
+    assert warning["severity"] == "error"
+    assert warning["context"]["total_system_passed"] is True
+    assert warning["context"]["propellant_passed"] is False
+    assert warning["context"]["igniter_mass_commanded_kg"] == pytest.approx(
+        0.002
+    )
+    assert warning["context"]["igniter_mass_injected_kg"] == pytest.approx(
+        0.002
+    )
+
+
+@pytest.mark.fast
+def test_run_verdict_warning_exposes_failed_post_run_context():
+    summary = {
+        "warnings": [],
+        "post_run_consistency": {
+            "passed": False,
+            "tolerance": 1.0e-6,
+            "final_total_mass": {
+                "passed": True,
+                "relative_error": 1.0e-9,
+            },
+            "eos_history": {
+                "passed": False,
+                "invariant_relative_error": 2.0e-6,
+                "reference_mass_kg": 1.0,
+                "legacy_instantaneous_mass_relative_error": 3.0e-4,
+            },
+        },
+        "ledger": {
+            "passed": True,
+        },
+    }
+
+    gribs.append_run_verdict_warnings(summary)
+    gribs.append_run_verdict_warnings(summary)
+
+    assert gribs.run_verdict_passed(summary) is False
+    assert len(summary["warnings"]) == 1
+    assert summary["warnings"][0]["code"] == "W_POST_RUN_CONSISTENCY"
+    assert (
+        summary["warnings"][0]["context"][
+            "eos_history_invariant_relative_error"
+        ]
+        == pytest.approx(2.0e-6)
+    )
+
+
+@pytest.mark.fast
+def test_default_self_test_name_contract_is_exact_and_ordered():
+    configuration = gribs.load_json_configuration(ROOT / "gribs_config.json")
+    expected = gribs.expected_self_test_names(configuration.config)
+
+    assert len(expected) == 15
+    assert len(set(expected)) == 15
+    assert (
+        expected[3]
+        == "converging-nozzle continuity (mdot, F)"
+    )
+
+
+@pytest.mark.fast
+def test_cd_self_test_name_contract_uses_transition_test():
+    supplied = json.loads(
+        (ROOT / "gribs_config.json").read_text(encoding="utf-8")
+    )
+    supplied["nozzle"]["expansion_ratio"] = 4.0
+    configuration = gribs.configuration_from_document(supplied)
+
+    expected = gribs.expected_self_test_names(configuration.config)
+
+    assert len(expected) == 15
+    assert len(set(expected)) == 15
+    assert (
+        expected[3]
+        == "C-D nozzle transition mass-flow continuity"
+    )
+    assert "converging-nozzle continuity (mdot, F)" not in expected
+
+
+@pytest.mark.fast
+def test_self_test_name_contract_detects_missing_unexpected_and_duplicate():
+    c = gribs.Config()
+    expected = list(gribs.expected_self_test_names(c))
+
+    valid = gribs.self_test_name_contract(c, expected)
+    assert valid["passed"] is True
+    assert valid["expected_count"] == 15
+    assert valid["actual_count"] == 15
+
+    invalid_names = expected[:-1] + [expected[0], "unexpected test"]
+    invalid = gribs.self_test_name_contract(c, invalid_names)
+
+    assert invalid["passed"] is False
+    assert expected[-1] in invalid["missing_names"]
+    assert "unexpected test" in invalid["unexpected_names"]
+    assert expected[0] in invalid["duplicate_names"]
+
+
+@pytest.mark.fast
+def test_reference_constant_phase_fraction_contract():
+    supplied = json.loads(
+        (
+            ROOT
+            / "cases"
+            / "reference"
+            / "level1_end_faces_0.json"
+        ).read_text(encoding="utf-8")
+    )
+    configuration = gribs.configuration_from_document(supplied)
+    c = configuration.config
+
+    backend = gribs.ReferenceConstantBackend(
+        c,
+        c.reactants_spec_list,
+        c.packing_fraction,
+    )
+
+    assert backend.phase_fractions(c.p0_init) == (1.0, 0.0)
+
+    metadata = backend.metadata()
+    assert metadata["gas_mass_fraction"] == pytest.approx(1.0)
+    assert metadata["condensed_mass_fraction"] == pytest.approx(0.0)
+
+    table = backend.thermo_dump_table()
+    assert table["gas_mass_fraction"] == pytest.approx([1.0, 1.0])
+    assert table["condensed_mass_fraction"] == pytest.approx([0.0, 0.0])

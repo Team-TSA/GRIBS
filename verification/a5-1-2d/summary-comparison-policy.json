@@ -2,7 +2,11 @@
   "policy_version": "a5-1-2d-prechange-1",
   "excluded_existing_fields": [
     "configuration_source",
-    "output_files"
+    "original_configuration.output.directory",
+    "output_files.figure",
+    "output_files.history_csv",
+    "output_files.summary_text",
+    "output_files.summary_json"
   ],
   "allowed_new_fields": [
     "post_run_consistency",

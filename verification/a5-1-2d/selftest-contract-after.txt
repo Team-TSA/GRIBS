@@ -1,0 +1,6 @@
+default_exit_status=0
+default_result_count=15
+default_contract_error_count=0
+cd_exit_status=0
+cd_result_count=15
+cd_contract_error_count=0
