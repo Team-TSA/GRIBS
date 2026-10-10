@@ -2792,6 +2792,25 @@ def validate(c: Config) -> None:
         raise ValueError("unchoked_policy must be 'switch' or 'stop'.")
     if c.transition_policy not in ("jump", "shock"):
         raise ValueError("transition_policy must be 'jump' or 'shock'.")
+    # A-7: eta_T0 range check (review §3-E1)
+    # eta_T0 > 1 would produce temperatures above the adiabatic flame
+    # temperature, which is physically inconsistent with the current model.
+    if not (0.0 < c.eta_T0 <= 1.5):
+        raise ValueError(
+            f"temperature_efficiency (eta_T0) must lie in (0, 1.5], got "
+            f"{c.eta_T0}.  Values above 1.0 are physically inconsistent "
+            f"with the current model (they exceed the adiabatic flame "
+            f"temperature).  Use eta_T0 = 1.0 for the standard model.")
+    # A-7: pressure range vs initial/ambient pressure (review §3-E2)
+    # The blowdown terminal pressure approaches p_a; if p_a is too close to
+    # p_fit_min, the tail of the blowdown is dominated by clamping.
+    # This is a warning, not an error, because the default config works
+    # adequately with the current margin.
+    if c.p_a < c.p_fit_min:
+        raise ValueError(
+            f"ambient pressure p_a = {c.p_a:.0f} Pa is below the "
+            f"property table lower limit p_fit_min = {c.p_fit_min:.0f} Pa.  "
+            f"Require p_a >= p_fit_min.")
 
 
 def require_implemented_transition_policy(c: Config) -> None:
