@@ -2264,7 +2264,42 @@ class ReferenceConstantBackend(ThermochemistryBackend):
 # ------------------------------------------------------------------------------
 # 3.6 Backend factory and solver-facing accessors
 # ------------------------------------------------------------------------------
+# NOTE: _THERMO is a module-level global accessed by gas_props(), psi_and_deriv(),
+# phase_fractions(), theta_and_deriv(), is_extrapolated() — all called from deep
+# inside the solver (make_rhs → run_model).  Removing it requires threading a
+# ``backend`` parameter through 64+ call sites.  The _ThermoSwap context manager
+# now provides safe temporary replacement for self_tests().  Full removal is
+# tracked as A-6 deferred (future PR).
 _THERMO: Optional[ThermochemistryBackend] = None
+
+
+class _ThermoSwap:
+    """Context manager for temporarily replacing the global thermo backend.
+
+    Usage::
+
+        with _ThermoSwap(synthetic_backend):
+            # _THERMO is synthetic_backend here
+        # _THERMO is restored to its previous value here
+
+    This replaces the manual ``saved = _THERMO; _THERMO = x; ...; _THERMO = saved``
+    pattern and guarantees restoration even if an exception occurs.
+    """
+
+    def __init__(self, replacement: ThermochemistryBackend):
+        self._replacement = replacement
+        self._saved: Optional[ThermochemistryBackend] = None
+
+    def __enter__(self):
+        global _THERMO
+        self._saved = _THERMO
+        _THERMO = self._replacement
+        return self._replacement
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        global _THERMO
+        _THERMO = self._saved
+        return False  # do not suppress exceptions
 
 
 def build_backend(c: Config, reactants: Sequence[ReactantSpec],
@@ -3869,7 +3904,6 @@ def self_tests(c: Config, verbose=True) -> bool:
     adds T8-T15 (see the test names).  Post-simulation conservation tests run
     in :func:`self_tests_post_run` after the ODE integration.
     """
-    global _THERMO
     out, ok_all = [], True
     result_names = []
 
@@ -4078,87 +4112,83 @@ def self_tests(c: Config, verbose=True) -> bool:
     # reduce EXACTLY to the legacy Theta model (regression test).
     # T14 nozzle decomposition identities (with a condensed phase present).
     # T15 compatibility: no condensed phase -> homogeneous and legacy runs agree.
-    saved_thermo = _THERMO
+    synth = _SyntheticTestBackend(c, condensed_fraction=0.0)
     try:
-        synth = _SyntheticTestBackend(c, condensed_fraction=0.0)
-        _THERMO = synth
-        e_psi, e_dpsi, e_rhs = 0.0, 0.0, 0.0
-        c_hom = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
-        c_leg = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_SINGLE_LEGACY})
-        for p in np.geomspace(synth.pmin * 1.01, synth.pmax * 0.99, 30):
-            psi_h, dpsi_h = psi_and_deriv(float(p), c_hom)
-            th_l, dth_l = theta_and_deriv(float(p), c_leg)
-            e_psi = max(e_psi, abs(psi_h / th_l - 1.0))
-            if dth_l != 0.0:
-                e_dpsi = max(e_dpsi, abs(dpsi_h / dth_l - 1.0))
-            else:
-                e_dpsi = max(e_dpsi, abs(dpsi_h - dth_l))
-            y0 = np.array([
-                float(p),
-                0.3 * web_thickness(c_hom),
-                c.R_t0,
-                1e-5,
-                1e-4,
-                2e-5,
-                0.0,
-            ])
-            dy_h = make_rhs(c_hom, Ae, True)(0.0, y0)
-            dy_l = make_rhs(c_leg, Ae, True)(0.0, y0)
-            e_rhs = max(e_rhs, float(np.max(np.abs(dy_h - dy_l)
-                                            / np.maximum(np.abs(dy_l), 1e-300))))
-        chk("single-phase limit: model B == Theta model",
-            max(e_psi, e_dpsi, e_rhs) < SINGLE_PHASE_LIMIT_TOLERANCE,
-            f"Psi err = {e_psi:.2e}, dPsi err = {e_dpsi:.2e}, "
-            f"rhs err = {e_rhs:.2e} (tol {SINGLE_PHASE_LIMIT_TOLERANCE:.0e})")
+        with _ThermoSwap(synth):
+            e_psi, e_dpsi, e_rhs = 0.0, 0.0, 0.0
+            c_hom = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
+            c_leg = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_SINGLE_LEGACY})
+            for p in np.geomspace(synth.pmin * 1.01, synth.pmax * 0.99, 30):
+                psi_h, dpsi_h = psi_and_deriv(float(p), c_hom)
+                th_l, dth_l = theta_and_deriv(float(p), c_leg)
+                e_psi = max(e_psi, abs(psi_h / th_l - 1.0))
+                if dth_l != 0.0:
+                    e_dpsi = max(e_dpsi, abs(dpsi_h / dth_l - 1.0))
+                else:
+                    e_dpsi = max(e_dpsi, abs(dpsi_h - dth_l))
+                y0 = np.array([
+                    float(p),
+                    0.3 * web_thickness(c_hom),
+                    c.R_t0,
+                    1e-5,
+                    1e-4,
+                    2e-5,
+                    0.0,
+                ])
+                dy_h = make_rhs(c_hom, Ae, True)(0.0, y0)
+                dy_l = make_rhs(c_leg, Ae, True)(0.0, y0)
+                e_rhs = max(e_rhs, float(np.max(np.abs(dy_h - dy_l)
+                                                / np.maximum(np.abs(dy_l), 1e-300))))
+            chk("single-phase limit: model B == Theta model",
+                max(e_psi, e_dpsi, e_rhs) < SINGLE_PHASE_LIMIT_TOLERANCE,
+                f"Psi err = {e_psi:.2e}, dPsi err = {e_dpsi:.2e}, "
+                f"rhs err = {e_rhs:.2e} (tol {SINGLE_PHASE_LIMIT_TOLERANCE:.0e})")
 
-        # T14 nozzle flow decomposition: mdot_total = mdot_gas + mdot_condensed,
-        # mdot_gas = Yg*mdot_total, mdot_condensed = Yc*mdot_total.
-        synth_c = _SyntheticTestBackend(c, condensed_fraction=0.3)
-        _THERMO = synth_c
-        e_dec = 0.0
-        c_hom_c = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
-        for p in np.geomspace(c.p_a * 1.05, c.p_fit_max, 30):
-            nz = nozzle_state(float(p), At0, Ae, c_hom_c)
-            if nz["mdot_total"] <= 0.0:
-                continue
-            Yg_p, Yc_p = phase_fractions(float(p), c_hom_c)
-            e_dec = max(e_dec,
-                        abs(nz["mdot_gas"] + nz["mdot_condensed"]
-                            - nz["mdot_total"]) / nz["mdot_total"],
-                        abs(nz["mdot_gas"] / nz["mdot_total"] - Yg_p),
-                        abs(nz["mdot_condensed"] / nz["mdot_total"] - Yc_p),
-                        abs(nz["mdot_total"] - nz["mdot_total_reference"])
-                        / nz["mdot_total_reference"])
-        chk("nozzle decomposition mdot_total = gas + condensed",
-            e_dec < 1.0e-12, f"max rel. err = {e_dec:.2e}")
+            # T14 nozzle flow decomposition: mdot_total = mdot_gas + mdot_condensed,
+            # mdot_gas = Yg*mdot_total, mdot_condensed = Yc*mdot_total.
+            synth_c = _SyntheticTestBackend(c, condensed_fraction=0.3)
+            with _ThermoSwap(synth_c):
+                e_dec = 0.0
+                c_hom_c = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
+                for p in np.geomspace(c.p_a * 1.05, c.p_fit_max, 30):
+                    nz = nozzle_state(float(p), At0, Ae, c_hom_c)
+                    if nz["mdot_total"] <= 0.0:
+                        continue
+                    Yg_p, Yc_p = phase_fractions(float(p), c_hom_c)
+                    e_dec = max(e_dec,
+                                abs(nz["mdot_gas"] + nz["mdot_condensed"]
+                                    - nz["mdot_total"]) / nz["mdot_total"],
+                                abs(nz["mdot_gas"] / nz["mdot_total"] - Yg_p),
+                                abs(nz["mdot_condensed"] / nz["mdot_total"] - Yc_p),
+                                abs(nz["mdot_total"] - nz["mdot_total_reference"])
+                                / nz["mdot_total_reference"])
+                chk("nozzle decomposition mdot_total = gas + condensed",
+                    e_dec < 1.0e-12, f"max rel. err = {e_dec:.2e}")
 
-        # T15 compatibility regression: with a condensed-FREE table the
-        # homogeneous-equilibrium run must match the legacy run (short motor).
-        _THERMO = synth
-        fast = {**asdict(c), "a_burn": 10.0 * c.a_burn, "blowdown": False}
-        c_hom_f = Config(**{**fast, "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
-        c_leg_f = Config(**{**fast, "two_phase_mode": TWO_PHASE_SINGLE_LEGACY})
-        res_h = run_model(c_hom_f)
-        res_l = run_model(c_leg_f)
-        hist_h = sample(res_h, c_hom_f)
-        hist_l = sample(res_l, c_leg_f)
-        s_h = summarize(res_h, hist_h, c_hom_f)
-        s_l = summarize(res_l, hist_l, c_leg_f)
-        e_run = max(abs(s_h["p_max_Pa"] / s_l["p_max_Pa"] - 1.0),
-                    abs(s_h["burn_time_s"] / s_l["burn_time_s"] - 1.0),
-                    abs(s_h["impulse_total_Ns"] / s_l["impulse_total_Ns"] - 1.0),
-                    abs(s_h["Isp_s"] / s_l["Isp_s"] - 1.0))
-        t_cmp = np.linspace(0.0, 0.98 * min(s_h["burn_time_s"], s_l["burn_time_s"]), 200)
-        p_h = res_h["sol_burn"].sol(t_cmp)[IP]
-        p_l = res_l["sol_burn"].sol(t_cmp)[IP]
-        e_traj = float(np.max(np.abs(p_h / p_l - 1.0)))
-        e_run = max(e_run, e_traj)
-        chk("no-condensed compatibility (hom. vs legacy run)", e_run < 1.0e-9,
-            f"summary/trajectory rel. err = {e_run:.2e} (tol 1e-9)")
+            # T15 compatibility regression: with a condensed-FREE table the
+            # homogeneous-equilibrium run must match the legacy run (short motor).
+            fast = {**asdict(c), "a_burn": 10.0 * c.a_burn, "blowdown": False}
+            c_hom_f = Config(**{**fast, "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
+            c_leg_f = Config(**{**fast, "two_phase_mode": TWO_PHASE_SINGLE_LEGACY})
+            res_h = run_model(c_hom_f)
+            res_l = run_model(c_leg_f)
+            hist_h = sample(res_h, c_hom_f)
+            hist_l = sample(res_l, c_leg_f)
+            s_h = summarize(res_h, hist_h, c_hom_f)
+            s_l = summarize(res_l, hist_l, c_leg_f)
+            e_run = max(abs(s_h["p_max_Pa"] / s_l["p_max_Pa"] - 1.0),
+                        abs(s_h["burn_time_s"] / s_l["burn_time_s"] - 1.0),
+                        abs(s_h["impulse_total_Ns"] / s_l["impulse_total_Ns"] - 1.0),
+                        abs(s_h["Isp_s"] / s_l["Isp_s"] - 1.0))
+            t_cmp = np.linspace(0.0, 0.98 * min(s_h["burn_time_s"], s_l["burn_time_s"]), 200)
+            p_h = res_h["sol_burn"].sol(t_cmp)[IP]
+            p_l = res_l["sol_burn"].sol(t_cmp)[IP]
+            e_traj = float(np.max(np.abs(p_h / p_l - 1.0)))
+            e_run = max(e_run, e_traj)
+            chk("no-condensed compatibility (hom. vs legacy run)", e_run < 1.0e-9,
+                f"summary/trajectory rel. err = {e_run:.2e} (tol 1e-9)")
     except Exception as exc:                                  # pragma: no cover
         chk("two-phase regression tests", False, f"{type(exc).__name__}: {exc}")
-    finally:
-        _THERMO = saved_thermo
 
     name_contract = self_test_name_contract(c, result_names)
     ok_all &= bool(name_contract["passed"])
