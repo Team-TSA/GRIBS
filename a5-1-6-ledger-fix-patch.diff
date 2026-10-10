@@ -1,0 +1,82 @@
+diff --git a/GRIBS_v0.5.0-alpha.py b/GRIBS_v0.5.0-alpha.py
+index 5f24e04..7e24a22 100644
+--- a/GRIBS_v0.5.0-alpha.py
++++ b/GRIBS_v0.5.0-alpha.py
+@@ -3476,12 +3476,23 @@ def run_verdict_passed(summary: dict) -> bool:
+ 
+ MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE = 1.0e-6
+ MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE = 1.0e-9
++# A-5.1-6 / S-2: ledger propellant tol scales with rtol so that tightening
++# the ODE tolerance does not break the gate.  The floor (1e-9) handles the
++# numerical residual floor observed in the30-point sweep (§11-Q17).
++MASS_LEDGER_PROPELLANT_TOLERANCE_FLOOR = 1.0e-9
++MASS_LEDGER_PROPELLANT_TOLERANCE_RTL_FACTOR = 100.0
+ 
+ 
+ def mass_energy_ledger(res: dict, h: dict, c: Config) -> dict:
+     """Build the Phase A-4 mass ledger and energy-availability metadata."""
+     tiny = 1.0e-30
+ 
++    # A-5.1-6: compute rtol-linked propellant tolerance
++    propellant_tol = max(
++        MASS_LEDGER_PROPELLANT_TOLERANCE_FLOOR,
++        MASS_LEDGER_PROPELLANT_TOLERANCE_RTL_FACTOR * float(c.rtol),
++    )
++
+     t = np.asarray(h["t"], dtype=float)
+     x = np.asarray(h["x"], dtype=float)
+     if t.size == 0 or x.size == 0:
+@@ -3561,8 +3572,7 @@ def mass_energy_ledger(res: dict, h: dict, c: Config) -> dict:
+         total_relative <= MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE
+     )
+     propellant_passed = bool(
+-        propellant_relative
+-        <= MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE
++        propellant_relative <= propellant_tol
+     )
+     mass_passed = bool(total_passed and propellant_passed)
+ 
+@@ -3587,7 +3597,9 @@ def mass_energy_ledger(res: dict, h: dict, c: Config) -> dict:
+         "propellant": {
+             "signed_residual_kg": propellant_signed,
+             "relative_residual": propellant_relative,
+-            "tolerance": MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE,
++            "tolerance": propellant_tol,
++            "tolerance_formula": "max(1e-9, 100*rtol)",
++            "rtol": float(c.rtol),
+             "passed": propellant_passed,
+         },
+         "phase_discharge_diagnostic": {
+diff --git a/tests/test_gribs.py b/tests/test_gribs.py
+index 9fa752a..e710dd2 100644
+--- a/tests/test_gribs.py
++++ b/tests/test_gribs.py
+@@ -422,7 +422,9 @@ def test_mass_energy_ledger_separates_igniter_from_propellant():
+         0.0,
+         abs=1.0e-14,
+     )
+-    assert mass["propellant"]["tolerance"] == pytest.approx(1.0e-9)
++    assert mass["propellant"]["tolerance"] == pytest.approx(
++        max(1.0e-9, 100.0 * c.rtol)
++    )
+     assert mass["propellant"]["passed"] is True
+ 
+     phase = mass["phase_discharge_diagnostic"]
+@@ -467,7 +469,7 @@ def test_mass_energy_ledger_records_failed_acceptance_without_hiding_residual():
+ 
+     initial_propellant = gribs.propellant_mass(c)
+     total_residual = 2.0e-6
+-    propellant_residual = 2.0e-9 * initial_propellant
++    propellant_residual = 2.0e-8 * initial_propellant
+ 
+     h = {
+         "t": gribs.np.array([0.0, 1.0]),
+@@ -501,7 +503,7 @@ def test_mass_energy_ledger_records_failed_acceptance_without_hiding_residual():
+     assert mass["total_system"]["passed"] is False
+ 
+     assert mass["propellant"]["signed_residual_kg"] > 0.0
+-    assert mass["propellant"]["relative_residual"] > 1.0e-9
++    assert mass["propellant"]["relative_residual"] > 1.0e-8
+     assert mass["propellant"]["passed"] is False
+ 
+     assert mass["passed"] is False

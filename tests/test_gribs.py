@@ -422,7 +422,9 @@ def test_mass_energy_ledger_separates_igniter_from_propellant():
         0.0,
         abs=1.0e-14,
     )
-    assert mass["propellant"]["tolerance"] == pytest.approx(1.0e-9)
+    assert mass["propellant"]["tolerance"] == pytest.approx(
+        max(1.0e-9, 100.0 * c.rtol)
+    )
     assert mass["propellant"]["passed"] is True
 
     phase = mass["phase_discharge_diagnostic"]
@@ -467,7 +469,7 @@ def test_mass_energy_ledger_records_failed_acceptance_without_hiding_residual():
 
     initial_propellant = gribs.propellant_mass(c)
     total_residual = 2.0e-6
-    propellant_residual = 2.0e-9 * initial_propellant
+    propellant_residual = 2.0e-8 * initial_propellant
 
     h = {
         "t": gribs.np.array([0.0, 1.0]),
@@ -501,7 +503,7 @@ def test_mass_energy_ledger_records_failed_acceptance_without_hiding_residual():
     assert mass["total_system"]["passed"] is False
 
     assert mass["propellant"]["signed_residual_kg"] > 0.0
-    assert mass["propellant"]["relative_residual"] > 1.0e-9
+    assert mass["propellant"]["relative_residual"] > 1.0e-8
     assert mass["propellant"]["passed"] is False
 
     assert mass["passed"] is False

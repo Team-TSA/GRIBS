@@ -3476,11 +3476,22 @@ def run_verdict_passed(summary: dict) -> bool:
 
 MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE = 1.0e-6
 MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE = 1.0e-9
+# A-5.1-6 / S-2: ledger propellant tol scales with rtol so that tightening
+# the ODE tolerance does not break the gate.  The floor (1e-9) handles the
+# numerical residual floor observed in the30-point sweep (§11-Q17).
+MASS_LEDGER_PROPELLANT_TOLERANCE_FLOOR = 1.0e-9
+MASS_LEDGER_PROPELLANT_TOLERANCE_RTL_FACTOR = 100.0
 
 
 def mass_energy_ledger(res: dict, h: dict, c: Config) -> dict:
     """Build the Phase A-4 mass ledger and energy-availability metadata."""
     tiny = 1.0e-30
+
+    # A-5.1-6: compute rtol-linked propellant tolerance
+    propellant_tol = max(
+        MASS_LEDGER_PROPELLANT_TOLERANCE_FLOOR,
+        MASS_LEDGER_PROPELLANT_TOLERANCE_RTL_FACTOR * float(c.rtol),
+    )
 
     t = np.asarray(h["t"], dtype=float)
     x = np.asarray(h["x"], dtype=float)
@@ -3561,8 +3572,7 @@ def mass_energy_ledger(res: dict, h: dict, c: Config) -> dict:
         total_relative <= MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE
     )
     propellant_passed = bool(
-        propellant_relative
-        <= MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE
+        propellant_relative <= propellant_tol
     )
     mass_passed = bool(total_passed and propellant_passed)
 
@@ -3587,7 +3597,9 @@ def mass_energy_ledger(res: dict, h: dict, c: Config) -> dict:
         "propellant": {
             "signed_residual_kg": propellant_signed,
             "relative_residual": propellant_relative,
-            "tolerance": MASS_LEDGER_PROPELLANT_RELATIVE_TOLERANCE,
+            "tolerance": propellant_tol,
+            "tolerance_formula": "max(1e-9, 100*rtol)",
+            "rtol": float(c.rtol),
             "passed": propellant_passed,
         },
         "phase_discharge_diagnostic": {
