@@ -129,8 +129,9 @@ def test_geometry_identity_finite_difference():
 def test_example_configuration_keys_are_valid():
     path = ROOT / "examples" / "example_config.json"
     supplied = json.loads(path.read_text(encoding="utf-8"))
-    defaults = asdict(gribs.Config())
-    assert set(supplied).issubset(defaults)
+    # The example config must be loadable and valid
+    configuration = gribs.configuration_from_document(supplied)
+    assert configuration.config is not None
 
 
 @pytest.mark.fast

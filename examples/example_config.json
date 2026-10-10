@@ -1,8 +1,127 @@
 {
-  "n_burn": 0.5,
-  "eps_nozzle": 1.0,
-  "unchoked_policy": "switch",
-  "method": "LSODA",
-  "rtol": 1e-09,
-  "blowdown": true
+  "schema_version": "0.5.0-alpha",
+  "notes": [
+    "Minimal example configuration for GRIBS v0.5.0-alpha.",
+    "Uses the default NH4NO3/Al/C propellant with a converging nozzle."
+  ],
+  "propellant": {
+    "description": "NH4NO3/Al/C composite propellant",
+    "packing_fraction": 0.95,
+    "reactants": [
+      {
+        "name": "NH4NO3(IV)",
+        "wt_percent": 88.7,
+        "temperature_K": 298.15,
+        "density_kg_m3": 1725.0
+      },
+      {
+        "name": "AL(cr)",
+        "wt_percent": 0.7,
+        "temperature_K": 298.15,
+        "density_kg_m3": 2700.0
+      },
+      {
+        "name": "C(gr)",
+        "wt_percent": 10.6,
+        "temperature_K": 298.15,
+        "density_kg_m3": 2200.0
+      }
+    ],
+    "burn_law": {
+      "coefficient_m_s": 0.0007,
+      "pressure_exponent": 0.5,
+      "reference_pressure_Pa": 1000000.0,
+      "temperature_sensitivity_1_K": 0.0,
+      "grain_temperature_K": 294.0,
+      "reference_temperature_K": 294.0,
+      "erosive_burning": {
+        "enabled": false,
+        "alpha": 0.0,
+        "beta": 53.0
+      }
+    }
+  },
+  "grain": {
+    "initial_bore_radius_m": 0.003,
+    "outer_radius_m": 0.012,
+    "initial_length_m": 0.08,
+    "burning_end_faces": 1.0,
+    "initial_free_volume_m3": 6.79e-06
+  },
+  "nozzle": {
+    "initial_throat_radius_m": 0.0015,
+    "expansion_ratio": 1.0,
+    "discharge_coefficient": 1.0,
+    "thrust_efficiency": 1.0,
+    "transition_policy": "jump",
+    "flow_separation": {
+      "enabled": true,
+      "pressure_ratio": 0.4
+    },
+    "throat_erosion": {
+      "enabled": false,
+      "rate_m_s_at_reference_pressure": 0.0,
+      "pressure_exponent": 1.0
+    }
+  },
+  "environment": {
+    "ambient_pressure_Pa": 101325.0,
+    "initial_chamber_pressure_Pa": 200000.0
+  },
+  "thermochemistry": {
+    "backend": "cea_python",
+    "pressure_range": {
+      "minimum_Pa": 100000.0,
+      "maximum_Pa": 8000000.0
+    },
+    "pressure_points": 81,
+    "temperature_efficiency": 1.0,
+    "outside_range_policy": "clamp",
+    "cea_python": {
+      "ions": false,
+      "transport": false,
+      "trace": 1e-10,
+      "molecular_weight": "gas_phase_M",
+      "smooth_truncation": false,
+      "truncation_width": -1.0,
+      "rocket_diagnostics": true
+    },
+    "cea_legacy_executable": {
+      "executable": "fcea2",
+      "data_directory": "",
+      "timeout_s": 120.0,
+      "batch_size": 8,
+      "trace": 1e-10
+    }
+  },
+  "igniter": {
+    "mass_flow_kg_s": 0.0,
+    "duration_s": 0.0
+  },
+  "two_phase_model": {
+    "mode": "homogeneous_equilibrium",
+    "condensed_volume": "neglected",
+    "nozzle_entrainment": "complete"
+  },
+  "output": {
+    "directory": "results",
+    "figure_filename": "ballistics.png",
+    "history_filename": "time_history.csv",
+    "summary_text_filename": "summary.txt",
+    "summary_json_filename": "summary.json"
+  },
+  "solver": {
+    "method": "LSODA",
+    "relative_tolerance": 1e-10,
+    "pressure_absolute_tolerance_Pa": 0.001,
+    "burn_depth_absolute_tolerance_m": 1e-13,
+    "burning_time_limit_s": 600.0,
+    "maximum_burning_step_s": 0.02,
+    "unchoked_policy": "switch",
+    "blowdown": {
+      "enabled": true,
+      "time_limit_s": 5.0,
+      "maximum_step_s": 0.0005
+    }
+  }
 }
