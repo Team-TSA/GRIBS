@@ -1,0 +1,51 @@
+diff --git a/GRIBS_v0.5.0-alpha.py b/GRIBS_v0.5.0-alpha.py
+index d1b2ba3..cc2c923 100644
+--- a/GRIBS_v0.5.0-alpha.py
++++ b/GRIBS_v0.5.0-alpha.py
+@@ -429,6 +429,13 @@ class Config:
+     blowdown_tmax: float = 5.0    # [s]
+     max_step_blow: float = 5.0e-4  # [s]
+ 
++    # ---------------- diagnostics ----------------
++    # Equilibrium pressure diagnostic (p_eq): 'off' disables it (fastest),
++    # 'sampled' evaluates up to 200 points during the burning phase.
++    # Default is 'off' because the diagnostic is expensive (each point
++    # calls equilibrium_pressure() which does a pressure sweep + brentq).
++    equilibrium_pressure_diagnostic: str = "off"  # 'off' | 'sampled'
++
+ 
+ PARAM_DOC = {
+     "rho_p": "bulk propellant density [kg/m^3] (computed from the reactants JSON: additive-volume ideal density x packing fraction)",
+@@ -2935,19 +2942,21 @@ def sample(res: dict, c: Config) -> dict:
+            for k, v in rec.items()}
+ 
+     # quasi-steady equilibrium pressure (diagnostic, burning phase only)
++    # S-7: default OFF for performance (each point does a pressure sweep + brentq)
+     t = out["t"]
+     p_eq = np.full_like(t, np.nan)
+-    burn_idx = np.nonzero(out["phase"] == "burn")[0]
+-    if burn_idx.size:
+-        pick = burn_idx[np.unique(np.linspace(0, burn_idx.size - 1,
+-                                              min(200, burn_idx.size)).astype(int))]
+-        vals = np.array([equilibrium_pressure(out["Ab"][i], out["Ri"][i],
+-                                              out["At"][i], Ae, c) or np.nan
+-                         for i in pick])
+-        ok = np.isfinite(vals)
+-        if ok.sum() >= 2:
+-            p_eq[burn_idx] = np.interp(t[burn_idx], t[pick][ok], vals[ok],
+-                                       left=np.nan, right=np.nan)
++    if c.equilibrium_pressure_diagnostic == "sampled":
++        burn_idx = np.nonzero(out["phase"] == "burn")[0]
++        if burn_idx.size:
++            pick = burn_idx[np.unique(np.linspace(0, burn_idx.size - 1,
++                                                  min(200, burn_idx.size)).astype(int))]
++            vals = np.array([equilibrium_pressure(out["Ab"][i], out["Ri"][i],
++                                                  out["At"][i], Ae, c) or np.nan
++                             for i in pick])
++            ok = np.isfinite(vals)
++            if ok.sum() >= 2:
++                p_eq[burn_idx] = np.interp(t[burn_idx], t[pick][ok], vals[ok],
++                                           left=np.nan, right=np.nan)
+     out["p_eq"] = p_eq
+     return out
+ 
