@@ -967,14 +967,16 @@ class PressureTableBackend(ThermochemistryBackend):
         self.Ri = PchipInterpolator(z, R, extrapolate=True)
         self.Ti = PchipInterpolator(z, T, extrapolate=True)
         self.gi = PchipInterpolator(z, g, extrapolate=True)
-        self.thi = PchipInterpolator(z, R * T, extrapolate=True)
-        self.dthi = self.thi.derivative()
         # Psi = R_eff * T_used with T_used = eta_T0 * T_CEA.  Interpolated as
         # its own PCHIP column so that the analytic derivative dPsi/dp used by
         # the pressure ODE is consistent with the interpolated Psi itself
         # (never a finite difference, never a product of separately
         # interpolated factors).  R_eff already carries Yg, so no second
         # Yg factor may appear here.
+        #
+        # A-5.1-4 unified Psi and Theta: both are R_eff * T_used.
+        # The separate theta interpolator is removed; theta_and_derivative()
+        # delegates to psi_and_derivative().
         psi = R * T
         self.psi_tab = psi
         self.psii = PchipInterpolator(z, psi, extrapolate=True)
@@ -1005,10 +1007,10 @@ class PressureTableBackend(ThermochemistryBackend):
         psi_f = np.asarray(self.psii(z), dtype=float)
         dpsi_f = np.asarray(self.dpsii(z), dtype=float) / np.exp(z)
         factor = 1.0 - np.exp(z) * dpsi_f / psi_f
-        # same check for the legacy Theta factor (metadata / regression)
-        theta_f = np.asarray(self.thi(z), dtype=float)
-        dtheta_f = np.asarray(self.dthi(z), dtype=float) / np.exp(z)
-        factor_theta = 1.0 - np.exp(z) * dtheta_f / theta_f
+        # After A-5.1-4, Theta == Psi, so the Theta check uses the same
+        # interpolator.  The separate factor_theta is retained for the
+        # metadata/report only.
+        factor_theta = factor
         # Psi consistency with R_eff*T at the table nodes (self-test 3 preview)
         psi_err = float(np.max(np.abs(self.psi_tab - psi) / np.maximum(psi, 1e-300))) \
             if two_phase else 0.0
@@ -1145,15 +1147,13 @@ class PressureTableBackend(ThermochemistryBackend):
         return psi, dpsi
 
     def theta_and_derivative(self, p: float) -> Tuple[float, float]:
-        pe, clamped = self._clamp_flags(p)
-        z = math.log(pe)
-        theta = float(self.thi(z))
-        dtheta = 0.0 if clamped else float(self.dthi(z)) / pe
-        if not (math.isfinite(theta) and theta > 0.0 and math.isfinite(dtheta)):
-            raise ThermochemistryError(
-                f"Non-physical Theta or dTheta/dp at p = {p:.6g} Pa "
-                f"(Theta = {theta:.6g} J/kg, dTheta/dp = {dtheta:.6g}).")
-        return theta, dtheta
+        """Theta = R_eff*T0 [J/kg] and dTheta/dp.
+
+        After A-5.1-4, Theta == Psi (both are R_eff * T_used).
+        This method delegates to psi_and_derivative() for backward
+        compatibility with the single-phase legacy pathway.
+        """
+        return self.psi_and_derivative(p)
 
     def is_extrapolated(self, p: float) -> bool:
         return self._outside_range(p)
@@ -3169,7 +3169,8 @@ def post_run_consistency_report(res: dict, h: dict) -> dict:
     }
 
 
-def summarize(res: dict, h: dict, c: Config) -> dict:
+def summarize(res: dict, h: dict, c: Config,
+              backend: Optional[ThermochemistryBackend] = None) -> dict:
     t = h["t"]
     burn = h["phase"] == "burn"
     m_prop = propellant_mass(c)
@@ -3216,7 +3217,8 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
     mg0 = c.rho_p * base_burn_rate(c.p0_init, c) * geometry(0.0, c)[2]
     mo0 = nozzle_state(c.p0_init, At0, Ae, c)["mdot_total"]
 
-    backend = thermochemistry()
+    if backend is None:
+        backend = thermochemistry()
     pv_table = getattr(backend, "property_validation", {})
     ledger = mass_energy_ledger(res, h, c)
     two_phase_active = (c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
@@ -6014,7 +6016,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except (GribsError, ValueError, RuntimeError) as exc:
         print(f"Simulation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 4
-    summ = summarize(res, hist, cfg)
+    summ = summarize(res, hist, cfg, backend=backend)
     # If migration from v0.4.3 changed the physical model, record it as a
     # machine-readable warning (previously this only appeared in stderr and
     # configuration_migration.notes, making it invisible to automated checks).
