@@ -3221,6 +3221,16 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
     ledger = mass_energy_ledger(res, h, c)
     two_phase_active = (c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
                         and bool(getattr(backend, "supports_two_phase", False)))
+    # A-5.1-6: model_status determined by Yg range in the property table
+    _yg_table_min = float(pv_table.get("gas_mass_fraction_min", 1.0))
+    if c.two_phase_mode == TWO_PHASE_SINGLE_LEGACY:
+        _model_status = "validated_in_scope"
+    elif two_phase_active and _yg_table_min <= 0.65:
+        _model_status = "out_of_scope"
+    elif two_phase_active and _yg_table_min <= 0.99:
+        _model_status = "approximate_with_limitations"
+    else:
+        _model_status = "validated_in_scope"
     s = dict(
         web_mm=web_thickness(c) * 1e3,
         propellant_density_kg_m3=c.rho_p,
@@ -3309,7 +3319,7 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
         pressure_max_Pa=float(np.max(h["p0"])),
         regimes_visited=sorted(set(h["regime"].tolist())),
         nozzle_transition=transition,
-        # ---------------- validation status (A-5.1-5) ----------------
+        # ---------------- validation status (A-5.1-5 / A-5.1-6) ----------------
         validation={
             "semantic_status": (
                 "pass" if backend.cache_schema >= 4 else "fail"
@@ -3317,13 +3327,7 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
             "numerical_status": (
                 "pass" if (post_run["passed"] and ledger["passed"]) else "fail"
             ),
-            "model_status": (
-                "validated_in_scope"
-                if c.two_phase_mode == TWO_PHASE_SINGLE_LEGACY else
-                "approximate_with_limitations"
-                if two_phase_active else
-                "validated_in_scope"
-            ),
+            "model_status": _model_status,
             "validated_pressure_range_Pa": [
                 float(backend.pmin), float(backend.pmax)
             ],
