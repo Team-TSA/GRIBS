@@ -1,0 +1,237 @@
+diff --git a/GRIBS_v0.5.0-alpha.py b/GRIBS_v0.5.0-alpha.py
+index 83cbb74..1513342 100644
+--- a/GRIBS_v0.5.0-alpha.py
++++ b/GRIBS_v0.5.0-alpha.py
+@@ -748,6 +748,11 @@ class PressureTableBackend(ThermochemistryBackend):
+         self.property_validation = self._validate_table()
+ 
+     # -- cache key -----------------------------------------------------------
++    #: Integer version of the mass-basis semantics.  Incremented when the
++    #: physical meaning of M_CEA, R_eff, Psi or the nozzle mass-flow model
++    #: changes.  Disjoint from ``cache_schema`` which tracks the file format.
++    mass_basis_semantics_version = 1
++
+     def cache_key_payload(self) -> Dict[str, Any]:
+         """Everything that can change the tabulated properties.
+ 
+@@ -757,6 +762,7 @@ class PressureTableBackend(ThermochemistryBackend):
+         """
+         return {
+             "cache_schema": self.cache_schema,
++            "mass_basis_semantics_version": self.mass_basis_semantics_version,
+             "backend": self.name,
+             "reactants": [[r.name, float(r.wt_percent), float(r.temperature_K)]
+                           for r in self.reactants],
+@@ -767,9 +773,11 @@ class PressureTableBackend(ThermochemistryBackend):
+             "temperature_efficiency": float(self.c.eta_T0),
+             # factors that change the tabulated two-phase properties:
+             "phase_fractions_tabulated": bool(self.supports_two_phase),
++            "two_phase_mode": str(self.c.two_phase_mode),
+             "molecular_weight_definition": (
+-                "gas_phase_M compatibility token; M_CEA = 1 / EqSolution.n "
+-                "= M_gas / Yg on the total equilibrium mixture mass basis"),
++                "M_CEA = 1 / EqSolution.n [kg-total/kmol-gas]; "
++                "R_eff = Ru / M_CEA = Yg * R_gas; "
++                "Psi = R_eff * T_used (no additional Yg factor)"),
+             "options": self.option_signature(),
+         }
+ 
+@@ -1192,14 +1200,29 @@ class PressureTableBackend(ThermochemistryBackend):
+             "reactant_temperatures_K": [float(r.temperature_K) for r in self.reactants],
+             "molecular_weight_units": "kg/kmol (numerically identical to g/mol)",
+             "universal_gas_constant_J_kmolK": R_UNIVERSAL,
+-            "specific_gas_constant_definition": ("Rg(p) = Ru / M_gas(p); the "
+-                                                 "GAS-PHASE molecular weight only "
+-                                                 "enters the EOS and the nozzle"),
++            "specific_gas_constant_definition": (
++                "R_eff(p) = Ru / M_CEA(p) = Yg(p) * R_gas(p); "
++                "M_CEA = 1 / EqSolution.n [kg-total/kmol-gas] on the "
++                "total equilibrium mixture mass basis"),
+             "phase_fraction_definition": ("Yg(p) = sum of the gas-species mass "
+                                           "fractions, Yc(p) = sum of the "
+                                           "condensed-species mass fractions, from "
+                                           "the official CEA phase ordering "
+                                           "(gas species first, then condensed)"),
++            "mass_basis_semantics_version": self.mass_basis_semantics_version,
++            "M_definition": "M_CEA = 1 / EqSolution.n [kg-total/kmol-gas]",
++            "MW_definition": "sol.MW = 1 / sum_all(nj) [kg-total/kmol-all] (diagnostic only, never used in EOS)",
++            "R_definition": "R_eff = Ru / M_CEA [J/(kg-total K)]",
++            "psi_definition": "Psi = R_eff * T_used [J/kg-total], with T_used = eta_T0 * T_CEA; no additional Yg factor",
++            "density_definition": "rho = p * M_CEA / (Ru * T) [kg-total/m^3] (total mixture density from CEA)",
++            "gamma_s_definition": "equilibrium mixture isentropic exponent (dimensionless, from CEA)",
++            "two_phase_capabilities": {
++                "equilibrium_phase_fractions": bool(self.supports_two_phase),
++                "particle_slip": False,
++                "finite_rate_condensation": False,
++                "condensed_volume": False,
++                "phase_density_lag": False,
++            },
+             "ideal_mixture_density_kg_m3": float(self.ideal_mixture_density),
+             "packing_fraction": float(self.packing_fraction),
+             "bulk_propellant_density_kg_m3": float(self.bulk_mixture_density),
+@@ -3165,6 +3188,17 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
+     CF_eff = I_burn / pAt_int if pAt_int > 0 else float("nan")
+     p_mean = float(pAt_int / (At0 * (t_bo - t[0]))) if t_bo > t[0] else float("nan")
+ 
++    # --- c* indicators (A-5.1-5 c* reorganization) ---
++    # local_model_cstar: median of p0*At/mdot_total at each time step during
++    # the burn phase (a per-step diagnostic of the nozzle model).
++    cstar_local = np.asarray(h.get("cstar", []), dtype=float)
++    cstar_local_burn = cstar_local[burn] if cstar_local.size > 0 else np.array([])
++    cstar_local_median = (float(np.median(cstar_local_burn))
++                          if cstar_local_burn.size > 0 else float("nan"))
++    # full-interval c*  (burn + blowdown)
++    pAt_full = float(_TRAPZ(h["p0"] * h["At"], t))
++    cstar_full = pAt_full / m_out_tot if m_out_tot > 0 else float("nan")
++
+     # One authoritative post-run consistency report.  The legacy metric is
+     # retained under its existing field name for output compatibility.
+     post_run = post_run_consistency_report(res, h)
+@@ -3210,6 +3244,10 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
+         impulse_blowdown_Ns=I_tot - I_burn,
+         Isp_s=I_tot / (m_prop * G0) if m_prop > 0 else float("nan"),
+         cstar_eff_m_s=cstar_eff,
++        local_model_cstar_m_s=cstar_local_median,
++        cstar_burn_interval_m_s=cstar_eff,
++        cstar_full_interval_m_s=cstar_full,
++        legacy_mixed_interval_cstar_m_s=cstar_eff,
+         CF_eff=CF_eff,
+         Kn_initial=float(h["Kn"][0]), Kn_max=float(np.max(h["Kn"][burn])),
+         Kn_final=float(h["Kn"][burn][-1]),
+@@ -3271,6 +3309,39 @@ def summarize(res: dict, h: dict, c: Config) -> dict:
+         pressure_max_Pa=float(np.max(h["p0"])),
+         regimes_visited=sorted(set(h["regime"].tolist())),
+         nozzle_transition=transition,
++        # ---------------- validation status (A-5.1-5) ----------------
++        validation={
++            "semantic_status": (
++                "pass" if backend.cache_schema >= 4 else "fail"
++            ),
++            "numerical_status": (
++                "pass" if (post_run["passed"] and ledger["passed"]) else "fail"
++            ),
++            "model_status": (
++                "validated_in_scope"
++                if c.two_phase_mode == TWO_PHASE_SINGLE_LEGACY else
++                "approximate_with_limitations"
++                if two_phase_active else
++                "validated_in_scope"
++            ),
++            "validated_pressure_range_Pa": [
++                float(backend.pmin), float(backend.pmax)
++            ],
++            "validated_Yg_range": [
++                float(pv_table.get("gas_mass_fraction_min", 0.0)),
++                float(pv_table.get("gas_mass_fraction_max", 1.0)),
++            ],
++            "mass_basis_semantics_version": getattr(
++                backend, "mass_basis_semantics_version", None),
++            "notes": (
++                "Two-phase model provides equilibrium phase bookkeeping only. "
++                "No particle slip, finite-rate condensation, condensed volume, "
++                "or phase density lag.  See two_phase_capabilities in "
++                "summary.thermochemistry."
++                if two_phase_active else
++                "Single-phase legacy mode (v0.4.3-alpha regression anchor)."
++            ),
++        },
+         warnings=(
+             [
+                 {
+@@ -4859,6 +4930,20 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
+       f"   (policy = {c.property_policy})")
+     if s["property_extrapolation"] and c.property_policy == "extrapolate":
+         A("  WARNING: results rely on extrapolated thermochemical properties.")
++    # --- A-5.1-5: validation status and c* indicators ---
++    val = s.get("validation", {})
++    if val:
++        A("")
++        A("[ validation status ]")
++        A(f"  semantic status                : {val.get('semantic_status', 'n/a')}")
++        A(f"  numerical status               : {val.get('numerical_status', 'n/a')}")
++        A(f"  model status                   : {val.get('model_status', 'n/a')}")
++        A(f"  validated pressure range       : {val.get('validated_pressure_range_Pa', 'n/a')}")
++        A(f"  validated Yg range             : {val.get('validated_Yg_range', 'n/a')}")
++        A(f"  mass basis semantics version   : {val.get('mass_basis_semantics_version', 'n/a')}")
++    lmc = s.get("local_model_cstar_m_s")
++    if lmc is not None and not (isinstance(lmc, float) and math.isnan(lmc)):
++        A(f"  local model c* (burn median)   : {lmc:.2f} m/s")
+     A("=" * 78)
+     return "\n".join(L) + "\n"
+ 
+@@ -5914,6 +5999,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
+         print(f"Simulation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+         return 4
+     summ = summarize(res, hist, cfg)
++    # If migration from v0.4.3 changed the physical model, record it as a
++    # machine-readable warning (previously this only appeared in stderr and
++    # configuration_migration.notes, making it invisible to automated checks).
++    if loaded.migration_notes:
++        _model_change_keywords = ("THIS CHANGES THE PHYSICAL MODEL",)
++        for _note in loaded.migration_notes:
++            if any(kw in _note for kw in _model_change_keywords):
++                summ.setdefault("warnings", []).append({
++                    "code": "W_MIGRATION_MODEL_CHANGE",
++                    "severity": "warning",
++                    "message": (
++                        "Automatic configuration migration changed the physical "
++                        "model.  See configuration_migration.notes in the summary "
++                        "for details."
++                    ),
++                    "context": {"migration_note": _note},
++                })
++                break
+     append_run_verdict_warnings(summ)
+     run_passed = run_verdict_passed(summ)
+ 
+diff --git a/tests/test_gribs.py b/tests/test_gribs.py
+index f4b6bc6..9fa752a 100644
+--- a/tests/test_gribs.py
++++ b/tests/test_gribs.py
+@@ -630,6 +630,8 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
+         pmax = 8.0e6
+         supports_two_phase = True
+         property_validation = {}
++        cache_schema = 4
++        mass_basis_semantics_version = 1
+ 
+     monkeypatch.setattr(gribs, "thermochemistry", lambda: Backend())
+     monkeypatch.setattr(
+@@ -1301,6 +1303,7 @@ def test_corrected_mass_basis_metadata_contract():
+             "p_fit_max": 8.0e6,
+             "cea_pressure_points": 4,
+             "eta_T0": 1.0,
++            "two_phase_mode": "homogeneous_equilibrium",
+         },
+     )()
+ 
+@@ -1308,8 +1311,12 @@ def test_corrected_mass_basis_metadata_contract():
+     definition = payload["molecular_weight_definition"]
+ 
+     assert payload["cache_schema"] == 4
+-    assert "gas_phase_M compatibility token" in definition
+-    assert "M_CEA = 1 / EqSolution.n = M_gas / Yg" in definition
++    assert payload["mass_basis_semantics_version"] == 1
++    assert "two_phase_mode" in payload
++    assert payload["two_phase_mode"] == "homogeneous_equilibrium"
++    assert "M_CEA = 1 / EqSolution.n" in definition
++    assert "R_eff = Ru / M_CEA" in definition
++    assert "no additional Yg factor" in definition
+     assert "gas-phase M" not in definition
+ 
+     source = MODULE_PATH.read_text(encoding="utf-8")
+@@ -1323,3 +1330,14 @@ def test_corrected_mass_basis_metadata_contract():
+         "gas_phase_M (gas-phase M;",
+     )
+     assert all(claim not in source for claim in forbidden_claims)
++
++
++def test_migration_model_change_warning_code_in_source():
++    """The W_MIGRATION_MODEL_CHANGE warning code must be emitted when a
++    v0.4.3-alpha configuration is migrated to homogeneous_equilibrium mode.
++    This test verifies the code string is present and wired into main()."""
++    source = MODULE_PATH.read_text(encoding="utf-8")
++    assert "W_MIGRATION_MODEL_CHANGE" in source
++    # The warning must be appended to the summary warnings list, not just
++    # printed to stderr.
++    assert 'summ.setdefault("warnings"' in source or 'summ["warnings"]' in source

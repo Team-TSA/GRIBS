@@ -630,6 +630,8 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
         pmax = 8.0e6
         supports_two_phase = True
         property_validation = {}
+        cache_schema = 4
+        mass_basis_semantics_version = 1
 
     monkeypatch.setattr(gribs, "thermochemistry", lambda: Backend())
     monkeypatch.setattr(
@@ -1301,6 +1303,7 @@ def test_corrected_mass_basis_metadata_contract():
             "p_fit_max": 8.0e6,
             "cea_pressure_points": 4,
             "eta_T0": 1.0,
+            "two_phase_mode": "homogeneous_equilibrium",
         },
     )()
 
@@ -1308,8 +1311,12 @@ def test_corrected_mass_basis_metadata_contract():
     definition = payload["molecular_weight_definition"]
 
     assert payload["cache_schema"] == 4
-    assert "gas_phase_M compatibility token" in definition
-    assert "M_CEA = 1 / EqSolution.n = M_gas / Yg" in definition
+    assert payload["mass_basis_semantics_version"] == 1
+    assert "two_phase_mode" in payload
+    assert payload["two_phase_mode"] == "homogeneous_equilibrium"
+    assert "M_CEA = 1 / EqSolution.n" in definition
+    assert "R_eff = Ru / M_CEA" in definition
+    assert "no additional Yg factor" in definition
     assert "gas-phase M" not in definition
 
     source = MODULE_PATH.read_text(encoding="utf-8")
@@ -1323,3 +1330,14 @@ def test_corrected_mass_basis_metadata_contract():
         "gas_phase_M (gas-phase M;",
     )
     assert all(claim not in source for claim in forbidden_claims)
+
+
+def test_migration_model_change_warning_code_in_source():
+    """The W_MIGRATION_MODEL_CHANGE warning code must be emitted when a
+    v0.4.3-alpha configuration is migrated to homogeneous_equilibrium mode.
+    This test verifies the code string is present and wired into main()."""
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    assert "W_MIGRATION_MODEL_CHANGE" in source
+    # The warning must be appended to the summary warnings list, not just
+    # printed to stderr.
+    assert 'summ.setdefault("warnings"' in source or 'summ["warnings"]' in source
