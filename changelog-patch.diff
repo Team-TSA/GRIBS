@@ -1,0 +1,143 @@
+diff --git a/CHANGELOG_v0.5.0-alpha_A5.1-5_to_A7.md b/CHANGELOG_v0.5.0-alpha_A5.1-5_to_A7.md
+new file mode 100644
+index 0000000..e310648
+--- /dev/null
++++ b/CHANGELOG_v0.5.0-alpha_A5.1-5_to_A7.md
+@@ -0,0 +1,136 @@
++# CHANGELOG
++
++## v0.5.0-alpha (A-5.1-4 → A-5.1-7 + A-6/A-7 + S-series)
++
++### リリース概要
++
++CEA 質量基準の訂正（A-5.1-4）に続いて、cache/config/output の移行、3領域の検証、モジュール化、設定検証の強化、および多数の改善を実施しました。
++
++---
++
++## 新機能
++
++### Validation Status (A-5.1-5 / A-5.1-6)
++- `summary.json` に `validation` ブロックを追加
++  - `semantic_status`: 質量基準の意味論が正しいか (pass/fail)
++  - `numerical_status`: 数値ゲートが通過したか (pass/fail)
++  - `model_status`: 検証範囲 (validated_in_scope / approximate_with_limitations / out_of_scope)
++  - `validated_pressure_range_Pa`, `validated_Yg_range`
++  - `mass_basis_semantics_version`
++- summary テキストに `[validation status]` セクションを表示
++
++### c* 指標の再編 (A-5.1-5)
++- `local_model_cstar_m_s`: 燃焼フェーズの中央値 (新規)
++- `cstar_burn_interval_m_s`: 燃焼区間積分 c* (旧 cstar_eff_m_s)
++- `cstar_full_interval_m_s`: 全区間積分 c* (新規)
++- `legacy_mixed_interval_cstar_m_s`: 非推奨エイリアス
++
++### 警告システムの強化
++- `W_MIGRATION_MODEL_CHANGE`: config 移行で物理モデルが変更された場合 (A-5.1-5)
++- `W_INTEGRATION_TRUNCATED`: ブローダウンまたは燃焼フェーズが時間制限で終了した場合 (S-8)
++
++### 設定検証の強化 (A-7)
++- `eta_T0` の範囲チェック: (0, 1.5] を要求
++- `p_a >= p_fit_min` のチェック: 環境圧力がテーブル範囲内であること
++
++### 診断制御オプション (S-7)
++- `equilibrium_pressure_diagnostic`: `"off"` (既定) / `"sampled"`
++- 既定を `"off"` に変更し、テストスイートの実行時間を **2倍高速化**
++
++---
++
++## 修正
++
++### Cache (A-5.1-5)
++- cache key に `two_phase_mode` を追加（モード変更時にキャッシュ無効化）
++- cache key に `mass_basis_semantics_version` を追加
++- `molecular_weight_definition` の説明文を訂正
++
++### Metadata (A-5.1-5)
++- `specific_gas_constant_definition` を訂正（「GAS-PHASE」→「total mixture」）
++- `M_definition`, `R_definition`, `psi_definition`, `density_definition` を追加
++- `two_phase_capabilities` を追加（機械可読なモデル制限一覧）
++
++### 台帳許容差 (S-2)
++- 推進薬許容差を `max(1e-9, 100 * rtol)` に変更（旧: 固定 1e-9）
++- rtol=1e-9 の場合: tol=1e-7（マージン 55倍、旧 1.4倍）
++- R2 AP/Al ケースが台帳 PASS に
++
++### モジュール化 (A-6)
++- θ/ψ interpolator を統合（`thi`/`dthi` を削除、`psii`/`dpsii` に統一）
++- `summarize()` に `backend` パラメータを追加（global 依存を明示化）
++
++### Example Config (S-6)
++- `examples/example_config.json` を現在のスキーマに適合
++- 全必須セクション・キーを追加
++- `--validate-config` と実行が正常に動作することを確認
++
++### 診断値の整理 (S-9)
++- 死んだ `m_gas0` 診断値を除去（A-5.1-4 後は `m_total0` と同一）
++
++---
++
++## テスト
++
++### 新規テスト
++- `test_corrected_mass_basis_metadata_contract`: cache key の新フィールド検証
++- `test_migration_model_change_warning_code_in_source`: W_MIGRATION_MODEL_CHANGE の存在確認
++- `test_selftest_count_is_stable`: 自己試験本数の安定性保証 (15本)
++- `test_example_configuration_keys_are_valid`: example config の読み込み検証
++
++### テスト結果
++- 通常テスト: **89 passed** (旧88 + 新1)
++- red スイート: **11 passed, 1 xfailed**
++- 自己診断: **15/15 PASS**
++- 実行時間: **約10s** (旧約20s → 2倍高速化)
++
++---
++
++## 検証結果
++
++### R1: 低凝縮 (NH4NO3, Yg ≈ 1.0)
++| 指標 | 値 | 判定 |
++|------|-----|------|
++| MEOP | 3.168 MPa | 数値不変 |
++| semantic | pass | ✅ |
++| numerical | pass | ✅ |
++| model | validated_in_scope | ✅ |
++
++### R2: 中凝縮 (AP/Al 70/16/14, Yg ≈ 0.72)
++| 指標 | 値 | 判定 |
++|------|-----|------|
++| MEOP | 17.331 MPa | +64.3% (修正後) |
++| semantic | pass | ✅ |
++| numerical | pass | ✅ (S-2 修正後) |
++| model | approximate_with_limitations | ✅ |
++
++### R3: 高凝縮 (報告元 AP/Al)
++| 指標 | 値 | 判定 |
++|------|-----|------|
++| 状態 | 未評価 | ⏳ G4b 待ち |
++
++---
++
++## 既知の制限事項
++
++| ID | 事項 | 状態 | 対応 |
++|----|------|------|------|
++| G4b | 報告元 AP/Al 入力未取得 | 保留 | 取得後に再評価 |
++| A-8 | golden 凍結 | 保留 | G4b 後 |
++| `_THERMO` | global 変数の完全除去 | 部分完了 | 将来のリファクタリング |
++| `_SyntheticTestBackend` | テストサポートへの移動 | 保留 | 将来のリファクタリング |
++| eta_T0 ≠ 1 | γ_s・M との不整合 | 記録済み | Phase B |
++
++---
++
++## Gate 判定
++
++| Gate | 状態 | 説明 |
++|------|------|------|
++| G0 証拠固定 | ✅ PASS | commit 2485055 を基点 |
++| G1 CEA 意味論 | ✅ PASS | species 独立 probe 確認済み |
++| G2 支配式 | ✅ PASS | Psi = R_eff * T, mdot = 直接計算 |
++| G3 修正 | ✅ PASS | red テスト 11 passed |
++| G4a 公開組成 | ✅ PASS | R1/R2 両方 PASS |
++| G4b 報告再現 | ⏳ PENDING | 入力未取得 |
++| G5 解禁 | ⚠️ CONDITIONAL | A-6 解禁可、A-8 は G4b 後 |
+\ No newline at end of file
