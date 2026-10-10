@@ -1,0 +1,65 @@
+diff --git a/GRIBS_v0.5.0-alpha.py b/GRIBS_v0.5.0-alpha.py
+index ed49ded..d1b2ba3 100644
+--- a/GRIBS_v0.5.0-alpha.py
++++ b/GRIBS_v0.5.0-alpha.py
+@@ -2705,7 +2705,6 @@ def run_model(c: Config) -> dict:
+     # a different composition is not represented exactly by this
+     # single-composition model.
+     m_total0 = c.p0_init * c.V_g0 / psi0
+-    m_gas0 = c.p0_init * c.V_g0 / theta0      # diagnostic (legacy-basis value)
+ 
+     atol = np.array([
+         c.atol_p,
+@@ -2765,7 +2764,7 @@ def run_model(c: Config) -> dict:
+             stop2 = "choking-loss"
+ 
+     return dict(sol_burn=sol1, sol_blow=sol2, stop_burn=stop1, stop_blow=stop2,
+-                Ae=Ae, At0=At0, m_total0=m_total0, m_gas0=m_gas0,
++                Ae=Ae, At0=At0, m_total0=m_total0,
+                 init_regime=init_regime,
+                 t_events={nm: [float(v) for v in te]
+                           for nm, te in zip(names, sol1.t_events)})
+@@ -3390,6 +3389,43 @@ def summarize(res: dict, h: dict, c: Config,
+             ]
+             if transition["warning_code"] == "W_NOZZLE_TRANSITION"
+             else []
++        ) + (
++            # S-8: Warn when blowdown was truncated by time limit.
++            # The total impulse and Isp may be underestimated.
++            [{
++                "code": "W_INTEGRATION_TRUNCATED",
++                "severity": "warning",
++                "message": (
++                    "The blowdown phase was terminated by the time limit "
++                    f"({c.blowdown_tmax} s), not by reaching ambient pressure.  "
++                    "Total impulse and Isp may be underestimated."
++                ),
++                "context": {
++                    "phase": "blowdown",
++                    "time_limit_s": c.blowdown_tmax,
++                    "total_time_s": float(t[-1]),
++                    "impulse_blowdown_Ns": float(I_tot - I_burn),
++                },
++            }]
++            if res["stop_blow"] == "time-limit" and c.blowdown
++            else []
++        ) + (
++            # Also warn if the burning phase was truncated by time limit.
++            [{
++                "code": "W_INTEGRATION_TRUNCATED",
++                "severity": "warning",
++                "message": (
++                    "The burning phase was terminated by the time limit "
++                    f"({c.t_max} s), not by burnout.  Results are incomplete."
++                ),
++                "context": {
++                    "phase": "burn",
++                    "time_limit_s": c.t_max,
++                    "total_time_s": float(t[-1]),
++                },
++            }]
++            if res["stop_burn"] == "time-limit"
++            else []
+         ),
+         event_times=res["t_events"],
+     )
