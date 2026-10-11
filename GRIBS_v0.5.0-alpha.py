@@ -2238,6 +2238,9 @@ class ReferenceConstantBackend(ThermochemistryBackend):
             "pressure_range_Pa": [self.pmin, self.pmax],
             "outside_range_policy": self.outside_range_policy,
             "cache_enabled": False,
+            "ideal_mixture_density_kg_m3": self.ideal_mixture_density,
+            "packing_fraction": self.packing_fraction,
+            "bulk_propellant_density_kg_m3": self.bulk_mixture_density,
         }
 
     def thermo_dump_table(self) -> Dict[str, List[float]]:
@@ -3386,7 +3389,7 @@ def summarize(res: dict, h: dict, c: Config,
         # ---------------- validation status (A-5.1-5 / A-5.1-6) ----------------
         validation={
             "semantic_status": (
-                "pass" if backend.cache_schema >= 4 else "fail"
+                "pass" if getattr(backend, 'cache_schema', 0) >= 4 else "fail"
             ),
             "numerical_status": (
                 "pass" if (post_run["passed"] and ledger["passed"]) else "fail"

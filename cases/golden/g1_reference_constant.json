@@ -1,0 +1,17 @@
+{
+    "schema_version": "0.5.0-alpha",
+    "notes": ["A-8 golden case 1: single-phase constant-property reference"],
+    "propellant": {
+        "packing_fraction": 1.0,
+        "reactants": [{"name": "NH4CLO4(I)", "wt_percent": 86.0, "temperature_K": 298.15, "density_kg_m3": 1950.0}, {"name": "C4H6,butadiene", "wt_percent": 14.0, "temperature_K": 298.15, "density_kg_m3": 920.0}],
+        "burn_law": {"coefficient_m_s": 0.007, "pressure_exponent": 0.35, "reference_pressure_Pa": 1000000.0, "temperature_sensitivity_1_K": 0.0, "grain_temperature_K": 294.0, "reference_temperature_K": 294.0, "erosive_burning": {"enabled": false, "alpha": 0.0, "beta": 53.0}}
+    },
+    "grain": {"initial_bore_radius_m": 0.004, "outer_radius_m": 0.015, "initial_length_m": 0.10, "initial_free_volume_m3": 1.0e-5, "burning_end_faces": 1.0},
+    "nozzle": {"initial_throat_radius_m": 0.002, "expansion_ratio": 1.0, "discharge_coefficient": 1.0, "thrust_efficiency": 1.0, "transition_policy": "jump", "flow_separation": {"enabled": true, "pressure_ratio": 0.4}, "throat_erosion": {"enabled": false, "rate_m_s_at_reference_pressure": 0.0, "pressure_exponent": 1.0}},
+    "environment": {"ambient_pressure_Pa": 101325.0, "initial_chamber_pressure_Pa": 1500000.0},
+    "igniter": {"mass_flow_kg_s": 0.0, "duration_s": 0.0},
+    "thermochemistry": {"backend": "reference_constant", "temperature_efficiency": 1.0, "outside_range_policy": "clamp", "pressure_range": {"minimum_Pa": 100000.0, "maximum_Pa": 8000000.0}, "pressure_points": 81, "reference_constant": {"temperature_K": 3000.0, "gamma": 1.2, "molecular_weight_kg_kmol": 25.0}, "cea_python": {"ions": false, "transport": false, "trace": 1e-10, "products_from_reactants": true, "product_species": [], "omit_species": [], "insert_species": [], "molecular_weight": "gas_phase_M", "smooth_truncation": false, "truncation_width": -1.0, "rocket_diagnostics": true, "cache_enabled": true, "rebuild_cache": false, "cache_directory": ""}, "cea_legacy_executable": {"executable": "fcea2", "data_directory": "", "timeout_s": 120.0, "batch_size": 8, "trace": 1e-10, "cache_enabled": true, "rebuild_cache": false, "cache_directory": ""}},
+    "solver": {"method": "LSODA", "relative_tolerance": 1e-10, "pressure_absolute_tolerance_Pa": 0.001, "burn_depth_absolute_tolerance_m": 1e-13, "burning_time_limit_s": 600.0, "maximum_burning_step_s": 0.02, "unchoked_policy": "switch", "blowdown": {"enabled": false, "time_limit_s": 5.0, "maximum_step_s": 0.0005}},
+    "output": {"directory": "results_golden_g1", "figure_filename": "ballistics.png", "history_filename": "time_history.csv", "summary_text_filename": "summary.txt", "summary_json_filename": "summary.json"},
+    "two_phase_model": {"mode": "single_phase_legacy", "condensed_volume": "neglected", "nozzle_entrainment": "complete"}
+}

@@ -1,0 +1,640 @@
+{
+  "program": {
+    "name": "GRIBS",
+    "version": "0.5.0-alpha",
+    "schema_version": "0.5.0-alpha"
+  },
+  "environment": {
+    "program": "GRIBS",
+    "program_version": "0.5.0-alpha",
+    "schema_version": "0.5.0-alpha",
+    "python_version": "3.14.4",
+    "python_executable": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/bin/python3",
+    "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.43",
+    "system": "Linux",
+    "machine": "x86_64",
+    "numpy_version": "2.5.3",
+    "scipy_version": "1.18.1",
+    "matplotlib_version": "3.11.2",
+    "cea_python_version": "3.3.4",
+    "cea_python_module_path": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py",
+    "cea_library_version": "3.3.4"
+  },
+  "configuration_source": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/cases/golden/g4_medium_condensed.json",
+  "configuration_migration": {
+    "applied": false,
+    "notes": []
+  },
+  "original_configuration": {
+    "schema_version": "0.5.0-alpha",
+    "notes": [
+      "A-8 golden case 4: medium-condensation CEA (AP/Al/HTPB 70/12/18)"
+    ],
+    "propellant": {
+      "packing_fraction": 1.0,
+      "reactants": [
+        {
+          "name": "NH4CLO4(I)",
+          "wt_percent": 70.0,
+          "temperature_K": 298.15,
+          "density_kg_m3": 1950.0
+        },
+        {
+          "name": "AL(cr)",
+          "wt_percent": 12.0,
+          "temperature_K": 298.15,
+          "density_kg_m3": 2700.0
+        },
+        {
+          "name": "C4H6,butadiene",
+          "wt_percent": 18.0,
+          "temperature_K": 298.15,
+          "density_kg_m3": 920.0
+        }
+      ],
+      "burn_law": {
+        "coefficient_m_s": 0.006,
+        "pressure_exponent": 0.38,
+        "reference_pressure_Pa": 1000000.0,
+        "temperature_sensitivity_1_K": 0.0,
+        "grain_temperature_K": 294.0,
+        "reference_temperature_K": 294.0,
+        "erosive_burning": {
+          "enabled": false,
+          "alpha": 0.0,
+          "beta": 53.0
+        }
+      }
+    },
+    "grain": {
+      "initial_bore_radius_m": 0.003,
+      "outer_radius_m": 0.012,
+      "initial_length_m": 0.08,
+      "initial_free_volume_m3": 6.79e-06,
+      "burning_end_faces": 1.0
+    },
+    "nozzle": {
+      "initial_throat_radius_m": 0.003,
+      "expansion_ratio": 1.0,
+      "discharge_coefficient": 1.0,
+      "thrust_efficiency": 1.0,
+      "transition_policy": "jump",
+      "flow_separation": {
+        "enabled": true,
+        "pressure_ratio": 0.4
+      },
+      "throat_erosion": {
+        "enabled": false,
+        "rate_m_s_at_reference_pressure": 0.0,
+        "pressure_exponent": 1.0
+      }
+    },
+    "environment": {
+      "ambient_pressure_Pa": 101325.0,
+      "initial_chamber_pressure_Pa": 2000000.0
+    },
+    "igniter": {
+      "mass_flow_kg_s": 0.0,
+      "duration_s": 0.0
+    },
+    "thermochemistry": {
+      "backend": "cea_python",
+      "temperature_efficiency": 1.0,
+      "outside_range_policy": "clamp",
+      "pressure_range": {
+        "minimum_Pa": 100000.0,
+        "maximum_Pa": 8000000.0
+      },
+      "pressure_points": 81,
+      "cea_python": {
+        "ions": false,
+        "transport": false,
+        "trace": 1e-10,
+        "products_from_reactants": true,
+        "product_species": [],
+        "omit_species": [],
+        "insert_species": [],
+        "molecular_weight": "gas_phase_M",
+        "smooth_truncation": false,
+        "truncation_width": -1.0,
+        "rocket_diagnostics": true,
+        "cache_enabled": true,
+        "rebuild_cache": true,
+        "cache_directory": ""
+      },
+      "cea_legacy_executable": {
+        "executable": "fcea2",
+        "data_directory": "",
+        "timeout_s": 120.0,
+        "batch_size": 8,
+        "trace": 1e-10,
+        "cache_enabled": true,
+        "rebuild_cache": false,
+        "cache_directory": ""
+      }
+    },
+    "solver": {
+      "method": "LSODA",
+      "relative_tolerance": 1e-10,
+      "pressure_absolute_tolerance_Pa": 0.001,
+      "burn_depth_absolute_tolerance_m": 1e-13,
+      "burning_time_limit_s": 600.0,
+      "maximum_burning_step_s": 0.02,
+      "unchoked_policy": "switch",
+      "blowdown": {
+        "enabled": true,
+        "time_limit_s": 5.0,
+        "maximum_step_s": 0.0005
+      }
+    },
+    "output": {
+      "directory": "results_golden_g4",
+      "figure_filename": "ballistics.png",
+      "history_filename": "time_history.csv",
+      "summary_text_filename": "summary.txt",
+      "summary_json_filename": "summary.json"
+    },
+    "two_phase_model": {
+      "mode": "homogeneous_equilibrium",
+      "condensed_volume": "neglected",
+      "nozzle_entrainment": "complete"
+    }
+  },
+  "resolved_configuration": {
+    "rho_p": 1669.2512871409965,
+    "a_burn": 0.006,
+    "n_burn": 0.38,
+    "p_ref": 1000000.0,
+    "sigma_p": 0.0,
+    "T_grain": 294.0,
+    "T_ref": 294.0,
+    "ero_alpha": 0.0,
+    "ero_beta": 53.0,
+    "R_i0": 0.003,
+    "R_p": 0.012,
+    "L_p0": 0.08,
+    "V_g0": 6.79e-06,
+    "n_end": 1.0,
+    "R_t0": 0.003,
+    "eps_nozzle": 1.0,
+    "Cd": 1.0,
+    "eta_thrust": 1.0,
+    "transition_policy": "jump",
+    "use_separation": true,
+    "sep_ratio": 0.4,
+    "ero_throat_c": 0.0,
+    "ero_throat_m": 1.0,
+    "p_a": 101325.0,
+    "p0_init": 2000000.0,
+    "ign_mdot": 0.0,
+    "ign_time": 0.0,
+    "thermo_backend": "cea_python",
+    "cea_pressure_points": 81,
+    "cea_cache_enabled": true,
+    "cea_rebuild_cache": true,
+    "cea_cache_dir": "",
+    "reference_temperature_K": 3000.0,
+    "reference_gamma": 1.2,
+    "reference_molecular_weight_kg_kmol": 25.0,
+    "cea_py_ions": false,
+    "cea_py_transport": false,
+    "cea_py_trace": 1e-10,
+    "cea_py_products_from_reactants": true,
+    "cea_py_product_species": [],
+    "cea_py_omit_species": [],
+    "cea_py_insert_species": [],
+    "cea_py_molecular_weight": "gas_phase_M",
+    "cea_py_smooth_truncation": false,
+    "cea_py_truncation_width": -1.0,
+    "cea_py_rocket_diagnostics": true,
+    "cea_legacy_executable_path": "fcea2",
+    "cea_legacy_data_directory": "",
+    "cea_legacy_timeout_s": 120.0,
+    "cea_legacy_batch_size": 8,
+    "cea_legacy_trace": 1e-10,
+    "p_fit_min": 100000.0,
+    "p_fit_max": 8000000.0,
+    "eta_T0": 1.0,
+    "property_policy": "clamp",
+    "two_phase_mode": "homogeneous_equilibrium",
+    "two_phase_condensed_volume": "neglected",
+    "two_phase_nozzle_entrainment": "complete",
+    "unchoked_policy": "switch",
+    "method": "LSODA",
+    "rtol": 1e-10,
+    "atol_p": 0.001,
+    "atol_x": 1e-13,
+    "t_max": 600.0,
+    "max_step_burn": 0.02,
+    "blowdown": true,
+    "blowdown_tmax": 5.0,
+    "max_step_blow": 0.0005,
+    "equilibrium_pressure_diagnostic": "off"
+  },
+  "derived_inputs": {
+    "propellant_density_kg_m3": 1669.2512871409965,
+    "ideal_mixture_density_kg_m3": 1669.2512871409965,
+    "packing_fraction": 1.0,
+    "bulk_propellant_density_kg_m3": 1669.2512871409965,
+    "propellant_density_model": "rho_p = packing_fraction / sum_i(w_i/rho_i); independent of any CEA gas density"
+  },
+  "two_phase_model": {
+    "mode": "homogeneous_equilibrium",
+    "condensed_volume": "neglected",
+    "nozzle_entrainment": "complete",
+    "active": true
+  },
+  "thermochemistry": {
+    "backend": "cea_python",
+    "configuration_schema_version": "0.5.0-alpha",
+    "equilibrium_formulation": "NASA CEA HP equilibrium (assigned pressure and enthalpy) at each tabulated chamber pressure; reactant enthalpy from the configured constituent temperatures",
+    "pressure_grid": {
+      "minimum_Pa": 100000.0,
+      "maximum_Pa": 8000000.0,
+      "points": 81,
+      "spacing": "logarithmic (geometric)"
+    },
+    "outside_range_policy": "clamp",
+    "temperature_efficiency": 1.0,
+    "two_phase_model": {
+      "mode": "homogeneous_equilibrium",
+      "condensed_volume": "neglected",
+      "nozzle_entrainment": "complete",
+      "phase_fractions_available": true
+    },
+    "interpolation": {
+      "variable": "z = ln(p)",
+      "method": "PCHIP (monotone cubic Hermite, scipy PchipInterpolator)",
+      "quantities": [
+        "Rg",
+        "T0",
+        "gamma_s",
+        "Yg",
+        "Psi = R_eff*T0",
+        "Theta = Rg*T0"
+      ],
+      "derivative": "dPsi/dp = d/dz[PCHIP(Psi)](z) / p (analytic; never a finite difference)"
+    },
+    "cache_key": "a51a46c71b220a5b5a74d88c",
+    "cache_file": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/results_golden_g4/thermo_cache/thermo_cea_python_a51a46c71b220a5b5a74d88c.json",
+    "cache_enabled": true,
+    "cache_used": false,
+    "cache_written": true,
+    "reactants": [
+      {
+        "name": "NH4CLO4(I)",
+        "wt_percent": 70.0,
+        "temperature_K": 298.15,
+        "density_kg_m3": 1950.0
+      },
+      {
+        "name": "AL(cr)",
+        "wt_percent": 12.0,
+        "temperature_K": 298.15,
+        "density_kg_m3": 2700.0
+      },
+      {
+        "name": "C4H6,butadiene",
+        "wt_percent": 18.0,
+        "temperature_K": 298.15,
+        "density_kg_m3": 920.0
+      }
+    ],
+    "mass_fractions_percent": [
+      70.0,
+      12.0,
+      18.0
+    ],
+    "reactant_temperatures_K": [
+      298.15,
+      298.15,
+      298.15
+    ],
+    "molecular_weight_units": "kg/kmol (numerically identical to g/mol)",
+    "universal_gas_constant_J_kmolK": 8314.51,
+    "specific_gas_constant_definition": "R_eff(p) = Ru / M_CEA(p) = Yg(p) * R_gas(p); M_CEA = 1 / EqSolution.n [kg-total/kmol-gas] on the total equilibrium mixture mass basis",
+    "phase_fraction_definition": "Yg(p) = sum of the gas-species mass fractions, Yc(p) = sum of the condensed-species mass fractions, from the official CEA phase ordering (gas species first, then condensed)",
+    "mass_basis_semantics_version": 1,
+    "M_definition": "M_CEA = 1 / EqSolution.n [kg-total/kmol-gas]",
+    "MW_definition": "sol.MW = 1 / sum_all(nj) [kg-total/kmol-all] (diagnostic only, never used in EOS)",
+    "R_definition": "R_eff = Ru / M_CEA [J/(kg-total K)]",
+    "psi_definition": "Psi = R_eff * T_used [J/kg-total], with T_used = eta_T0 * T_CEA; no additional Yg factor",
+    "density_definition": "rho = p * M_CEA / (Ru * T) [kg-total/m^3] (total mixture density from CEA)",
+    "gamma_s_definition": "equilibrium mixture isentropic exponent (dimensionless, from CEA)",
+    "two_phase_capabilities": {
+      "equilibrium_phase_fractions": true,
+      "particle_slip": false,
+      "finite_rate_condensation": false,
+      "condensed_volume": false,
+      "phase_density_lag": false
+    },
+    "ideal_mixture_density_kg_m3": 1669.2512871409965,
+    "packing_fraction": 1.0,
+    "bulk_propellant_density_kg_m3": 1669.2512871409965,
+    "propellant_density_model": "rho_p = packing_fraction / sum_i(w_i/rho_i); independent of any CEA gas density",
+    "property_validation": {
+      "activation_clamped": true,
+      "two_phase_model": true,
+      "pressure_points": 81,
+      "pressure_min_Pa": 100000.0,
+      "pressure_max_Pa": 8000000.0,
+      "temperature_min_K": 2793.6215072515106,
+      "temperature_max_K": 3051.014427780621,
+      "gamma_min": 1.1355592071144995,
+      "gamma_max": 1.1709510188097418,
+      "gas_phase_molecular_weight_min_kg_kmol": 23.44949951167223,
+      "gas_phase_molecular_weight_max_kg_kmol": 24.066385764833726,
+      "gas_mass_fraction_min": 0.7844994320707193,
+      "gas_mass_fraction_max": 0.7879698070924628,
+      "condensed_mass_fraction_min": 0.21203019290753722,
+      "condensed_mass_fraction_max": 0.21550056792928074,
+      "theta_min_J_kg": 990536.8746439976,
+      "theta_max_J_kg": 1054071.4429581703,
+      "psi_min_J_kg": 990536.8746439976,
+      "psi_max_J_kg": 1054071.4429581703,
+      "psi_vs_ReffT_max_rel_error": 0.0,
+      "min_pressure_factor_1_minus_pPsi_over_Psi": 0.9807093391664745,
+      "min_pressure_factor_1_minus_pTheta_over_Theta": 0.9807093391664745,
+      "all_points_finite": true,
+      "pressure_strictly_increasing": true
+    },
+    "cea_package": {
+      "distribution_name": "cea",
+      "distribution_version": "3.3.4",
+      "summary": "Chemical Equilibrium with Applications",
+      "author_email": "Mark Leader <mark.leader@nasa.gov>",
+      "license": "Apache-2.0",
+      "project_url": "https://github.com/nasa/CEA"
+    },
+    "cea_python_module_path": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/__init__.py",
+    "cea_python_version": "3.3.4",
+    "cea_library_version": "3.3.4",
+    "ions": false,
+    "transport": false,
+    "trace": 1e-10,
+    "products_from_reactants": true,
+    "product_species": [],
+    "omit_species": [],
+    "insert_species": [],
+    "molecular_weight": "gas_phase_M",
+    "smooth_truncation": false,
+    "truncation_width": -1.0,
+    "product_species_count": 238,
+    "num_gas": 222,
+    "num_condensed": 16,
+    "num_elements": 6,
+    "reactant_enthalpy_J_kg": -1396126.6474521786,
+    "reactant_enthalpy_over_R_K": -167.9144829282999,
+    "equilibrium_constraint": "HP (assigned enthalpy and pressure)",
+    "reactant_enthalpy_treatment": "Mass-weighted constituent enthalpies at their individual configured temperatures; passed to CEA as h/R [K].",
+    "pressure_units": "configuration in Pa, official API in bar",
+    "temperature_units": "K",
+    "molecular_weight_definition": "EqSolution.M is M_CEA = 1 / EqSolution.n on the total equilibrium mixture mass basis (kg/kmol); EqSolution.MW is diagnostic only",
+    "gamma_definition": "EqSolution.gamma_s (equilibrium isentropic exponent)",
+    "heat_capacity_treatment": "equilibrium (cp_eq reported as a diagnostic)",
+    "phase_fractions": "Yg = sum of gas-species mass fractions, Yc = sum of condensed-species mass fractions, from EqSolution.mass_fractions partitioned by the official species ordering (num_gas first, then num_condensed); never estimated from M vs MW",
+    "condensed_species": "included in the equilibrium and consumed by the two-phase model through Yg(p), Yc(p); the condensed volume is neglected",
+    "ion_settings": "disabled",
+    "transport_settings": "disabled",
+    "product_species_selection": "built from the reactant elements",
+    "rocket_solver_usage": "diagnostic only: IAC chamber state used to report cea_theoretical_* comparison values; the GRIBS nozzle model is not replaced",
+    "finite_area_combustor": false,
+    "external_files_required": false,
+    "database": "package-internal thermo.lib / trans.lib",
+    "database_identity": {
+      "thermo_lib_path": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/data/thermo.lib",
+      "thermo_lib_size_bytes": 612751,
+      "thermo_lib_sha256_prefix": "93ae62dbe49108a4",
+      "trans_lib_path": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/.venv/lib/python3.14/site-packages/cea/data/trans.lib",
+      "trans_lib_size_bytes": 35108,
+      "trans_lib_sha256_prefix": "c203d9330746405e"
+    },
+    "table_source": "official NASA CEA Python package 3.3.4 (HP equilibrium)",
+    "table_diagnostics_summary": {
+      "density_kg_m3_min_max": [
+        0.10095535316233466,
+        7.589618382553477
+      ],
+      "cp_eq_kJ_kgK_min_max": [
+        2.7577328980984857,
+        4.831793841682112
+      ],
+      "top_mass_fractions_at_max_pressure": {
+        "CO": 0.3613227675030063,
+        "AL2O3(L)": 0.21550056792928066,
+        "HCL": 0.20376299690306576,
+        "N2": 0.08337884004700528,
+        "H2O": 0.06487257040477343,
+        "H2": 0.030555653296831967,
+        "CO2": 0.01797174073688545,
+        "ALCL": 0.005290778313550623
+      }
+    }
+  },
+  "cea_theoretical_diagnostics": {
+    "cea_theoretical_cstar_m_s": 1590.59202715963,
+    "cea_theoretical_cf": 0.6689548501789901,
+    "cea_theoretical_isp_s": 108.50129771374186,
+    "cea_theoretical_isp_vacuum_s": 200.78490175519818,
+    "cea_theoretical_isp_exit_m_s": 1064.0342512244665,
+    "cea_theoretical_chamber_pressure_Pa": 3233925.6286621094,
+    "cea_theoretical_chamber_temperature_K": 3012.1811502241835,
+    "cea_theoretical_chamber_molecular_weight_kg_kmol": 23.966961886802398,
+    "cea_theoretical_chamber_gamma_s": 1.1637458244275942,
+    "cea_theoretical_exit_pressure_Pa": 1839994.1811032565,
+    "cea_theoretical_exit_temperature_K": 2790.6409884128107,
+    "cea_theoretical_exit_mach": 0.9999996088442761,
+    "cea_theoretical_exit_area_ratio": 1.0,
+    "cea_theoretical_stations": 3,
+    "cea_theoretical_chamber_station_index": 0,
+    "cea_theoretical_exit_station_index": 1,
+    "cea_theoretical_exit_definition": "throat (converging nozzle, Ae/At = 1)",
+    "cea_theoretical_note": "Theoretical CEA values for comparison only: GRIBS keeps its own unsteady internal-ballistics and nozzle model (cstar_eff_m_s, CF_eff, Isp_s are GRIBS results)."
+  },
+  "results": {
+    "web_mm": 9.000000000000002,
+    "propellant_density_kg_m3": 1669.2512871409965,
+    "propellant_mass_g": 56.63636187131658,
+    "burn_time_s": 0.9835815033078003,
+    "total_time_s": 0.9930126211683796,
+    "burn_stop_reason": "burnout",
+    "blowdown_stop_reason": "ambient",
+    "initial_regime": "choked",
+    "initial_mdot_gen_kg_s": 0.025181949983059133,
+    "initial_mdot_out_kg_s": 0.0355348962892215,
+    "choke_limit_pressure_Pa": 175768.66602521692,
+    "p_max_Pa": 5913249.908834566,
+    "t_p_max_s": 0.9835815033078003,
+    "p_min_burn_Pa": 1153065.9499107613,
+    "t_p_min_s": 0.003615439863881396,
+    "p_mean_burn_Pa": 3233925.517637542,
+    "F_max_N": 204.0405753417494,
+    "t_F_max_s": 0.9835815033078003,
+    "F_mean_burn_N": 110.23799323502656,
+    "impulse_burn_Ns": 108.42805110774255,
+    "impulse_total_Ns": 108.84486583502523,
+    "impulse_blowdown_Ns": 0.4168147272826843,
+    "Isp_s": 195.97105238427014,
+    "cstar_eff_m_s": 1587.7025644332846,
+    "local_model_cstar_m_s": 1592.6461500666207,
+    "cstar_burn_interval_m_s": 1587.7025644332846,
+    "cstar_full_interval_m_s": 1594.0475702546742,
+    "legacy_mixed_interval_cstar_m_s": 1587.7025644332846,
+    "CF_eff": 1.205615723690533,
+    "Kn_initial": 68.33333333333334,
+    "Kn_max": 189.33333333333334,
+    "Kn_final": 189.33333333333334,
+    "throat_radius_final_mm": 3.0,
+    "propellant_mass_balance_error": 1.708709840286815e-10,
+    "total_mass_consistency_error": 4.657012630305758e-07,
+    "total_mass_consistency_error_invariant": 1.1295083535136248e-08,
+    "total_mass_consistency_reference_mass_kg": 0.00022903186832293893,
+    "total_mass_consistency_metric_version": "run_wide_balance_mass_reference_v1",
+    "post_run_consistency": {
+      "schema_version": "a5-1-2d-post-run-1",
+      "tolerance": 1e-06,
+      "final_total_mass": {
+        "lhs_initial_plus_generated_kg": 0.05664942987579085,
+        "rhs_discharged_plus_remaining_kg": 0.05664942987385061,
+        "relative_error": 3.424994108284739e-11,
+        "passed": true
+      },
+      "eos_history": {
+        "metric_version": "run_wide_balance_mass_reference_v1",
+        "reference_mass_kg": 0.00022903186832293893,
+        "invariant_relative_error": 1.1295083535136248e-08,
+        "legacy_instantaneous_mass_relative_error": 4.657012630305758e-07,
+        "legacy_metric_deprecated": true,
+        "passed": true
+      },
+      "passed": true
+    },
+    "ledger": {
+      "schema_version": "a4-ledger-1",
+      "mass": {
+        "basis": "total_product_mass",
+        "initial_chamber_inventory_kg": 1.3068014151780934e-05,
+        "generated_mass_total_kg": 0.05663636186163907,
+        "generated_mass_propellant_kg": 0.05663636186163907,
+        "igniter_mass_commanded_kg": 0.0,
+        "igniter_mass_injected_kg": 0.0,
+        "discharged_mass_total_kg": 0.05664526359903044,
+        "final_chamber_inventory_kg": 4.166274820173644e-06,
+        "initial_propellant_mass_kg": 0.05663636187131658,
+        "final_unburned_propellant_kg": 0.0,
+        "burned_propellant_geometry_kg": 0.05663636187131658,
+        "total_system": {
+          "signed_residual_kg": 1.940239445887351e-12,
+          "relative_residual": 3.424993773355719e-11,
+          "tolerance": 1e-06,
+          "passed": true
+        },
+        "propellant": {
+          "signed_residual_kg": -9.677508794325718e-12,
+          "relative_residual": 1.7087094711899002e-10,
+          "tolerance": 1e-08,
+          "tolerance_formula": "max(1e-9, 100*rtol)",
+          "rtol": 1e-10,
+          "passed": true
+        },
+        "phase_discharge_diagnostic": {
+          "method": "sampled_history_trapezoid",
+          "grid_dependent": true,
+          "gas_mass_kg": 0.04446701638995722,
+          "condensed_mass_kg": 0.012178247895878267,
+          "total_quadrature_mass_kg": 0.05664526428583548,
+          "ode_total_mass_kg": 0.05664526359903044,
+          "relative_quadrature_mismatch": 1.2124668502814726e-08
+        },
+        "passed": true
+      },
+      "energy": {
+        "available": false,
+        "closure_residual_available": false,
+        "reason": "No independent energy state is integrated by the current GRIBS model.",
+        "model": {
+          "equilibrium_constraint": "HP (assigned enthalpy and pressure)",
+          "temperature_treatment": "T0 is the CEA equilibrium temperature multiplied by eta_T0.",
+          "psi_definition": "Psi = R_eff * T0",
+          "state_relation": "p0 * Vg = m_total * Psi",
+          "state_relation_is_energy_closure": false
+        }
+      },
+      "passed": true
+    },
+    "two_phase_model": {
+      "mode": "homogeneous_equilibrium",
+      "condensed_volume": "neglected",
+      "nozzle_entrainment": "complete",
+      "active": true
+    },
+    "gas_mass_fraction_min": 0.7846166785027442,
+    "gas_mass_fraction_max": 0.7879675913629436,
+    "condensed_mass_fraction_min": 0.2120324086370564,
+    "condensed_mass_fraction_max": 0.2153833214972558,
+    "maximum_condensed_mass_fraction_during_run": 0.2153833214972558,
+    "mean_condensed_mass_fraction_during_burn": 0.21470422347956825,
+    "condensed_mass_fraction_at_max_pressure": 0.2153833214972558,
+    "gas_mass_fraction_table_min": 0.7844994320707193,
+    "gas_mass_fraction_table_max": 0.7879698070924628,
+    "condensed_mass_fraction_table_min": 0.21203019290753722,
+    "condensed_mass_fraction_table_max": 0.21550056792928074,
+    "min_pressure_factor_1_minus_pPsi_over_Psi": 0.9807093391664745,
+    "nozzle_entrainment_assumption": "complete entrainment: the isentropic formula evaluated with R_eff returns mdot_total directly (no additional /Yg); both phases leave with the same exit velocity (particle slip NOT modelled; momentum thrust may be overestimated for large condensed fractions)",
+    "condensed_volume_assumption": "condensed-phase volume neglected against the chamber free volume; the gas phase occupies Vg",
+    "property_extrapolation": false,
+    "property_extrapolation_points": 0,
+    "property_extrapolation_fraction": 0.0,
+    "property_policy": "clamp",
+    "thermochemistry_backend": "cea_python",
+    "property_range_min_Pa": 100000.0,
+    "property_range_max_Pa": 8000000.0,
+    "pressure_min_Pa": 101375.6625000001,
+    "pressure_max_Pa": 5913249.908834566,
+    "regimes_visited": [
+      "choked",
+      "subsonic"
+    ],
+    "nozzle_transition": {
+      "policy": "jump",
+      "applicable": false,
+      "detected": false,
+      "warning_code": null,
+      "interval_count": 0,
+      "duration_s": 0.0,
+      "duration_fraction": 0.0,
+      "impulse_Ns": 0.0,
+      "impulse_fraction": 0.0
+    },
+    "validation": {
+      "semantic_status": "pass",
+      "numerical_status": "pass",
+      "model_status": "approximate_with_limitations",
+      "validated_pressure_range_Pa": [
+        100000.0,
+        8000000.0
+      ],
+      "validated_Yg_range": [
+        0.7844994320707193,
+        0.7879698070924628
+      ],
+      "mass_basis_semantics_version": 1,
+      "notes": "Two-phase model provides equilibrium phase bookkeeping only. No particle slip, finite-rate condensation, condensed volume, or phase density lag.  See two_phase_capabilities in summary.thermochemistry."
+    },
+    "warnings": [],
+    "event_times": {
+      "burnout": [
+        0.9835815033078003
+      ],
+      "unchoked": [],
+      "rechoked": [],
+      "ambient": []
+    }
+  },
+  "output_files": {
+    "figure": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/results_golden_g4/ballistics.png",
+    "history_csv": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/results_golden_g4/time_history.csv",
+    "summary_text": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/results_golden_g4/summary.txt",
+    "summary_json": "/home/hikaru-kurokawa/Rocket/GRIBS-dev/results_golden_g4/summary.json"
+  }
+}
