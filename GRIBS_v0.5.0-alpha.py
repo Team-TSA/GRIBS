@@ -5921,9 +5921,58 @@ def configuration_from_document(doc: dict) -> Configuration:
                          document=doc, migration_notes=[])
 
 
-def load_json_configuration(path: Path) -> Configuration:
+def load_json_configuration(path: Path,
+                            backend_override: Optional[str] = None) -> Configuration:
+    """Load and validate a configuration file.
+
+    With ``backend_override`` (the CLI ``--backend`` value) the configuration
+    is validated twice:
+
+    1. the loaded document exactly as before (after any schema migration), so
+       an override never makes an invalid file acceptable - in particular the
+       file must name a valid backend of its own (``_backend_choice``) and
+       satisfy that backend's own rules;
+    2. a copy with ``thermochemistry.backend`` replaced by the override, so
+       every rule that depends on the backend (the legacy/homogeneous
+       exclusion, the backend-conditional sections, the cache settings) is
+       applied to the backend that will actually run.
+
+    The recorded ``document`` / ``original_configuration`` is the loaded
+    document (after migration, before the override).
+    """
     doc, notes = _load_document(path)
-    loaded = configuration_from_document(doc)
+    effective = doc
+    if backend_override is not None:
+        configuration_from_document(doc)          # step 1: the file on its own
+        effective = copy.deepcopy(doc)
+        thermo = effective["thermochemistry"]    # a mapping after step 1
+        thermo["backend"] = backend_override
+        if backend_override == BACKEND_REFERENCE_CONSTANT:
+            # Phase A-5 contract (verification/a5-reference/A5_DESIGN.md):
+            # reference values the file does not state come from the
+            # documented Config defaults (absent section, or missing keys when
+            # the file was written for another backend), exactly as before
+            # the override was moved ahead of validation.  A file written for
+            # reference_constant already passed step 1 with a complete section.
+            fields = Config.__dataclass_fields__
+            defaults = {
+                "temperature_K": fields["reference_temperature_K"].default,
+                "gamma": fields["reference_gamma"].default,
+                "molecular_weight_kg_kmol":
+                    fields["reference_molecular_weight_kg_kmol"].default,
+            }
+            if "reference_constant" not in thermo:
+                thermo["reference_constant"] = dict(defaults)
+            elif isinstance(thermo["reference_constant"], dict):
+                for key, value in defaults.items():
+                    thermo["reference_constant"].setdefault(key, value)
+    loaded = configuration_from_document(effective)
+    if backend_override is not None:
+        loaded.document = doc
+        loaded.config.original_configuration = copy.deepcopy(doc)  # type: ignore[attr-defined]
+        notes = list(notes) + [
+            f"thermochemistry.backend overridden on the command line to "
+            f"{backend_override!r}."]
     loaded.migration_notes = list(notes)
     loaded.config.configuration_source = str(Path(path).expanduser().resolve())
     return loaded
@@ -6052,17 +6101,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        loaded = load_json_configuration(args.config)
+        if args.backend:
+            loaded = load_json_configuration(args.config,
+                                             backend_override=args.backend)
+        else:
+            loaded = load_json_configuration(args.config)
     except ConfigurationError as exc:
         print(f"Configuration error:\n{exc}", file=sys.stderr)
         return 2
 
     cfg = loaded.config
-    if args.backend:
-        cfg.thermo_backend = args.backend
-        loaded.migration_notes.append(
-            f"thermochemistry.backend overridden on the command line to "
-            f"{args.backend!r}.")
     if args.no_cache:
         cfg.cea_rebuild_cache = True
         loaded.migration_notes.append("Chamber-property cache rebuild forced by --no-cache.")

@@ -2,6 +2,31 @@
 
 All notable changes to GRIBS are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- `--backend` now validates the configuration that will actually run:
+  - The legacy/homogeneous exclusion, the sections each backend requires, and the cache
+    settings apply to the overriding backend.
+  - `--validate-config` reports invalid combinations (exit code 2).
+  - The file is first read on its own. Errors found in that step are reported first, with
+    the same message as without the override.
+  - Value checks (for example, `p_a >= p_fit_min`) run afterwards on the effective
+    configuration. With several problems, the order of validation decides which error
+    appears first.
+  - Overriding to `reference_constant` keeps the documented Phase A-5 defaults when the
+    section is absent. A partial section in a file written for another backend is still
+    completed with the same defaults, as before.
+  - In the tested conditions, numerical results before and after the change were
+    identical. See `verification/cli/CLI_BACKEND_OVERRIDE_ADR.md`.
+
+### Validation
+
+- Added CLI `--backend` override tests: two-stage validation, the same first error with
+  or without an override, reference defaults for an absent or partial section, the
+  backend value in the file, and migrated v0.3.0/v0.4.3/v0.4.4 documents.
+
 ## [v0.5.0-alpha] - 2026-10-02
 
 ### Changed

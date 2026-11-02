@@ -278,6 +278,39 @@ These values are for comparison only. They are not fed back into the GRIBS unste
 --version              Display the GRIBS version
 ```
 
+### Backend override (`--backend`)
+
+`--backend NAME` is validated in two stages:
+
+1. The file is read on its own, with the same rules as without the override. The file must
+   name a valid backend and satisfy that backend's section rules.
+2. The combination with `NAME` is read. For example, `cea_legacy_executable` cannot run
+   `two_phase_model.mode = "homogeneous_equilibrium"`, and `NAME`'s own section must be
+   present.
+
+Value checks such as `R_i0 < R_p` and `p_a >= p_fit_min` run once afterwards, on the
+effective configuration.
+
+Both `--validate-config` and a normal run report an invalid configuration as a
+configuration error (exit code 2). Validation stops at the first error:
+
+- An error found while reading the file on its own (stage 1) is reported first, with the
+  same message as without the override.
+- If the file's only problem is a value check and the combination is also invalid, the
+  combination error may be reported first.
+- After one problem is fixed, another may be reported.
+
+The cache settings are taken from the section of the backend that runs.
+
+When the override is `reference_constant`:
+
+- If the file has no `reference_constant` section, the documented defaults are used
+  (3000 K, 1.2, 25 kg/kmol). This is the Phase A-5 contract.
+- If the file is written for another backend and has a partial `reference_constant`
+  section, the missing values take the same defaults. This keeps the earlier behaviour.
+
+See `verification/cli/CLI_BACKEND_OVERRIDE_ADR.md`.
+
 Example thermochemistry-table export:
 
 ```bash

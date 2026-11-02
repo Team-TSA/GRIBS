@@ -1,0 +1,124 @@
+{
+  "schema_version": "0.3.0-alpha",
+  "propellant": {
+    "description": "Reactant names must match thermo.lib; wt_percent must sum to 100. density_kg_m3 is the solid constituent density at the relevant temperature. The program uses rho_mix = 1/sum(w_i/rho_i), then multiplies by packing_fraction. Verify nominal densities before engineering use.",
+    "packing_fraction": 1.0,
+    "reactants": [
+      {
+        "name": "NH4NO3(IV)",
+        "wt_percent": 88.7,
+        "temperature_K": 298.15,
+        "density_kg_m3": 1720.0
+      },
+      {
+        "name": "AL(cr)",
+        "wt_percent": 0.7,
+        "temperature_K": 298.15,
+        "density_kg_m3": 2700.0
+      },
+      {
+        "name": "C",
+        "wt_percent": 10.6,
+        "temperature_K": 298.15,
+        "density_kg_m3": 2260.0
+      }
+    ],
+    "burn_law": {
+      "coefficient_m_s": 0.0007,
+      "pressure_exponent": 0.5,
+      "reference_pressure_Pa": 1000000.0,
+      "temperature_sensitivity_1_K": 0.0,
+      "grain_temperature_K": 294.0,
+      "reference_temperature_K": 294.0,
+      "erosive_burning": {
+        "enabled": false,
+        "alpha": 0.0,
+        "beta": 53.0
+      }
+    }
+  },
+  "grain": {
+    "initial_bore_radius_m": 0.003,
+    "outer_radius_m": 0.012,
+    "initial_length_m": 0.08,
+    "initial_free_volume_m3": 6.79e-06,
+    "burning_end_faces": 1.0
+  },
+  "nozzle": {
+    "initial_throat_radius_m": 0.0015,
+    "expansion_ratio": 1.0,
+    "discharge_coefficient": 1.0,
+    "thrust_efficiency": 1.0,
+    "flow_separation": {
+      "enabled": true,
+      "pressure_ratio": 0.4
+    },
+    "throat_erosion": {
+      "enabled": false,
+      "rate_m_s_at_reference_pressure": 0.0,
+      "pressure_exponent": 1.0
+    }
+  },
+  "environment": {
+    "ambient_pressure_Pa": 101325.0,
+    "initial_chamber_pressure_Pa": 200000.0
+  },
+  "igniter": {
+    "mass_flow_kg_s": 0.0,
+    "duration_s": 0.0
+  },
+  "thermochemistry": {
+    "backend": "cea2",
+    "temperature_efficiency": 1.0,
+    "outside_range_policy": "clamp",
+    "pressure_range": {
+      "minimum_Pa": 100000.0,
+      "maximum_Pa": 8000000.0
+    },
+    "cea2": {
+      "executable": "fcea2",
+      "data_directory": "",
+      "cache_directory": "",
+      "pressure_points": 81,
+      "timeout_s": 120.0,
+      "rebuild_cache": false,
+      "trace": 1e-10
+    },
+    "legacy_fit": {
+      "propellant_density_kg_m3": 1769.91,
+      "gas_constant": {
+        "intercept_J_kgK": 385.984,
+        "log_pressure_slope_J_kgK": -4.0059
+      },
+      "temperature": {
+        "intercept_K": 2980.31,
+        "log_pressure_slope_K": 115.009
+      },
+      "gamma": {
+        "intercept": 1.11488,
+        "log_pressure_slope": 0.0052542
+      }
+    }
+  },
+  "solver": {
+    "method": "LSODA",
+    "relative_tolerance": 1e-09,
+    "pressure_absolute_tolerance_Pa": 0.001,
+    "burn_depth_absolute_tolerance_m": 1e-13,
+    "burning_time_limit_s": 600.0,
+    "maximum_burning_step_s": 0.02,
+    "unchoked_policy": "switch",
+    "blowdown": {
+      "enabled": true,
+      "time_limit_s": 5.0,
+      "maximum_step_s": 0.0005
+    }
+  },
+  "output": {
+    "directory": "results",
+    "figure_filename": "ballistics.png",
+    "history_filename": "time_history.csv",
+    "summary_text_filename": "summary.txt",
+    "summary_json_filename": "summary.json"
+  }
+}
