@@ -188,6 +188,21 @@ All notable changes to GRIBS are documented in this file.
 - Updated the semantic-label tests.
 - Added a direct-`summarize()` check for legacy and two-phase-inactive runs.
 - Added `tests/test_selftest_backend_modes.py`.
+- Added `tests/test_n6_homogeneous_equals_legacy_totals.py` (10/09 N-6).
+  - On g4 and g5, the homogeneous model equals `single_phase_legacy` in total
+    quantities.
+  - Each mode generates its own CEA table (the cache key includes the mode).
+  - The test checks that the two stored tables are identical apart from
+    `cache_key`.
+  - This depends on the P2 recursion fix.
+- The golden regression test now writes its outputs under pytest's
+  `tmp_path` (cleanup P5).
+  - For the `cea_python` cases (g2-g6), the CEA cache directory is set
+    explicitly to `tmp_path/results_golden_<id>/thermo_cache`. The
+    `reference_constant` case (g1) has no cache.
+  - The tracked `results_golden_*` directories and the frozen inputs are no
+    longer written by test runs.
+  - Golden values are unchanged.
 
 ## [v0.5.0-alpha] - 2026-10-02
 

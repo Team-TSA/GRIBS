@@ -61,13 +61,30 @@ def _golden_cases():
 
 
 @pytest.mark.parametrize("case_id,config_path", list(_golden_cases()))
-def test_golden_regression(case_id, config_path):
-    """Run a golden case and compare all metrics against frozen values."""
+def test_golden_regression(case_id, config_path, tmp_path):
+    """Run a golden case and compare all metrics against frozen values.
+
+    The run output goes to pytest's tmp_path.  For the cea_python cases
+    (g2-g6) the CEA cache directory is set explicitly to
+    tmp_path/results_golden_<id>/thermo_cache (the same place the default
+    rule would choose, made independent of it); the reference_constant case
+    (g1) has no cache.  The frozen inputs (cases/golden/*.json,
+    golden_values.json) and the tracked results_golden_* reference
+    directories are never written.  Golden values are unchanged.
+    """
     golden = json.loads(_GOLDEN_VALUES.read_text())[case_id]
+
+    doc = json.loads(Path(config_path).read_text())
+    out_dir = tmp_path / f"results_golden_{case_id}"
+    doc["output"]["directory"] = str(out_dir)
+    if "cea_python" in doc.get("thermochemistry", {}):
+        doc["thermochemistry"]["cea_python"]["cache_directory"] = str(out_dir / "thermo_cache")
+    run_config = tmp_path / Path(config_path).name
+    run_config.write_text(json.dumps(doc))
 
     # Run the simulation
     result = subprocess.run(
-        [sys.executable, str(_MAIN), "--config", str(config_path)],
+        [sys.executable, str(_MAIN), "--config", str(run_config)],
         capture_output=True, text=True, timeout=120,
     )
     assert result.returncode == 0, (
@@ -76,8 +93,6 @@ def test_golden_regression(case_id, config_path):
     )
 
     # Load the output summary
-    repo_root = Path(__file__).resolve().parent.parent
-    out_dir = repo_root / f"results_golden_{case_id}"
     summary_path = out_dir / "summary.json"
     assert summary_path.exists(), f"No summary.json for {case_id}"
     actual = json.loads(summary_path.read_text())["results"]
