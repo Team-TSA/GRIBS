@@ -2697,3 +2697,30 @@ def test_direct_summarize_range_fields_tolerate_incomplete_yg_when_two_phase_is_
         assert v["validated_Yg_range"] == [0.9, 1.0]
         assert v["table_Yg_range"] is None
         assert v["table_pressure_range_Pa"] == [1.0e5, 8.0e6]
+
+
+# float() conversion of a reported Yg value: ordinary exceptions become a
+# structured error; KeyboardInterrupt / SystemExit are not swallowed.
+def _float_raising(exc_type):
+    class _FloatRaises(float):
+        def __float__(self):
+            raise exc_type("from __float__")
+    return _FloatRaises(0.9)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("exc_type", [RuntimeError, ArithmeticError, LookupError], ids=["RuntimeError", "ArithmeticError", "LookupError"])
+def test_float_conversion_error_of_a_yg_value_is_a_structured_error(exc_type):
+    backend = _phase_probe_backend({"gas_mass_fraction_min": _float_raising(exc_type), "gas_mass_fraction_max": 1.0})
+    error = gribs.model_applicability_error(gribs.Config(), backend)
+    assert error["code"] == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+    assert "not_representable:gas_mass_fraction_min" in error["context"]["problems"]
+    json.dumps(error, allow_nan=False)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("exc_type", [KeyboardInterrupt, SystemExit], ids=["KeyboardInterrupt", "SystemExit"])
+def test_float_conversion_does_not_swallow_interrupts(exc_type):
+    backend = _phase_probe_backend({"gas_mass_fraction_min": _float_raising(exc_type), "gas_mass_fraction_max": 1.0})
+    with pytest.raises(exc_type):
+        gribs.phase_fraction_validation_error(gribs.Config(), backend)

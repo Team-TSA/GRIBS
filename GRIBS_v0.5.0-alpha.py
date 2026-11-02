@@ -4156,8 +4156,9 @@ def phase_fraction_validation_error(
             continue
         try:
             value = float(raw)
-        except (OverflowError, ValueError, TypeError):
-            # e.g. a Python int beyond the float range (10**400)
+        except Exception:  # noqa: BLE001 - KeyboardInterrupt / SystemExit are not caught
+            # e.g. a Python int beyond the float range (10**400), or a float
+            # subclass whose __float__ raises
             problems.append(f"not_representable:{key}")
             continue
         if not math.isfinite(value):
