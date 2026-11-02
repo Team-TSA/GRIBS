@@ -4,6 +4,48 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added machine-readable `W_HIGH_CONDENSATE_MODEL_LIMITATION` and
+  `W_TWO_PHASE_NOZZLE_APPROXIMATION` diagnostics for active two-phase runs.
+- Included the warnings and their numerical context in the text and JSON
+  summaries. The warning-only cases do not change the physical model or run
+  verdict.
+- Added `W_THERMAL_EFFICIENCY_PARTIAL` when a CEA backend applies `eta_T0 != 1`:
+  it explains that CEA HP properties are not re-solved after temperature scaling,
+  so direct density, sonic-velocity, and CEA-performance comparisons are not
+  like-for-like. This is diagnostic only; it does not change the run verdict.
+- Added `E_OUT_OF_VALIDATED_RANGE` as a pre-integration gate when an active
+  homogeneous-equilibrium property table has `Yg_min <= 0.65`. The error code
+  and context are emitted to stderr; self-test and thermo-dump diagnostic modes
+  remain available.
+- Added `E_PHASE_FRACTION_VALIDATION_INVALID`, distinct from
+  `E_OUT_OF_VALIDATED_RANGE`. It is raised when an active two-phase backend
+  reports a gas mass fraction range that is missing, non-numeric, non-finite,
+  or outside `0 < Yg_min <= Yg_max <= 1`. The pre-integration gate and direct
+  `summarize()` calls both raise it; no default range is assumed. Legacy mode
+  and backends without two-phase support do not use the range. The
+  `reference_constant` backend now states its analytic range explicitly
+  (`Yg = 1`, `Yc = 0`, matching `phase_fractions()`).
+- Added `E_OLD_THERMO_CACHE` when the exact matching schema-3 cache is found
+  under its legacy key, preventing a silent rebuild after the schema-4 key
+  change. The error includes structured path/schema context; unrelated old
+  cache entries do not block a run, and explicit rebuild/cache-disabled paths
+  remain available.
+- Added `E_THERMO_MASS_BASIS_INVARIANT_FAILED` checks for pressure-grid shape,
+  finiteness, positivity and ordering; `R_eff*M_CEA = Ru`,
+  `M_CEA*n_gas_per_kg_total = 1`, `psi = R_eff*T_used`, and phase-fraction
+  sum and physical ranges. CEA tables now persist the semantics tag
+  and independent `n` column; compatible pre-tag schema-4 caches remain readable
+  after the numerical invariants pass.
+- Added structured `E_GAMMA_S_BELOW_UNITY` when generated, cached, or interpolated
+  `gamma_s <= 1`; it reports invalid pressure interval(s), gamma range, and cause
+  instead of clipping or returning a generic property error.
+- Added the Q18 mass-ledger CLI contract: one `W_MASS_LEDGER_FAILED` warning,
+  exit code 5 for a ledger-only failure, and `--allow-verification-failure`
+  limited to that case. Other verification failures remain exit code 1, and
+  normal-run diagnostics are written before the exit.
+
 ### Fixed
 
 - `--backend` now validates the configuration that will actually run:
@@ -23,6 +65,27 @@ All notable changes to GRIBS are documented in this file.
 
 ### Validation
 
+- Added unit coverage for warning scope, duplicate suppression, and the
+  round-off threshold used to avoid a false nozzle warning at machine precision.
+- Added phase-fraction validation tests:
+  - missing, non-numeric, NaN/inf, and out-of-range Yg on an active two-phase
+    backend, through the gate, `main()`, and direct `summarize()`
+  - legacy mode and backends without two-phase support are not affected
+  - genuine out-of-scope classification is unchanged
+  - the reference backend's analytic phase fractions
+- Added targeted coverage for matching legacy-cache rejection, structured error
+  context, unrelated-cache false-positive avoidance, and rebuild/cache-disabled
+  escape paths.
+- Added corrupted-cache probes for the mass-basis identities, semantics-version
+  mismatch, structured stderr output, and compatibility with earlier schema-4
+  caches that lack the additive semantics-version and `n_gas_per_kg_total` fields.
+- Added `W_THERMAL_EFFICIENCY_PARTIAL` scope, direction, idempotence, non-verdict,
+  and summary-text coverage.
+- Added generated/cache/interpolated probes for `gamma_s <= 1`, disjoint invalid
+  pressure intervals, structured stderr context, and no-silent-clipping behavior.
+- Added Q18 tests for single-warning idempotence, ledger-only exit code 5,
+  explicit ledger-only downgrade, non-overridable gates, and diagnostic files
+  written before exit.
 - Added CLI `--backend` override tests: two-stage validation, the same first error with
   or without an override, reference defaults for an absent or partial section, the
   backend value in the file, and migrated v0.3.0/v0.4.3/v0.4.4 documents.

@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 from dataclasses import asdict
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -626,13 +627,20 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
     supplied = json.loads(source.read_text(encoding="utf-8"))
     configuration = gribs.configuration_from_document(supplied)
     c = configuration.config
+    c.eta_T0 = 0.98
 
     class Backend:
-        name = "synthetic"
+        name = gribs.BACKEND_CEA_PYTHON
         pmin = 1.0e5
         pmax = 8.0e6
         supports_two_phase = True
-        property_validation = {}
+        # An active two-phase backend must state its Yg range explicitly
+        # (summarize() rejects a missing range with
+        # E_PHASE_FRACTION_VALIDATION_INVALID instead of assuming Yg = 1).
+        property_validation = {
+            "gas_mass_fraction_min": 1.0,
+            "gas_mass_fraction_max": 1.0,
+        }
         cache_schema = 4
         mass_basis_semantics_version = 1
 
@@ -702,6 +710,10 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
     summary = gribs.summarize(result, history, c)
 
     assert summary["ledger"] is sentinel_ledger
+    assert any(
+        warning["code"] == "W_THERMAL_EFFICIENCY_PARTIAL"
+        for warning in summary["warnings"]
+    )
     assert summary["propellant_mass_balance_error"] == pytest.approx(0.0)
     assert summary["total_mass_consistency_error"] == pytest.approx(0.0)
     assert summary["total_mass_consistency_error_invariant"] == pytest.approx(
@@ -783,7 +795,14 @@ def test_summary_text_contains_mass_and_energy_ledger_sections():
             "impulse_Ns": 0.0,
             "impulse_fraction": 0.0,
         },
-        "warnings": [],
+        "warnings": [
+            {
+                "code": "W_THERMAL_EFFICIENCY_PARTIAL",
+                "severity": "warning",
+                "message": "Direct CEA comparisons are not like-for-like.",
+                "context": {"temperature_efficiency_eta_T0": 0.98},
+            }
+        ],
         "ledger": {
             "schema_version": "a4-ledger-1",
             "mass": {
@@ -845,12 +864,28 @@ def test_summary_text_contains_mass_and_energy_ledger_sections():
         },
     }
 
+    summary["ledger"]["passed"] = False
+    summary["ledger"]["mass"]["passed"] = False
+    summary["ledger"]["mass"]["propellant"].update(
+        {
+            "passed": False,
+            "signed_residual_kg": 2.0e-8,
+            "relative_residual": 4.0e-8,
+            "tolerance": 1.0e-9,
+        }
+    )
+    gribs.append_run_verdict_warnings(summary)
     text = gribs.summary_text(summary, c)
 
+    assert "[ verification warnings ]" in text
+    assert "W_MASS_LEDGER_FAILED" in text
     assert "[ mass ledger ]" in text
     assert "propellant relative residual" in text
+    assert "4.000e-08 (limit 1.0e-09, FAIL)" in text
     assert "mass-ledger result" in text
     assert "[ energy ledger ]" in text
+    assert "W_THERMAL_EFFICIENCY_PARTIAL" in text
+    assert "Direct CEA comparisons are not like-for-like." in text
     assert "closure residual available" in text
     assert "not a complete energy-conservation law" in text
     assert "legacy propellant balance metric" in text
@@ -1083,21 +1118,196 @@ def test_run_verdict_warning_exposes_failed_ledger_context():
     }
 
     gribs.append_run_verdict_warnings(summary)
+    gribs.append_run_verdict_warnings(summary)
 
     assert gribs.run_verdict_passed(summary) is False
     assert len(summary["warnings"]) == 1
 
     warning = summary["warnings"][0]
-    assert warning["code"] == "W_MASS_LEDGER"
+    assert warning["code"] == "W_MASS_LEDGER_FAILED"
     assert warning["severity"] == "error"
     assert warning["context"]["total_system_passed"] is True
+    assert warning["context"]["total_system_relative_residual"] == pytest.approx(
+        1.0e-9
+    )
+    assert warning["context"]["total_system_tolerance"] == pytest.approx(
+        1.0e-6
+    )
     assert warning["context"]["propellant_passed"] is False
+    assert warning["context"]["propellant_relative_residual"] == pytest.approx(
+        4.0e-8
+    )
+    assert warning["context"]["propellant_tolerance"] == pytest.approx(
+        1.0e-9
+    )
     assert warning["context"]["igniter_mass_commanded_kg"] == pytest.approx(
         0.002
     )
     assert warning["context"]["igniter_mass_injected_kg"] == pytest.approx(
         0.002
     )
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "ledger_passed,post_run_passed,warnings,allow,expected",
+    [
+        pytest.param(True, True, [], False, 0, id="all-pass"),
+        pytest.param(False, True, [], False, 5, id="ledger-only-fail"),
+        pytest.param(False, True, [], True, 0, id="ledger-only-allowed"),
+        pytest.param(True, False, [], True, 1, id="post-run-not-overridden"),
+        pytest.param(False, False, [], True, 1, id="combined-failure-not-overridden"),
+        pytest.param(
+            True,
+            True,
+            [{"code": "E_OUT_OF_VALIDATED_RANGE"}],
+            True,
+            1,
+            id="scope-error-not-overridden",
+        ),
+    ],
+)
+def test_run_verification_exit_code_obeys_q18_contract(
+    ledger_passed,
+    post_run_passed,
+    warnings,
+    allow,
+    expected,
+):
+    summary = {
+        "warnings": warnings,
+        "post_run_consistency": {"passed": post_run_passed},
+        "ledger": {"passed": ledger_passed},
+    }
+
+    assert gribs.run_verification_exit_code(
+        summary,
+        allow_verification_failure=allow,
+    ) == expected
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "allow,expected_exit",
+    [(False, 5), (True, 0)],
+    ids=["strict-ledger-exit", "explicit-ledger-override"],
+)
+def test_main_writes_diagnostics_before_ledger_exit(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    allow,
+    expected_exit,
+):
+    document = json.loads(
+        (ROOT / "gribs_config.json").read_text(encoding="utf-8")
+    )
+    output_dir = tmp_path / "ledger-failure-output"
+    document["output"]["directory"] = str(output_dir)
+    config_path = tmp_path / "ledger-failure-config.json"
+    config_path.write_text(
+        json.dumps(document, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    backend = SimpleNamespace(
+        name="synthetic-ledger-probe",
+        metadata=lambda: {"backend": "synthetic-ledger-probe"},
+        ideal_mixture_density=1000.0,
+        packing_fraction=0.6,
+        bulk_mixture_density=600.0,
+    )
+    summary = {
+        "warnings": [],
+        "post_run_consistency": {"passed": True},
+        "ledger": {
+            "passed": False,
+            "mass": {
+                "passed": False,
+                "igniter_mass_commanded_kg": 0.002,
+                "igniter_mass_injected_kg": 0.002,
+                "total_system": {
+                    "passed": True,
+                    "signed_residual_kg": 1.0e-10,
+                    "relative_residual": 1.0e-9,
+                    "tolerance": 1.0e-6,
+                },
+                "propellant": {
+                    "passed": False,
+                    "signed_residual_kg": 2.0e-8,
+                    "relative_residual": 4.0e-8,
+                    "tolerance": 1.0e-9,
+                },
+            },
+        },
+        "two_phase_model": {"mode": "synthetic", "active": False},
+    }
+
+    monkeypatch.setattr(
+        gribs, "initialize_thermochemistry", lambda *_args: backend
+    )
+    monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
+    monkeypatch.setattr(gribs, "model_applicability_error", lambda *_args: None)
+    monkeypatch.setattr(gribs, "run_model", lambda _config: object())
+    monkeypatch.setattr(gribs, "sample", lambda *_args: {})
+    monkeypatch.setattr(
+        gribs,
+        "summarize",
+        lambda *_args, **_kwargs: summary,
+    )
+    monkeypatch.setattr(gribs, "environment_info", lambda: {})
+    monkeypatch.setattr(
+        gribs,
+        "_cea_theoretical_diagnostics",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        gribs,
+        "summary_text",
+        lambda item, *_args: (
+            f"{item['warnings'][0]['code']} "
+            f"{item['warnings'][0]['context']['propellant_relative_residual']} "
+            f"{item['warnings'][0]['context']['propellant_tolerance']}"
+        ),
+    )
+    monkeypatch.setattr(
+        gribs,
+        "write_csv",
+        lambda _history, path: path.write_text("history\n", encoding="utf-8"),
+    )
+    monkeypatch.setattr(gribs, "make_figure", lambda *_args: None)
+    monkeypatch.setattr(
+        gribs,
+        "self_tests_post_run",
+        lambda *_args, **_kwargs: None,
+    )
+
+    argv = ["--config", str(config_path)]
+    if allow:
+        argv.append("--allow-verification-failure")
+    exit_code = gribs.main(argv)
+
+    assert exit_code == expected_exit
+    assert (output_dir / "time_history.csv").exists()
+    summary_text_path = output_dir / "summary.txt"
+    summary_json_path = output_dir / "summary.json"
+    assert summary_text_path.exists()
+    assert summary_json_path.exists()
+    assert "W_MASS_LEDGER_FAILED" in summary_text_path.read_text(
+        encoding="utf-8"
+    )
+    record = json.loads(summary_json_path.read_text(encoding="utf-8"))
+    warning = record["results"]["warnings"][0]
+    assert warning["code"] == "W_MASS_LEDGER_FAILED"
+    assert warning["context"]["propellant_relative_residual"] == pytest.approx(
+        4.0e-8
+    )
+    captured = capsys.readouterr()
+    if allow:
+        assert "allowed by --allow-verification-failure" in captured.err
+    else:
+        assert "exit 5" not in captured.err
+        assert "W_MASS_LEDGER_FAILED" in captured.err
 
 
 @pytest.mark.fast
@@ -1135,6 +1345,292 @@ def test_run_verdict_warning_exposes_failed_post_run_context():
         ]
         == pytest.approx(2.0e-6)
     )
+
+
+@pytest.mark.fast
+def test_model_applicability_error_uses_the_out_of_scope_threshold():
+    config = gribs.Config()
+    backend = type("BackendProbe", (), {})()
+    backend.supports_two_phase = True
+    backend.property_validation = {
+        "gas_mass_fraction_min": 0.65,
+        "gas_mass_fraction_max": 1.0,
+    }
+    backend.pmin = 1.0e5
+    backend.pmax = 8.0e6
+
+    error = gribs.model_applicability_error(config, backend)
+
+    assert error["code"] == "E_OUT_OF_VALIDATED_RANGE"
+    assert error["severity"] == "error"
+    assert error["context"]["thermochemistry_table_Yg_range"] == [0.65, 1.0]
+    assert error["context"]["thermochemistry_pressure_range_Pa"] == [
+        1.0e5,
+        8.0e6,
+    ]
+
+    backend.property_validation["gas_mass_fraction_min"] = 0.6500001
+    assert gribs.model_applicability_error(config, backend) is None
+
+    config.two_phase_mode = gribs.TWO_PHASE_SINGLE_LEGACY
+    backend.property_validation["gas_mass_fraction_min"] = 0.5
+    assert gribs.model_applicability_error(config, backend) is None
+
+    config.two_phase_mode = gribs.TWO_PHASE_HOMOGENEOUS
+    backend.supports_two_phase = False
+    assert gribs.model_applicability_error(config, backend) is None
+
+
+@pytest.mark.fast
+def test_main_fails_fast_for_out_of_scope_two_phase_table(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    document = json.loads(
+        (ROOT / "gribs_config.json").read_text(encoding="utf-8")
+    )
+    output_dir = tmp_path / "must_not_be_created"
+    document["output"]["directory"] = str(output_dir)
+    config_path = tmp_path / "out_of_scope.json"
+    config_path.write_text(
+        json.dumps(document, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    backend = type("BackendProbe", (), {})()
+    backend.supports_two_phase = True
+    backend.property_validation = {
+        "gas_mass_fraction_min": 0.65,
+        "gas_mass_fraction_max": 1.0,
+    }
+    backend.pmin = 1.0e5
+    backend.pmax = 8.0e6
+    monkeypatch.setattr(
+        gribs,
+        "initialize_thermochemistry",
+        lambda _config, _cache_dir: backend,
+    )
+    monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
+    monkeypatch.setattr(
+        gribs,
+        "run_model",
+        lambda *_args: pytest.fail("out-of-scope run reached the solver"),
+    )
+
+    exit_code = gribs.main(["--config", str(config_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "E_OUT_OF_VALIDATED_RANGE" in captured.err
+    json_record = json.loads(
+        next(line for line in captured.err.splitlines() if line.startswith("{"))
+    )
+    assert json_record["context"]["simulation_started"] is False
+    assert not output_dir.exists()
+
+
+@pytest.mark.fast
+def test_out_of_scope_applicability_error_fails_run_verdict():
+    summary = {
+        "warnings": [],
+        "two_phase_model": {
+            "active": True,
+            "mode": "homogeneous_equilibrium",
+            "nozzle_entrainment": "complete",
+        },
+        "validation": {
+            "model_status": "out_of_scope",
+            "validated_Yg_range": [0.65, 1.0],
+            "validated_pressure_range_Pa": [1.0e5, 8.0e6],
+        },
+        "gas_mass_fraction_table_min": 0.65,
+        "gas_mass_fraction_table_max": 1.0,
+        "condensed_mass_fraction_table_max": 0.35,
+        "maximum_condensed_mass_fraction_during_run": 0.3,
+        "post_run_consistency": {"passed": True},
+        "ledger": {"passed": True},
+    }
+
+    gribs.append_model_applicability_warnings(summary)
+
+    assert [warning["code"] for warning in summary["warnings"]] == [
+        "E_OUT_OF_VALIDATED_RANGE",
+        "W_TWO_PHASE_NOZZLE_APPROXIMATION",
+    ]
+    assert gribs.run_verdict_passed(summary) is False
+
+
+@pytest.mark.fast
+def test_model_applicability_warnings_cover_condensed_scope_and_nozzle_limits():
+    summary = {
+        "warnings": [],
+        "two_phase_model": {
+            "active": True,
+            "mode": "homogeneous_equilibrium",
+            "nozzle_entrainment": "complete",
+        },
+        "validation": {
+            "model_status": "approximate_with_limitations",
+        },
+        "gas_mass_fraction_table_min": 0.72,
+        "condensed_mass_fraction_table_max": 0.28,
+        "maximum_condensed_mass_fraction_during_run": 0.25,
+    }
+
+    gribs.append_model_applicability_warnings(summary)
+    warnings = {warning["code"]: warning for warning in summary["warnings"]}
+
+    assert set(warnings) == {
+        "W_HIGH_CONDENSATE_MODEL_LIMITATION",
+        "W_TWO_PHASE_NOZZLE_APPROXIMATION",
+    }
+    high_condensate = warnings["W_HIGH_CONDENSATE_MODEL_LIMITATION"]
+    assert high_condensate["severity"] == "warning"
+    assert high_condensate["context"]["model_status"] == (
+        "approximate_with_limitations"
+    )
+    assert high_condensate["context"]["gas_mass_fraction_table_min"] == (
+        pytest.approx(0.72)
+    )
+    assert high_condensate["context"][
+        "validated_in_scope_requires_Yg_min_greater_than"
+    ] == pytest.approx(0.99)
+
+    nozzle = warnings["W_TWO_PHASE_NOZZLE_APPROXIMATION"]
+    assert nozzle["severity"] == "warning"
+    assert nozzle["context"]["particle_slip_modelled"] is False
+    assert nozzle["context"][
+        "maximum_condensed_mass_fraction_during_run"
+    ] == pytest.approx(0.25)
+
+    # Emission is idempotent if a caller applies the reporting helper twice.
+    gribs.append_model_applicability_warnings(summary)
+    assert len(summary["warnings"]) == 2
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "backend_name,eta_t0,expected_warning,direction",
+    [
+        (gribs.BACKEND_CEA_PYTHON, 0.98, True, "below"),
+        (gribs.BACKEND_CEA_PYTHON, 1.02, True, "above"),
+        (gribs.BACKEND_CEA_LEGACY_EXECUTABLE, 0.97, True, "below"),
+        (gribs.BACKEND_CEA_PYTHON, 1.0, False, None),
+        (gribs.BACKEND_REFERENCE_CONSTANT, 0.98, False, None),
+    ],
+    ids=["cea-scaled-down", "cea-scaled-up", "legacy-cea", "eta-one", "reference"],
+)
+def test_thermal_efficiency_partial_warning_scope_and_verdict(
+    backend_name,
+    eta_t0,
+    expected_warning,
+    direction,
+):
+    summary = {
+        "warnings": [],
+        "post_run_consistency": {"passed": True},
+        "ledger": {"passed": True},
+    }
+    config = gribs.Config(eta_T0=eta_t0)
+    backend = type("BackendProbe", (), {"name": backend_name})()
+
+    gribs.append_thermal_efficiency_warning(summary, config, backend)
+
+    if not expected_warning:
+        assert summary["warnings"] == []
+        return
+
+    assert len(summary["warnings"]) == 1
+    warning = summary["warnings"][0]
+    assert warning["code"] == "W_THERMAL_EFFICIENCY_PARTIAL"
+    assert warning["severity"] == "warning"
+    assert warning["context"]["temperature_efficiency_eta_T0"] == eta_t0
+    assert warning["context"]["cea_state_re_solved_after_scaling"] is False
+    assert "density" in warning["context"][
+        "direct_cea_comparisons_not_like_for_like"
+    ]
+    assert f"{direction} its equilibrium value" in warning["message"]
+    assert gribs.run_verdict_passed(summary) is True
+
+    gribs.append_thermal_efficiency_warning(summary, config, backend)
+    assert len(summary["warnings"]) == 1
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "two_phase_active,model_status,condensed_max,expected_codes",
+    [
+        (False, "approximate_with_limitations", 0.25, set()),
+        (True, "validated_in_scope", 4.0e-16, set()),
+        (
+            True,
+            "approximate_with_limitations",
+            4.0e-16,
+            {"W_HIGH_CONDENSATE_MODEL_LIMITATION"},
+        ),
+        (
+            True,
+            "out_of_scope",
+            4.0e-16,
+            {"E_OUT_OF_VALIDATED_RANGE"},
+        ),
+    ],
+)
+def test_model_applicability_warning_scope_and_roundoff_threshold(
+    two_phase_active,
+    model_status,
+    condensed_max,
+    expected_codes,
+):
+    yg_min = 0.64 if model_status == "out_of_scope" else 0.998
+    summary = {
+        "warnings": [],
+        "two_phase_model": {
+            "active": two_phase_active,
+            "mode": "homogeneous_equilibrium",
+            "nozzle_entrainment": "complete",
+        },
+        "validation": {
+            "model_status": model_status,
+            "validated_Yg_range": [yg_min, 1.0],
+            "validated_pressure_range_Pa": [1.0e5, 8.0e6],
+        },
+        "gas_mass_fraction_table_min": yg_min,
+        "condensed_mass_fraction_table_max": 1.0 - yg_min,
+        "maximum_condensed_mass_fraction_during_run": condensed_max,
+    }
+
+    gribs.append_model_applicability_warnings(summary)
+
+    assert {warning["code"] for warning in summary["warnings"]} == (
+        expected_codes
+    )
+
+
+@pytest.mark.fast
+def test_model_applicability_warnings_do_not_fail_run_verdict():
+    summary = {
+        "warnings": [],
+        "two_phase_model": {
+            "active": True,
+            "mode": "homogeneous_equilibrium",
+            "nozzle_entrainment": "complete",
+        },
+        "validation": {
+            "model_status": "approximate_with_limitations",
+        },
+        "gas_mass_fraction_table_min": 0.72,
+        "condensed_mass_fraction_table_max": 0.28,
+        "maximum_condensed_mass_fraction_during_run": 0.25,
+        "post_run_consistency": {"passed": True},
+        "ledger": {"passed": True},
+    }
+
+    gribs.append_model_applicability_warnings(summary)
+
+    assert len(summary["warnings"]) == 2
+    assert gribs.run_verdict_passed(summary) is True
 
 
 @pytest.mark.fast
@@ -1224,6 +1720,8 @@ def _cache_reader_probe(tmp_path, table):
         gribs.PressureTableBackend
     )
     backend.cache_path = tmp_path / "cache-schema-probe.json"
+    backend.key = "current-schema-probe-key"
+    backend.name = "cache-schema-probe"
     backend.cache_path.write_text(
         json.dumps(table, indent=2) + "\n",
         encoding="utf-8",
@@ -1266,8 +1764,196 @@ def test_cache_schema_identity_rejects_schema_3_mass_basis(tmp_path):
     with pytest.raises(
         gribs.ThermochemistryCacheError,
         match="schema 3 uses obsolete CEA mass-basis semantics",
-    ):
+    ) as exc_info:
         backend._read_cache()
+
+    assert exc_info.value.code == "E_OLD_THERMO_CACHE"
+    assert exc_info.value.context["schema_actual"] == 3
+    assert exc_info.value.context["schema_expected"] == 4
+    assert exc_info.value.context["cache_path"] == str(backend.cache_path)
+
+
+class _CacheBuildReached(RuntimeError):
+    pass
+
+
+class _LegacyCacheProbeBackend(gribs.PressureTableBackend):
+    name = "legacy-cache-probe"
+    supports_two_phase = False
+    table_stem = "thermo_legacy_cache_probe"
+    equilibrium_formulation = "cache identity test"
+
+    def _build_table(self):
+        raise _CacheBuildReached("new-cache rebuild path reached")
+
+
+def _legacy_cache_probe_inputs(tmp_path, **config_overrides):
+    config = gribs.Config(
+        thermo_backend=_LegacyCacheProbeBackend.name,
+        two_phase_mode=gribs.TWO_PHASE_SINGLE_LEGACY,
+        **config_overrides,
+    )
+    reactants = [gribs.ReactantSpec(
+        name="TEST",
+        wt_percent=100.0,
+        temperature_K=298.15,
+        density_kg_m3=1000.0,
+    )]
+    backend = _LegacyCacheProbeBackend.__new__(_LegacyCacheProbeBackend)
+    backend.c = config
+    backend.reactants = reactants
+    backend.cache_root = tmp_path
+    legacy_key = backend._legacy_schema3_cache_key()
+    legacy_path = backend._legacy_schema3_cache_path()
+    return config, reactants, legacy_path, legacy_key
+
+
+def _write_legacy_schema3_cache(path, backend_name, cache_key):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "schema": 3,
+            "backend": backend_name,
+            "cache_key": cache_key,
+        }),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.fast
+def test_matching_legacy_schema3_cache_raises_structured_error(tmp_path):
+    config, reactants, legacy_path, legacy_key = _legacy_cache_probe_inputs(tmp_path)
+    schema3_payload = {
+        "cache_schema": 3,
+        "backend": _LegacyCacheProbeBackend.name,
+        "reactants": [[r.name, float(r.wt_percent), float(r.temperature_K)]
+                      for r in reactants],
+        "equilibrium": _LegacyCacheProbeBackend.equilibrium_formulation,
+        "pressure_min_Pa": float(config.p_fit_min),
+        "pressure_max_Pa": float(config.p_fit_max),
+        "pressure_points": int(config.cea_pressure_points),
+        "temperature_efficiency": float(config.eta_T0),
+        "phase_fractions_tabulated": False,
+        "molecular_weight_definition": (
+            "gas_phase_M (gas-phase M; total MW is diagnostic only since "
+            "v0.5.0-alpha)"
+        ),
+        "options": {},
+    }
+    expected_legacy_key = gribs.hashlib.sha256(
+        json.dumps(schema3_payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:24]
+    assert legacy_key == expected_legacy_key
+
+    _write_legacy_schema3_cache(
+        legacy_path,
+        _LegacyCacheProbeBackend.name,
+        legacy_key,
+    )
+
+    with pytest.raises(gribs.ThermochemistryCacheError) as exc_info:
+        _LegacyCacheProbeBackend(config, reactants, 1.0, tmp_path)
+
+    error = exc_info.value
+    assert error.code == "E_OLD_THERMO_CACHE"
+    assert error.context["backend"] == _LegacyCacheProbeBackend.name
+    assert error.context["cache_path"] == str(legacy_path)
+    assert error.context["schema_actual"] == 3
+    assert error.context["schema_expected"] == 4
+    assert error.context["detection"] == "matching_schema3_cache_key"
+    assert error.context["cache_key_schema3"] == legacy_key
+    assert error.context["cache_key_current"] != legacy_key
+    assert "E_OLD_THERMO_CACHE" in str(error)
+    assert "Expected schema: 4; actual schema: 3" in str(error)
+    assert str(legacy_path) in str(error)
+
+
+@pytest.mark.fast
+def test_main_reports_old_cache_error_as_structured_stderr(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    loaded = gribs.Configuration(
+        config=gribs.Config(),
+        output_dir=tmp_path,
+        output_names={},
+        document={},
+        migration_notes=[],
+    )
+    monkeypatch.setattr(gribs, "load_json_configuration", lambda _path: loaded)
+    monkeypatch.setattr(gribs, "validate", lambda _config: None)
+    error = gribs.ThermochemistryCacheError(
+        "E_OLD_THERMO_CACHE: obsolete test cache",
+        code="E_OLD_THERMO_CACHE",
+        context={
+            "cache_path": str(tmp_path / "old-cache.json"),
+            "schema_actual": 3,
+            "schema_expected": 4,
+        },
+    )
+
+    def raise_old_cache_error(_config, _cache_dir):
+        raise error
+
+    monkeypatch.setattr(
+        gribs,
+        "initialize_thermochemistry",
+        raise_old_cache_error,
+    )
+
+    assert gribs.main(["--config", "ignored.json"]) == 3
+    captured = capsys.readouterr()
+    assert "Thermochemistry backend error [E_OLD_THERMO_CACHE]" in captured.err
+    record = json.loads(captured.err.splitlines()[-1])
+    assert record["code"] == "E_OLD_THERMO_CACHE"
+    assert record["severity"] == "error"
+    assert record["context"]["schema_actual"] == 3
+    assert record["context"]["schema_expected"] == 4
+
+
+@pytest.mark.fast
+def test_unrelated_schema3_cache_does_not_block_rebuild(tmp_path):
+    config, reactants, legacy_path, _ = _legacy_cache_probe_inputs(tmp_path)
+    unrelated_key = "f" * 24
+    unrelated_path = tmp_path / (
+        f"{_LegacyCacheProbeBackend.table_stem}_{unrelated_key}.json")
+    assert unrelated_path != legacy_path
+    _write_legacy_schema3_cache(
+        unrelated_path,
+        _LegacyCacheProbeBackend.name,
+        unrelated_key,
+    )
+
+    with pytest.raises(_CacheBuildReached, match="new-cache rebuild path reached"):
+        _LegacyCacheProbeBackend(config, reactants, 1.0, tmp_path)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "config_overrides",
+    [
+        {"cea_rebuild_cache": True},
+        {"cea_cache_enabled": False},
+    ],
+    ids=["explicit-rebuild", "cache-disabled"],
+)
+def test_legacy_schema3_cache_guard_respects_rebuild_escape(
+    tmp_path,
+    config_overrides,
+):
+    config, reactants, legacy_path, legacy_key = _legacy_cache_probe_inputs(
+        tmp_path,
+        **config_overrides,
+    )
+    _write_legacy_schema3_cache(
+        legacy_path,
+        _LegacyCacheProbeBackend.name,
+        legacy_key,
+    )
+
+    with pytest.raises(_CacheBuildReached, match="new-cache rebuild path reached"):
+        _LegacyCacheProbeBackend(config, reactants, 1.0, tmp_path)
 
 
 @pytest.mark.fast
@@ -1287,6 +1973,347 @@ def test_cache_schema_identity_accepts_schema_4_identity(tmp_path):
     assert "schema identity" not in message
     assert "incompatible with required schema" not in message
     assert "schema 3 uses obsolete" not in message
+
+
+def _mass_basis_cache_probe(tmp_path, **table_overrides):
+    backend = gribs.PressureTableBackend.__new__(gribs.PressureTableBackend)
+    backend.name = "mass-basis-invariant-probe"
+    backend.key = "mass-basis-invariant-key"
+    backend.supports_two_phase = True
+    backend.cache_path = tmp_path / "thermo_mass_basis_probe.json"
+    backend.c = gribs.Config(
+        cea_pressure_points=4,
+        eta_T0=0.97,
+        two_phase_mode=gribs.TWO_PHASE_HOMOGENEOUS,
+    )
+    pressure = [1.0e5, 2.0e5, 4.0e5, 8.0e5]
+    temperature = [3000.0, 3100.0, 3200.0, 3300.0]
+    molecular_weight = [25.0] * 4
+    gas_constant = [gribs.R_UNIVERSAL / 25.0] * 4
+    table = {
+        "schema": 4,
+        "backend": backend.name,
+        "cache_key": backend.key,
+        "mass_basis_semantics_version": 1,
+        "pressure_Pa": pressure,
+        "temperature_K": temperature,
+        "gamma_s": [1.2] * 4,
+        "equilibrium_molecular_weight_kg_kmol": molecular_weight,
+        "n_gas_per_kg_total": [1.0 / 25.0] * 4,
+        "effective_gas_constant_J_kgK": gas_constant,
+        "gas_mass_fraction": [0.7, 0.8, 0.9, 1.0],
+        "condensed_mass_fraction": [0.3, 0.2, 0.1, 0.0],
+        "psi_J_kg": [
+            r * t * backend.c.eta_T0
+            for r, t in zip(gas_constant, temperature)
+        ],
+    }
+    table.update(table_overrides)
+    backend.cache_path.write_text(json.dumps(table), encoding="utf-8")
+    return backend, table
+
+
+@pytest.mark.fast
+def test_mass_basis_cache_invariants_accept_exact_roundtrip(tmp_path):
+    backend, _ = _mass_basis_cache_probe(tmp_path)
+    table = backend._read_cache()
+    assert table["mass_basis_semantics_version"] == 1
+
+
+@pytest.mark.fast
+def test_mass_basis_cache_invariants_allow_pre_tag_schema4_cache(tmp_path):
+    backend, table = _mass_basis_cache_probe(tmp_path)
+    table.pop("mass_basis_semantics_version")
+    table.pop("n_gas_per_kg_total")
+    backend.cache_path.write_text(json.dumps(table), encoding="utf-8")
+
+    assert backend._read_cache()["cache_key"] == backend.key
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "pressure, invariant",
+    [
+        ([1.0e5, 0.0, 4.0e5, 8.0e5], "pressure_grid_positive"),
+        ([1.0e5, 2.0e5, 2.0e5, 8.0e5], "pressure_grid_strictly_increasing"),
+        ([1.0e5, 2.0e5, float("nan"), 8.0e5], "pressure_grid_finite"),
+        ([[1.0e5], [2.0e5], [4.0e5], [8.0e5]], "pressure_grid_shape"),
+    ],
+    ids=["nonpositive", "not-increasing", "nonfinite", "wrong-shape"],
+)
+def test_mass_basis_cache_invariants_reject_bad_pressure_grid(
+    tmp_path,
+    pressure,
+    invariant,
+):
+    backend, table = _mass_basis_cache_probe(tmp_path)
+    table["pressure_Pa"] = pressure
+    backend.cache_path.write_text(json.dumps(table), encoding="utf-8")
+
+    with pytest.raises(gribs.ThermochemistryInvariantError) as exc_info:
+        backend._read_cache()
+
+    assert exc_info.value.code == "E_THERMO_MASS_BASIS_INVARIANT_FAILED"
+    assert exc_info.value.context["invariant"] == invariant
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "column, index, multiplier, invariant",
+    [
+        ("effective_gas_constant_J_kgK", 1, 1.0 + 2.0e-12,
+         "R_eff_times_M_CEA_equals_Ru"),
+        ("n_gas_per_kg_total", 2, 1.0 + 2.0e-12,
+         "M_CEA_times_n_gas_per_kg_total_equals_one"),
+        ("psi_J_kg", 3, 1.0 + 2.0e-12,
+         "psi_equals_R_eff_times_T_used"),
+        ("gas_mass_fraction", 3, 1.0 + 2.0e-12,
+         "phase_fraction_physical_ranges"),
+        ("condensed_mass_fraction", 2, 1.0,
+         "gas_plus_condensed_mass_fraction_equals_one"),
+    ],
+    ids=["R-times-M", "M-times-n", "psi", "phase-range", "phase-sum"],
+)
+def test_mass_basis_cache_invariants_reject_corrupted_columns(
+    tmp_path,
+    column,
+    index,
+    multiplier,
+    invariant,
+):
+    backend, table = _mass_basis_cache_probe(tmp_path)
+    values = list(table[column])
+    if column == "condensed_mass_fraction":
+        values[index] += 5.0e-13
+    else:
+        values[index] *= multiplier
+    table[column] = values
+    backend.cache_path.write_text(json.dumps(table), encoding="utf-8")
+
+    with pytest.raises(gribs.ThermochemistryInvariantError) as exc_info:
+        backend._read_cache()
+
+    assert exc_info.value.code == "E_THERMO_MASS_BASIS_INVARIANT_FAILED"
+    assert exc_info.value.context["invariant"] == invariant
+    assert exc_info.value.context["cache_path"] == str(backend.cache_path)
+    assert str(exc_info.value).startswith("E_THERMO_MASS_BASIS_INVARIANT_FAILED:")
+
+
+@pytest.mark.fast
+def test_gamma_s_below_unity_reports_invalid_pressure_intervals(tmp_path):
+    backend, table = _mass_basis_cache_probe(tmp_path)
+    table["gamma_s"] = [0.9985, 1.2, 0.999, 1.1]
+    backend.cache_path.write_text(json.dumps(table), encoding="utf-8")
+
+    with pytest.raises(gribs.GammaBelowUnityError) as exc_info:
+        backend._read_cache()
+
+    error = exc_info.value
+    assert error.code == "E_GAMMA_S_BELOW_UNITY"
+    assert error.context["table_source"] == "cache"
+    assert error.context["invalid_point_count"] == 2
+    assert error.context["invalid_pressure_intervals_Pa"] == [
+        [1.0e5, 1.0e5],
+        [4.0e5, 4.0e5],
+    ]
+    assert error.context["invalid_gamma_s_range"] == pytest.approx(
+        [0.9985, 0.999]
+    )
+    assert "Do not clip these values" in str(error)
+
+
+@pytest.mark.fast
+def test_gamma_s_below_unity_generated_scan_reports_configured_range(tmp_path):
+    backend, _ = _mass_basis_cache_probe(tmp_path)
+    pressure = [1.0e5, 2.0e5, 4.0e5, 8.0e5]
+
+    with pytest.raises(gribs.GammaBelowUnityError) as exc_info:
+        backend._validate_gamma_s_above_unity(
+            pressure,
+            [1.2, 1.1, 0.9985, 0.9984],
+            table_source="generated",
+        )
+
+    context = exc_info.value.context
+    assert context["table_source"] == "generated"
+    assert context["pressure_scan_range_Pa"] == [1.0e5, 8.0e5]
+    assert context["configured_pressure_range_Pa"] == [
+        backend.c.p_fit_min,
+        backend.c.p_fit_max,
+    ]
+    assert context["invalid_pressure_intervals_Pa"] == [[4.0e5, 8.0e5]]
+
+
+@pytest.mark.fast
+def test_props_reports_gamma_below_unity_with_pressure_context(tmp_path):
+    backend = gribs.PressureTableBackend.__new__(gribs.PressureTableBackend)
+    backend.name = "interpolated-gamma-probe"
+    backend.key = "interpolated-gamma-key"
+    backend.cache_path = tmp_path / "interpolated-gamma.json"
+    backend.c = gribs.Config(property_policy="clamp")
+    backend.pmin = 1.0e5
+    backend.pmax = 8.0e5
+    backend.Ri = lambda _z: 300.0
+    backend.Ti = lambda _z: 3000.0
+    backend.gi = lambda _z: 0.9985
+
+    with pytest.raises(gribs.GammaBelowUnityError) as exc_info:
+        backend.props(2.0e5)
+
+    assert exc_info.value.code == "E_GAMMA_S_BELOW_UNITY"
+    assert exc_info.value.context["table_source"] == "interpolated"
+    assert exc_info.value.context["invalid_pressure_intervals_Pa"] == [
+        [2.0e5, 2.0e5]
+    ]
+
+
+@pytest.mark.fast
+def test_cea_builder_raises_gamma_error_at_first_invalid_grid_point(monkeypatch):
+    backend = gribs.CEAPythonBackend.__new__(gribs.CEAPythonBackend)
+    backend.cea = SimpleNamespace(
+        R=gribs.R_UNIVERSAL,
+        HP="HP",
+        __version__="test-cea",
+        __file__="test-cea-module",
+        lib_version=lambda: "test-cea-library",
+    )
+    backend.c = gribs.Config(
+        p_fit_min=1.0e5,
+        p_fit_max=8.0e5,
+        cea_pressure_points=4,
+        eta_T0=1.0,
+    )
+    backend.cache_path = Path("/tmp/gribs-gamma-builder-probe.json")
+    backend.key = "gamma-builder-probe"
+    solution = SimpleNamespace()
+
+    class FakeSolver:
+        def __init__(self):
+            self.calls = 0
+
+        def solve(self, result, _hp, _h_r, _pressure_bar, _weights):
+            gamma_values = [1.2, 0.9985, 1.1, 1.15]
+            result.converged = True
+            result.last_error = 0
+            result.T = 3000.0
+            result.M = 25.0
+            result.MW = 25.0
+            result.gamma_s = gamma_values[self.calls]
+            result.density = 1.0
+            result.cp_eq = 1.0
+            result.sonic_velocity = 1000.0
+            result.enthalpy = 0.0
+            result.mass_fractions = {"X": 1.0}
+            result.n = 1.0 / 25.0
+            self.calls += 1
+
+    solver = FakeSolver()
+    backend._build_mixtures = lambda: (
+        None,
+        None,
+        solver,
+        solution,
+        gribs.np.array([1.0]),
+        0.0,
+    )
+    monkeypatch.setattr(
+        backend,
+        "_phase_split",
+        lambda _product, _solver, _solution: (0.7, 0.3, {}),
+    )
+
+    with pytest.raises(gribs.GammaBelowUnityError) as exc_info:
+        backend._build_table()
+
+    assert exc_info.value.context["table_source"] == "generated"
+    intervals = exc_info.value.context["invalid_pressure_intervals_Pa"]
+    assert len(intervals) == 1
+    assert intervals[0] == pytest.approx([2.0e5, 2.0e5])
+    assert exc_info.value.context["pressure_scan_range_Pa"] == pytest.approx(
+        [1.0e5, 2.0e5]
+    )
+    assert solver.calls == 2
+
+
+@pytest.mark.fast
+def test_mass_basis_cache_semantics_version_mismatch_is_old_cache(tmp_path):
+    backend, _ = _mass_basis_cache_probe(
+        tmp_path,
+        mass_basis_semantics_version=2,
+    )
+
+    with pytest.raises(gribs.ThermochemistryCacheError) as exc_info:
+        backend._read_cache()
+
+    assert exc_info.value.code == "E_OLD_THERMO_CACHE"
+    assert exc_info.value.context["value_actual"] == 2
+    assert exc_info.value.context["value_expected"] == 1
+    assert str(backend.cache_path) in str(exc_info.value)
+
+
+@pytest.mark.fast
+def test_mass_basis_semantics_tag_requires_n_column(tmp_path):
+    backend, table = _mass_basis_cache_probe(tmp_path)
+    table.pop("n_gas_per_kg_total")
+    backend.cache_path.write_text(json.dumps(table), encoding="utf-8")
+
+    with pytest.raises(gribs.ThermochemistryInvariantError) as exc_info:
+        backend._read_cache()
+
+    assert exc_info.value.context["invariant"] == "column_present:n_gas_per_kg_total"
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "error_class,code,context",
+    [
+        (
+            gribs.ThermochemistryInvariantError,
+            "E_THERMO_MASS_BASIS_INVARIANT_FAILED",
+            {"invariant": "psi_equals_R_eff_times_T_used"},
+        ),
+        (
+            gribs.GammaBelowUnityError,
+            "E_GAMMA_S_BELOW_UNITY",
+            {"invalid_pressure_intervals_Pa": [[4.0e5, 4.0e5]]},
+        ),
+    ],
+    ids=["mass-basis-invariant", "gamma-below-unity"],
+)
+def test_main_reports_thermochemistry_error_as_structured_stderr(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    error_class,
+    code,
+    context,
+):
+    loaded = gribs.Configuration(
+        config=gribs.Config(),
+        output_dir=tmp_path,
+        output_names={},
+        document={},
+        migration_notes=[],
+    )
+    monkeypatch.setattr(gribs, "load_json_configuration", lambda _path: loaded)
+    monkeypatch.setattr(gribs, "validate", lambda _config: None)
+    error = error_class(f"{code}: test mismatch", context=context)
+
+    def raise_thermochemistry_error(_config, _cache_dir):
+        raise error
+
+    monkeypatch.setattr(
+        gribs,
+        "initialize_thermochemistry",
+        raise_thermochemistry_error,
+    )
+
+    assert gribs.main(["--config", "ignored.json"]) == 3
+    captured = capsys.readouterr()
+    assert f"Thermochemistry backend error [{code}]" in captured.err
+    record = json.loads(captured.err.splitlines()[-1])
+    assert record["code"] == code
+    assert record["context"] == context
 
 
 @pytest.mark.fast
@@ -1344,3 +2371,217 @@ def test_migration_model_change_warning_code_in_source():
     # The warning must be appended to the summary warnings list, not just
     # printed to stderr.
     assert 'summ.setdefault("warnings"' in source or 'summ["warnings"]' in source
+
+
+# ---------------------------------------------------------------------------
+# Phase-fraction validation for the two-phase applicability gate.
+# A missing / non-numeric / non-finite / out-of-range Yg range on an ACTIVE
+# two-phase backend is a structured E_PHASE_FRACTION_VALIDATION_INVALID error,
+# distinct from a genuine E_OUT_OF_VALIDATED_RANGE classification.  Legacy mode
+# and backends without two-phase support do not use the range.
+# ---------------------------------------------------------------------------
+
+def _phase_probe_backend(property_validation, supports_two_phase=True):
+    backend = type("PhaseProbeBackend", (), {})()
+    backend.name = "probe"
+    backend.supports_two_phase = supports_two_phase
+    backend.property_validation = property_validation
+    backend.pmin = 1.0e5
+    backend.pmax = 8.0e6
+    return backend
+
+
+@pytest.mark.fast
+def test_reference_backend_states_its_analytic_phase_fractions(tmp_path):
+    document = json.loads(
+        (ROOT / "cases" / "golden" / "g1_reference_constant.json").read_text(encoding="utf-8")
+    )
+    # The shipped golden g1 uses single_phase_legacy; an explicit
+    # homogeneous_equilibrium reference run reaches the two-phase gate.
+    assert document["two_phase_model"]["mode"] == gribs.TWO_PHASE_SINGLE_LEGACY
+    document["two_phase_model"]["mode"] = gribs.TWO_PHASE_HOMOGENEOUS
+    document["output"]["directory"] = str(tmp_path / "out")
+    config = gribs.configuration_from_document(document).config
+    backend = gribs.initialize_thermochemistry(config, tmp_path / "cache")
+
+    assert backend.name == gribs.BACKEND_REFERENCE_CONSTANT
+    assert config.two_phase_mode == gribs.TWO_PHASE_HOMOGENEOUS
+    assert backend.supports_two_phase is True
+    pv = backend.property_validation
+    for pressure in (backend.pmin, backend.pmax, 0.5 * (backend.pmin + backend.pmax)):
+        yg, yc = backend.phase_fractions(pressure)
+        assert pv["gas_mass_fraction_min"] == yg == pv["gas_mass_fraction_max"] == 1.0
+        assert pv["condensed_mass_fraction_min"] == yc == pv["condensed_mass_fraction_max"] == 0.0
+    assert backend.metadata()["gas_mass_fraction"] == pv["gas_mass_fraction_min"]
+    assert gribs.phase_fraction_validation_error(config, backend) is None
+    assert gribs.model_applicability_error(config, backend) is None
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "property_validation, expected_problem",
+    [
+        ({}, "missing:gas_mass_fraction_min"),
+        ({"gas_mass_fraction_max": 1.0}, "missing:gas_mass_fraction_min"),
+        ({"gas_mass_fraction_min": 0.9}, "missing:gas_mass_fraction_max"),
+        (None, "property_validation_missing"),
+        ({"gas_mass_fraction_min": float("nan"), "gas_mass_fraction_max": 1.0}, "non_finite:gas_mass_fraction_min"),
+        ({"gas_mass_fraction_min": 0.9, "gas_mass_fraction_max": float("inf")}, "non_finite:gas_mass_fraction_max"),
+        ({"gas_mass_fraction_min": "0.9", "gas_mass_fraction_max": 1.0}, "not_a_number:gas_mass_fraction_min"),
+        ({"gas_mass_fraction_min": True, "gas_mass_fraction_max": 1.0}, "not_a_number:gas_mass_fraction_min"),
+        ({"gas_mass_fraction_min": 0.0, "gas_mass_fraction_max": 1.0}, "invalid_range"),
+        ({"gas_mass_fraction_min": -0.1, "gas_mass_fraction_max": 1.0}, "invalid_range"),
+        ({"gas_mass_fraction_min": 0.95, "gas_mass_fraction_max": 0.9}, "invalid_range"),
+        ({"gas_mass_fraction_min": 0.9, "gas_mass_fraction_max": 1.2}, "invalid_range"),
+    ],
+)
+def test_invalid_phase_fraction_validation_is_a_distinct_structured_error(
+    property_validation, expected_problem,
+):
+    config = gribs.Config()
+    assert config.two_phase_mode == gribs.TWO_PHASE_HOMOGENEOUS
+    backend = _phase_probe_backend(property_validation)
+
+    error = gribs.model_applicability_error(config, backend)
+
+    assert error is not None
+    assert error["code"] == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+    assert error["code"] != "E_OUT_OF_VALIDATED_RANGE"
+    assert error["severity"] == "error"
+    assert expected_problem in error["context"]["problems"]
+    assert error["context"]["model_status"] is None
+    json.dumps(error, allow_nan=False)  # reported values are strings; record is strict JSON
+    assert gribs.phase_fraction_validation_error(config, backend) == error
+
+
+@pytest.mark.fast
+def test_valid_phase_fraction_range_is_still_classified_by_the_thresholds():
+    config = gribs.Config()
+    in_scope = _phase_probe_backend({"gas_mass_fraction_min": 0.7, "gas_mass_fraction_max": 1.0})
+    assert gribs.model_applicability_error(config, in_scope) is None
+    out_of_scope = _phase_probe_backend({"gas_mass_fraction_min": 0.5, "gas_mass_fraction_max": 0.9})
+    error = gribs.model_applicability_error(config, out_of_scope)
+    assert error["code"] == "E_OUT_OF_VALIDATED_RANGE"
+    assert error["context"]["model_status"] == "out_of_scope"
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("property_validation", [{}, None, {"gas_mass_fraction_min": float("nan")}])
+def test_legacy_and_inactive_two_phase_do_not_use_the_phase_fraction_range(property_validation):
+    legacy = gribs.Config()
+    legacy.two_phase_mode = gribs.TWO_PHASE_SINGLE_LEGACY
+    backend = _phase_probe_backend(property_validation)
+    assert gribs.phase_fraction_validation_error(legacy, backend) is None
+    assert gribs.model_applicability_error(legacy, backend) is None
+
+    homogeneous = gribs.Config()
+    no_two_phase = _phase_probe_backend(property_validation, supports_two_phase=False)
+    assert gribs.phase_fraction_validation_error(homogeneous, no_two_phase) is None
+    assert gribs.model_applicability_error(homogeneous, no_two_phase) is None
+
+
+@pytest.mark.fast
+def test_main_reports_invalid_phase_fraction_validation_before_the_solver(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    document = json.loads((ROOT / "gribs_config.json").read_text(encoding="utf-8"))
+    output_dir = tmp_path / "must_not_be_created"
+    document["output"]["directory"] = str(output_dir)
+    config_path = tmp_path / "missing_phase_fractions.json"
+    config_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+    backend = _phase_probe_backend({"passed": True})
+    monkeypatch.setattr(gribs, "initialize_thermochemistry", lambda _config, _cache_dir: backend)
+    monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
+    monkeypatch.setattr(
+        gribs, "run_model",
+        lambda *_args: pytest.fail("run with unusable phase-fraction validation reached the solver"),
+    )
+
+    exit_code = gribs.main(["--config", str(config_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE in captured.err
+    assert "E_OUT_OF_VALIDATED_RANGE" not in captured.err
+    record = json.loads(captured.err.strip().splitlines()[-1])
+    assert record["code"] == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+    assert record["context"]["simulation_started"] is False
+    assert "missing:gas_mass_fraction_min" in record["context"]["problems"]
+    assert not output_dir.exists()
+
+
+def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, supports_two_phase=True):
+    c = gribs.configuration_from_document(
+        json.loads((ROOT / "gribs_config.json").read_text(encoding="utf-8"))
+    ).config
+    if two_phase_mode is not None:
+        c.two_phase_mode = two_phase_mode
+    backend = _phase_probe_backend(property_validation, supports_two_phase=supports_two_phase)
+    backend.name = gribs.BACKEND_CEA_PYTHON
+    backend.cache_schema = 4
+    backend.mass_basis_semantics_version = 1
+    monkeypatch.setattr(gribs, "thermochemistry", lambda: backend)
+    monkeypatch.setattr(gribs, "choke_limit_pressure", lambda config, At0, Ae: None)
+    monkeypatch.setattr(
+        gribs, "nozzle_transition_diagnostics",
+        lambda history, config, Ae: {
+            "policy": "jump", "applicable": False, "detected": False, "warning_code": None,
+            "interval_count": 0, "duration_s": 0.0, "duration_fraction": 0.0,
+            "impulse_Ns": 0.0, "impulse_fraction": 0.0,
+        },
+    )
+    monkeypatch.setattr(gribs, "nozzle_state", lambda p, At, Ae, config: {"mdot_total": 1.0})
+    monkeypatch.setattr(
+        gribs, "mass_energy_ledger",
+        lambda res, h, config: {"schema_version": "a4-ledger-1", "mass": {"passed": True},
+                                "energy": {"available": False, "closure_residual_available": False},
+                                "passed": True},
+    )
+    m_prop = gribs.propellant_mass(c)
+    t = gribs.np.array([0.0, 1.0])
+    At0 = gribs.math.pi * c.R_t0**2
+    history = {
+        "t": t,
+        "phase": gribs.np.array(["burn", "burn"], dtype=object),
+        "p0": gribs.np.array([2.0e5, 3.0e5]),
+        "F": gribs.np.array([0.0, 1.0]),
+        "impulse": gribs.np.array([0.0, 1.0]),
+        "m_out": gribs.np.array([0.0, m_prop]),
+        "m_gen": gribs.np.array([0.0, m_prop]),
+        "At": gribs.np.array([At0, At0]),
+        "Kn": gribs.np.array([1.0, 1.0]),
+        "Rt": gribs.np.array([c.R_t0, c.R_t0]),
+        "m_total_eos": gribs.np.array([1.0, 1.0]),
+        "m_total_balance": gribs.np.array([1.0, 1.0]),
+        "Y_gas": gribs.np.array([1.0, 1.0]),
+        "Y_condensed": gribs.np.array([0.0, 0.0]),
+        "extrap": gribs.np.array([False, False]),
+        "regime": gribs.np.array(["subsonic", "subsonic"], dtype=object),
+    }
+    result = {
+        "m_total0": 1.0, "At0": At0, "Ae": At0, "stop_burn": "time-limit",
+        "stop_blow": "not-run", "init_regime": "subsonic", "t_events": {},
+    }
+    return gribs.summarize(result, history, c)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("property_validation", [{}, {"gas_mass_fraction_min": float("nan"), "gas_mass_fraction_max": 1.0}])
+def test_direct_summarize_rejects_unusable_phase_fraction_validation(monkeypatch, property_validation):
+    with pytest.raises(gribs.PhaseFractionValidationError) as info:
+        _direct_summarize(monkeypatch, property_validation)
+    assert info.value.code == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+    assert info.value.record["code"] == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+
+
+@pytest.mark.fast
+def test_direct_summarize_legacy_and_inactive_two_phase_keep_previous_behavior(monkeypatch):
+    legacy = _direct_summarize(monkeypatch, {}, two_phase_mode=gribs.TWO_PHASE_SINGLE_LEGACY)
+    assert legacy["validation"]["model_status"] == "validated_in_scope"
+    inactive = _direct_summarize(monkeypatch, {}, supports_two_phase=False)
+    assert inactive["validation"]["model_status"] == "validated_in_scope"
+    valid = _direct_summarize(monkeypatch, {"gas_mass_fraction_min": 0.8, "gas_mass_fraction_max": 1.0})
+    assert valid["validation"]["model_status"] == "approximate_with_limitations"

@@ -287,6 +287,12 @@ R_UNIVERSAL = 8314.51
 #: are exactly 0 or 1); such an overshoot is corrected by projection.  Anything
 #: larger is a ThermochemistryError, never a silent wide clip.
 _PHASE_FRACTION_ROUNDING_TOL = 1.0e-12
+#: Semantic cache identities are checked more tightly than ODE-level tests.
+_MASS_BASIS_INVARIANT_REL_TOL = 1.0e-13
+_MASS_BASIS_PHASE_SUM_ATOL = 1.0e-13
+#: Scope thresholds for the A-5.1-6 gas-mass-fraction model classification.
+MODEL_STATUS_VALIDATED_YG_THRESHOLD = 0.99
+MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD = 0.65
 G0 = 9.80665                      # standard gravity [m/s^2]
 _TRAPZ = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
 
@@ -310,7 +316,38 @@ class ThermochemistryError(GribsError):
 
 
 class ThermochemistryCacheError(ThermochemistryError):
-    """A cached chamber-property table exists but is unusable."""
+    """A cached chamber-property table exists but is unusable.
+
+    ``code`` and ``context`` are optional so existing cache failures retain
+    their current exception behavior while selected failures can be consumed
+    by scripts without parsing prose.
+    """
+
+    def __init__(self, message: str, *, code: Optional[str] = None,
+                 context: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.code = code
+        self.context = dict(context or {})
+
+
+class ThermochemistryInvariantError(ThermochemistryError):
+    """A thermochemistry table violates a required mass-basis invariant."""
+
+    code = "E_THERMO_MASS_BASIS_INVARIANT_FAILED"
+
+    def __init__(self, message: str, *, context: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.context = dict(context or {})
+
+
+class GammaBelowUnityError(ThermochemistryError):
+    """A tabulated thermochemistry isentropic exponent is not greater than one."""
+
+    code = "E_GAMMA_S_BELOW_UNITY"
+
+    def __init__(self, message: str, *, context: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.context = dict(context or {})
 
 
 class BackendUnavailableError(ThermochemistryError):
@@ -740,11 +777,23 @@ class PressureTableBackend(ThermochemistryBackend):
         self.cache_used = False
         self.cache_written = False
 
-        if c.cea_cache_enabled and self.cache_path.is_file() and not c.cea_rebuild_cache:
+        if (c.cea_cache_enabled and not c.cea_rebuild_cache
+                and self.cache_path.is_file()):
             table = self._read_cache()
             self.cache_used = True
         else:
+            if c.cea_cache_enabled and not c.cea_rebuild_cache:
+                legacy_cache = self._matching_legacy_schema3_cache()
+                if legacy_cache is not None:
+                    old_path, old_table = legacy_cache
+                    self._raise_old_thermo_cache(
+                        old_path,
+                        old_table.get("schema"),
+                        detection="matching_schema3_cache_key",
+                        legacy_cache_key=self._legacy_schema3_cache_key(),
+                    )
             table = self._build_table()
+            self._validate_mass_basis_table(table, table_source="generated")
             if c.cea_cache_enabled:
                 self.cache_root.mkdir(parents=True, exist_ok=True)
                 self.cache_path.write_text(
@@ -796,6 +845,464 @@ class PressureTableBackend(ThermochemistryBackend):
         blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
         return hashlib.sha256(blob).hexdigest()[:24]
 
+    def _legacy_schema3_cache_key(self) -> str:
+        """Recompute the exact schema-3 key for this backend/configuration.
+
+        Schema 4 intentionally changes the key, so a same-backend schema-3
+        cache can otherwise be missed and silently rebuilt. This frozen payload
+        mirrors the last schema-3 identity and lets us check only the one old
+        cache that could have matched the current thermochemistry inputs.
+        """
+        payload = {
+            "cache_schema": 3,
+            "backend": self.name,
+            "reactants": [[r.name, float(r.wt_percent), float(r.temperature_K)]
+                          for r in self.reactants],
+            "equilibrium": self.equilibrium_formulation,
+            "pressure_min_Pa": float(self.c.p_fit_min),
+            "pressure_max_Pa": float(self.c.p_fit_max),
+            "pressure_points": int(self.c.cea_pressure_points),
+            "temperature_efficiency": float(self.c.eta_T0),
+            "phase_fractions_tabulated": bool(self.supports_two_phase),
+            "molecular_weight_definition": (
+                "gas_phase_M "
+                + "(gas-phase M; total MW is diagnostic only since "
+                + "v0.5.0-alpha)"
+            ),
+            "options": self.option_signature(),
+        }
+        blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+        return hashlib.sha256(blob).hexdigest()[:24]
+
+    def _legacy_schema3_cache_path(self) -> Path:
+        return self.cache_root / (
+            f"{self.table_stem}_{self._legacy_schema3_cache_key()}.json")
+
+    def _matching_legacy_schema3_cache(
+        self,
+    ) -> Optional[Tuple[Path, Dict[str, Any]]]:
+        """Return the matching old cache, without flagging unrelated entries."""
+        path = self._legacy_schema3_cache_path()
+        if not path.is_file():
+            return None
+        try:
+            table = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return None
+        if not isinstance(table, dict) or table.get("schema") != 3:
+            return None
+        legacy_key = self._legacy_schema3_cache_key()
+        if table.get("backend") not in (None, self.name):
+            return None
+        if table.get("cache_key") not in (None, legacy_key):
+            return None
+        return path, table
+
+    def _raise_old_thermo_cache(
+        self,
+        cache_path: Path,
+        schema_actual: Any,
+        *,
+        detection: str,
+        legacy_cache_key: Optional[str] = None,
+    ) -> None:
+        detail = (
+            "uses obsolete CEA mass-basis semantics"
+            if schema_actual == 3 else "is obsolete"
+        )
+        context = {
+            "backend": self.name,
+            "cache_path": str(cache_path),
+            "schema_actual": schema_actual,
+            "schema_expected": self.cache_schema,
+            "detection": detection,
+            "cache_key_current": self.key,
+        }
+        if legacy_cache_key is not None:
+            context["cache_key_schema3"] = legacy_cache_key
+        raise ThermochemistryCacheError(
+            f"E_OLD_THERMO_CACHE: Chamber-property cache schema "
+            f"{schema_actual} {detail} and is never reused: {cache_path}\n"
+            f"Expected schema: {self.cache_schema}; actual schema: "
+            f"{schema_actual}.\n"
+            "Rebuild it with --no-cache (or set 'rebuild_cache' to true), "
+            "or remove the obsolete cache file.",
+            code="E_OLD_THERMO_CACHE",
+            context=context,
+        )
+
+    def _raise_old_cache_semantics_version(self, actual: Any) -> None:
+        context = {
+            "backend": self.name,
+            "cache_path": str(self.cache_path),
+            "field": "mass_basis_semantics_version",
+            "value_actual": actual,
+            "value_expected": self.mass_basis_semantics_version,
+            "cache_key": self.key,
+        }
+        raise ThermochemistryCacheError(
+            "E_OLD_THERMO_CACHE: chamber-property cache mass-basis semantics "
+            f"version is {actual!r}; expected "
+            f"{self.mass_basis_semantics_version}: {self.cache_path}\n"
+            "Rebuild it with --no-cache (or set 'rebuild_cache' to true).",
+            code="E_OLD_THERMO_CACHE",
+            context=context,
+        )
+
+    def _raise_mass_basis_invariant(
+        self,
+        table_source: str,
+        invariant: str,
+        detail: str,
+        **context_values: Any,
+    ) -> None:
+        context = {
+            "backend": self.name,
+            "cache_path": str(self.cache_path),
+            "cache_key": self.key,
+            "table_source": table_source,
+            "invariant": invariant,
+            **context_values,
+        }
+        raise ThermochemistryInvariantError(
+            f"E_THERMO_MASS_BASIS_INVARIANT_FAILED: {detail}\n"
+            f"Backend: {self.name}; cache: {self.cache_path}",
+            context=context,
+        )
+
+    def _validate_gamma_s_above_unity(
+        self,
+        pressure: Sequence[float],
+        gamma_s: Sequence[float],
+        *,
+        table_source: str,
+    ) -> None:
+        """Report non-admissible tabulated or interpolated gamma_s values."""
+        p = np.asarray(pressure, dtype=float)
+        gamma = np.asarray(gamma_s, dtype=float)
+        if p.ndim != 1 or p.size == 0 or gamma.shape != p.shape:
+            raise ThermochemistryError(
+                f"Cannot validate gamma_s for {table_source} table: pressure "
+                "and gamma_s must be non-empty, same-shaped one-dimensional arrays."
+            )
+        if not np.all(np.isfinite(gamma)):
+            index = int(np.flatnonzero(~np.isfinite(gamma))[0])
+            raise ThermochemistryError(
+                f"Non-finite gamma_s at pressure-grid index {index} "
+                f"({p[index]:.8g} Pa) in {table_source} table."
+            )
+
+        invalid = np.flatnonzero(gamma <= 1.0)
+        if invalid.size == 0:
+            return
+
+        split_at = np.flatnonzero(np.diff(invalid) > 1) + 1
+        intervals = [
+            [float(p[int(run[0])]), float(p[int(run[-1])])]
+            for run in np.split(invalid, split_at)
+        ]
+        invalid_gamma = gamma[invalid]
+        context = {
+            "backend": self.name,
+            "cache_path": str(self.cache_path),
+            "cache_key": self.key,
+            "table_source": table_source,
+            "cause": "The current isentropic property/nozzle relations require gamma_s > 1.",
+            "gamma_s_requirement": "> 1",
+            "gamma_s_threshold_exclusive": 1.0,
+            "invalid_point_count": int(invalid.size),
+            "invalid_sample_index_range": [int(invalid[0]), int(invalid[-1])],
+            "invalid_pressure_intervals_Pa": intervals,
+            "invalid_gamma_s_range": [
+                float(np.min(invalid_gamma)), float(np.max(invalid_gamma))
+            ],
+            "pressure_scan_range_Pa": [float(p[0]), float(p[-1])],
+            "configured_pressure_range_Pa": [
+                float(getattr(self.c, "p_fit_min", p[0])),
+                float(getattr(self.c, "p_fit_max", p[-1])),
+            ],
+        }
+        interval_text = "; ".join(
+            f"{low:.8g}–{high:.8g} Pa" for low, high in intervals
+        )
+        raise GammaBelowUnityError(
+            "E_GAMMA_S_BELOW_UNITY: the current property/nozzle model requires "
+            f"gamma_s > 1; the {table_source} check found {invalid.size} "
+            f"sample(s) with gamma_s <= 1 over "
+            f"{interval_text}. Do not clip these values; the selected "
+            "equilibrium state lies outside the model's admissible gamma range.",
+            context=context,
+        )
+
+    def _validate_mass_basis_table(
+        self,
+        table: Dict[str, Any],
+        *,
+        table_source: str,
+    ) -> None:
+        """Check persisted/build-table identities without altering valid values."""
+        semantics_version_present = "mass_basis_semantics_version" in table
+        semantics_version = table.get("mass_basis_semantics_version")
+        if semantics_version_present:
+            if (isinstance(semantics_version, bool)
+                    or not isinstance(semantics_version, int)
+                    or semantics_version != self.mass_basis_semantics_version):
+                self._raise_old_cache_semantics_version(semantics_version)
+
+        try:
+            pressure = np.asarray(table["pressure_Pa"], dtype=float)
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            self._raise_mass_basis_invariant(
+                table_source,
+                "pressure_grid_numeric",
+                f"pressure_Pa cannot be interpreted as a numeric array: {exc}",
+            )
+        if pressure.ndim != 1 or pressure.size == 0:
+            self._raise_mass_basis_invariant(
+                table_source,
+                "pressure_grid_shape",
+                "pressure_Pa must be a non-empty one-dimensional array.",
+                actual_shape=list(pressure.shape),
+            )
+        if not np.all(np.isfinite(pressure)):
+            index = int(np.flatnonzero(~np.isfinite(pressure))[0])
+            self._raise_mass_basis_invariant(
+                table_source,
+                "pressure_grid_finite",
+                f"pressure_Pa contains a non-finite value at index {index}.",
+                index=index,
+                pressure_Pa=repr(float(pressure[index])),
+            )
+        bad_pressure = pressure <= 0.0
+        if np.any(bad_pressure):
+            index = int(np.flatnonzero(bad_pressure)[0])
+            self._raise_mass_basis_invariant(
+                table_source,
+                "pressure_grid_positive",
+                "pressure_Pa must be positive at every grid point.",
+                index=index,
+                pressure_Pa=float(pressure[index]),
+                expected="> 0",
+            )
+        nonincreasing = np.flatnonzero(np.diff(pressure) <= 0.0)
+        if nonincreasing.size:
+            index = int(nonincreasing[0]) + 1
+            self._raise_mass_basis_invariant(
+                table_source,
+                "pressure_grid_strictly_increasing",
+                f"pressure_Pa is not strictly increasing at index {index}.",
+                index=index,
+                pressure_Pa=float(pressure[index]),
+                previous_pressure_Pa=float(pressure[index - 1]),
+            )
+
+        def numeric_column(name: str, *, required: bool = True):
+            if name not in table:
+                if required:
+                    self._raise_mass_basis_invariant(
+                        table_source,
+                        f"column_present:{name}",
+                        f"required mass-basis column {name!r} is missing.",
+                        column=name,
+                    )
+                return None
+            try:
+                values = np.asarray(table[name], dtype=float)
+            except (TypeError, ValueError, OverflowError) as exc:
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    f"column_numeric:{name}",
+                    f"column {name!r} is not numeric: {exc}",
+                    column=name,
+                )
+            if values.shape != pressure.shape:
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    f"column_shape:{name}",
+                    f"column {name!r} does not match the pressure grid shape.",
+                    column=name,
+                    actual_shape=list(values.shape),
+                    expected_shape=list(pressure.shape),
+                )
+            if not np.all(np.isfinite(values)):
+                index = int(np.flatnonzero(~np.isfinite(values))[0])
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    f"column_finite:{name}",
+                    f"column {name!r} contains a non-finite value at index {index}.",
+                    column=name,
+                    index=index,
+                    pressure_Pa=float(pressure[index]),
+                    value=repr(float(values[index])),
+                )
+            return values
+
+        temperature = numeric_column("temperature_K") * float(self.c.eta_T0)
+        gamma = numeric_column("gamma_s")
+        molecular_weight = numeric_column("equilibrium_molecular_weight_kg_kmol")
+        gas_constant = numeric_column("effective_gas_constant_J_kgK")
+        for name, values in (
+            ("temperature_K", temperature),
+            ("equilibrium_molecular_weight_kg_kmol", molecular_weight),
+            ("effective_gas_constant_J_kgK", gas_constant),
+        ):
+            bad = values <= 0.0
+            if np.any(bad):
+                index = int(np.flatnonzero(bad)[0])
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    f"positive:{name}",
+                    f"{name} must be positive at every pressure-grid point.",
+                    column=name,
+                    index=index,
+                    pressure_Pa=float(pressure[index]),
+                    value=float(values[index]),
+                    expected="> 0",
+                )
+        self._validate_gamma_s_above_unity(
+            pressure,
+            gamma,
+            table_source=table_source,
+        )
+
+        with np.errstate(over="ignore", invalid="ignore"):
+            rm_product = gas_constant * molecular_weight
+            rm_relative_error = np.abs(rm_product / R_UNIVERSAL - 1.0)
+        if not np.all(np.isfinite(rm_relative_error)):
+            self._raise_mass_basis_invariant(
+                table_source,
+                "R_eff_times_M_CEA_equals_Ru",
+                "R_eff * M_CEA produced a non-finite value.",
+                tolerance=_MASS_BASIS_INVARIANT_REL_TOL,
+            )
+        worst_rm = int(np.argmax(rm_relative_error))
+        if float(rm_relative_error[worst_rm]) > _MASS_BASIS_INVARIANT_REL_TOL:
+            self._raise_mass_basis_invariant(
+                table_source,
+                "R_eff_times_M_CEA_equals_Ru",
+                "R_eff * M_CEA differs from the universal gas constant.",
+                index=worst_rm,
+                pressure_Pa=float(pressure[worst_rm]),
+                actual=float(rm_product[worst_rm]),
+                expected=R_UNIVERSAL,
+                relative_error=float(rm_relative_error[worst_rm]),
+                tolerance=_MASS_BASIS_INVARIANT_REL_TOL,
+            )
+
+        if "n_gas_per_kg_total" in table or semantics_version_present:
+            n_gas = numeric_column("n_gas_per_kg_total")
+            with np.errstate(over="ignore", invalid="ignore"):
+                mn_product = molecular_weight * n_gas
+                mn_relative_error = np.abs(mn_product - 1.0)
+            nonfinite_mn = np.flatnonzero(~np.isfinite(mn_relative_error))
+            if nonfinite_mn.size:
+                index = int(nonfinite_mn[0])
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    "M_CEA_times_n_gas_per_kg_total_equals_one",
+                    "M_CEA * n_gas_per_kg_total produced a non-finite value.",
+                    index=index,
+                    pressure_Pa=float(pressure[index]),
+                    actual=repr(float(mn_product[index])),
+                    tolerance=_MASS_BASIS_INVARIANT_REL_TOL,
+                )
+            worst_mn = int(np.argmax(mn_relative_error))
+            if float(mn_relative_error[worst_mn]) > _MASS_BASIS_INVARIANT_REL_TOL:
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    "M_CEA_times_n_gas_per_kg_total_equals_one",
+                    "M_CEA * n_gas_per_kg_total differs from one.",
+                    index=worst_mn,
+                    pressure_Pa=float(pressure[worst_mn]),
+                    actual=float(mn_product[worst_mn]),
+                    expected=1.0,
+                    relative_error=float(mn_relative_error[worst_mn]),
+                    tolerance=_MASS_BASIS_INVARIANT_REL_TOL,
+                )
+
+        psi = numeric_column("psi_J_kg", required=self.supports_two_phase)
+        if psi is not None:
+            with np.errstate(over="ignore", invalid="ignore"):
+                psi_expected = gas_constant * temperature
+            nonfinite_psi_expected = np.flatnonzero(~np.isfinite(psi_expected))
+            if nonfinite_psi_expected.size:
+                index = int(nonfinite_psi_expected[0])
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    "psi_equals_R_eff_times_T_used",
+                    "R_eff * T_used produced a non-finite value.",
+                    index=index,
+                    pressure_Pa=float(pressure[index]),
+                    expected=repr(float(psi_expected[index])),
+                    tolerance=_MASS_BASIS_INVARIANT_REL_TOL,
+                )
+            psi_relative_error = np.abs(psi - psi_expected) / np.maximum(
+                np.abs(psi_expected), 1.0e-300)
+            worst_psi = int(np.argmax(psi_relative_error))
+            if float(psi_relative_error[worst_psi]) > _MASS_BASIS_INVARIANT_REL_TOL:
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    "psi_equals_R_eff_times_T_used",
+                    "psi_J_kg differs from R_eff * T_used.",
+                    index=worst_psi,
+                    pressure_Pa=float(pressure[worst_psi]),
+                    actual=float(psi[worst_psi]),
+                    expected=float(psi_expected[worst_psi]),
+                    relative_error=float(psi_relative_error[worst_psi]),
+                    tolerance=_MASS_BASIS_INVARIANT_REL_TOL,
+                )
+
+        has_yg = "gas_mass_fraction" in table
+        has_yc = "condensed_mass_fraction" in table
+        if self.supports_two_phase and not (has_yg and has_yc):
+            missing = [name for name, present in (
+                ("gas_mass_fraction", has_yg),
+                ("condensed_mass_fraction", has_yc),
+            ) if not present]
+            self._raise_mass_basis_invariant(
+                table_source,
+                "phase_fraction_columns_present",
+                f"two-phase table is missing phase-fraction columns {missing}.",
+                missing_columns=missing,
+            )
+        if has_yg != has_yc:
+            self._raise_mass_basis_invariant(
+                table_source,
+                "phase_fraction_columns_pair",
+                "gas_mass_fraction and condensed_mass_fraction must appear together.",
+                gas_mass_fraction_present=has_yg,
+                condensed_mass_fraction_present=has_yc,
+            )
+        if has_yg and has_yc:
+            yg = numeric_column("gas_mass_fraction")
+            yc = numeric_column("condensed_mass_fraction")
+            bad_phase = (yg <= 0.0) | (yg > 1.0) | (yc < 0.0) | (yc >= 1.0)
+            if np.any(bad_phase):
+                index = int(np.flatnonzero(bad_phase)[0])
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    "phase_fraction_physical_ranges",
+                    "require 0 < Yg <= 1 and 0 <= Yc < 1.",
+                    index=index,
+                    pressure_Pa=float(pressure[index]),
+                    gas_mass_fraction=float(yg[index]),
+                    condensed_mass_fraction=float(yc[index]),
+                )
+            phase_sum_error = np.abs(yg + yc - 1.0)
+            worst_phase = int(np.argmax(phase_sum_error))
+            if float(phase_sum_error[worst_phase]) > _MASS_BASIS_PHASE_SUM_ATOL:
+                self._raise_mass_basis_invariant(
+                    table_source,
+                    "gas_plus_condensed_mass_fraction_equals_one",
+                    "gas_mass_fraction + condensed_mass_fraction differs from one.",
+                    index=worst_phase,
+                    pressure_Pa=float(pressure[worst_phase]),
+                    actual=float(yg[worst_phase] + yc[worst_phase]),
+                    expected=1.0,
+                    absolute_error=float(phase_sum_error[worst_phase]),
+                    tolerance=_MASS_BASIS_PHASE_SUM_ATOL,
+                )
+
     # -- cache IO ------------------------------------------------------------
     def _read_cache(self) -> Dict[str, Any]:
         try:
@@ -832,15 +1339,12 @@ class PressureTableBackend(ThermochemistryBackend):
                 f"{schema!r}: {self.cache_path}\n"
                 "Rebuild it: set 'rebuild_cache' to true once, or delete the "
                 "file, or run with --no-cache.")
-        if schema == 3:
-            raise ThermochemistryCacheError(
-                f"Chamber-property cache schema 3 uses obsolete CEA mass-basis "
-                f"semantics and is never reused: {self.cache_path}\n"
-                "Schema 3 tabulates a gas-phase molecular weight and gas "
-                "constant; schema 4 tabulates the total equilibrium-mixture "
-                "basis.\n"
-                "Rebuild it: set 'rebuild_cache' to true once, or delete the "
-                "file, or run with --no-cache.")
+        if schema < self.cache_schema:
+            self._raise_old_thermo_cache(
+                self.cache_path,
+                schema,
+                detection="current_cache_path_schema_mismatch",
+            )
         if schema != self.cache_schema:
             raise ThermochemistryCacheError(
                 f"Chamber-property cache schema {schema} is incompatible with "
@@ -877,6 +1381,7 @@ class PressureTableBackend(ThermochemistryBackend):
             raise ThermochemistryCacheError(
                 f"Chamber-property cache belongs to backend {table.get('backend')!r} "
                 f"but {self.name!r} was selected: {self.cache_path}")
+        self._validate_mass_basis_table(table, table_source="cache")
         p = np.asarray(table["pressure_Pa"], dtype=float)
         npts = int(self.c.cea_pressure_points)
         if p.size != npts:
@@ -914,9 +1419,14 @@ class PressureTableBackend(ThermochemistryBackend):
         if not (np.all(np.isfinite(T)) and np.all(T > 0.0)):
             raise ThermochemistryError(
                 "The chamber-property table contains non-physical temperatures.")
-        if not (np.all(np.isfinite(g)) and np.all(g > 1.0)):
+        if not np.all(np.isfinite(g)):
             raise ThermochemistryError(
-                "The chamber-property table contains non-physical gamma_s (must be > 1).")
+                "The chamber-property table contains non-finite gamma_s values.")
+        self._validate_gamma_s_above_unity(
+            p,
+            g,
+            table_source="loaded",
+        )
 
         # ---- equilibrium phase split (two-phase model) -----------------------
         # Physical range: 0 < Yg <= 1 and 0 <= Yc < 1 with Yg + Yc = 1 exactly.
@@ -1111,10 +1621,16 @@ class PressureTableBackend(ThermochemistryBackend):
         R = float(self.Ri(z))
         T = float(self.Ti(z))
         g = float(self.gi(z))
-        if not (_finite_positive(R) and _finite_positive(T) and math.isfinite(g) and g > 1.0):
+        if not (_finite_positive(R) and _finite_positive(T) and math.isfinite(g)):
             raise ThermochemistryError(
                 f"Non-physical interpolated gas properties at p = {p:.6g} Pa: "
                 f"R = {R:.6g}, T0 = {T:.6g}, gamma_s = {g:.6g}.")
+        if g <= 1.0:
+            self._validate_gamma_s_above_unity(
+                [pe],
+                [g],
+                table_source="interpolated",
+            )
         return R, T, g
 
     def phase_fractions(self, p: float) -> Tuple[float, float]:
@@ -1807,6 +2323,7 @@ class CEAPythonBackend(PressureTableBackend):
         pressures = np.geomspace(c.p_fit_min, c.p_fit_max, c.cea_pressure_points)
         T_out: List[float] = []
         M_out: List[float] = []
+        n_gas_out: List[float] = []
         MW_out: List[float] = []
         g_out: List[float] = []
         Yg_out: List[float] = []
@@ -1819,7 +2336,7 @@ class CEAPythonBackend(PressureTableBackend):
         condensed_top: Dict[str, float] = {}
         n_rounding_fixes = 0
 
-        for p_pa in pressures:
+        for grid_index, p_pa in enumerate(pressures):
             p_bar = float(p_pa) / 1.0e5
             try:
                 solver.solve(solution, cea.HP, h_R, p_bar, weights)
@@ -1852,10 +2369,17 @@ class CEAPythonBackend(PressureTableBackend):
                 raise ThermochemistryError(
                     f"CEA returned a non-physical total molecular weight "
                     f"MW = {MW!r} kg/kmol at p = {p_pa:.8g} Pa.")
-            if not (math.isfinite(gamma) and gamma > 1.0):
+            if not math.isfinite(gamma):
                 raise ThermochemistryError(
-                    f"CEA returned a non-physical isentropic exponent "
+                    f"CEA returned a non-finite isentropic exponent "
                     f"gamma_s = {gamma!r} at p = {p_pa:.8g} Pa.")
+            if gamma <= 1.0:
+                # Keep table generation fail-fast but report the scanned range.
+                self._validate_gamma_s_above_unity(
+                    pressures[:grid_index + 1],
+                    g_out + [gamma],
+                    table_source="generated",
+                )
 
             # equilibrium phase split from the official CEA phase information
             Yg, Yc, condensed_fractions = self._phase_split(
@@ -1890,6 +2414,7 @@ class CEAPythonBackend(PressureTableBackend):
 
             T_out.append(T)
             M_out.append(M)
+            n_gas_out.append(float(solution.n))
             MW_out.append(MW)
             g_out.append(gamma)
             Yg_out.append(Yg)
@@ -1913,6 +2438,12 @@ class CEAPythonBackend(PressureTableBackend):
             "schema": self.cache_schema,
             "backend": self.name,
             "cache_key": self.key,
+            "mass_basis_semantics_version": self.mass_basis_semantics_version,
+            "M_definition": "M_CEA = EqSolution.M = 1 / EqSolution.n [kg-total/kmol-gas]",
+            "R_definition": "R_eff = Ru / M_CEA [J/(kg-total K)]",
+            "psi_definition": (
+                "Psi = R_eff * T_used [J/kg-total], T_used = eta_T0 * T_CEA; "
+                "no additional Yg factor"),
             "source": (f"official NASA CEA Python package {getattr(cea, '__version__', '?')} "
                        f"(HP equilibrium)"),
             "cea_version": str(getattr(cea, "__version__", "unknown")),
@@ -1922,6 +2453,7 @@ class CEAPythonBackend(PressureTableBackend):
             "temperature_K": T_out,
             "gamma_s": g_out,
             "equilibrium_molecular_weight_kg_kmol": M_out,
+            "n_gas_per_kg_total": n_gas_out,
             "effective_gas_constant_J_kgK": R_out,
             "gas_mass_fraction": Yg_out,
             "condensed_mass_fraction": Yc_out,
@@ -2193,10 +2725,18 @@ class ReferenceConstantBackend(ThermochemistryBackend):
         self.cache_path = None
         self.cache_used = False
         self.cache_written = False
+        # The analytic reference is a single gas phase at every pressure
+        # (phase_fractions() returns (1, 0)); the phase-fraction range is
+        # stated explicitly so the two-phase applicability check never has
+        # to assume a default.
         self.property_validation = {
             "passed": True,
             "constant_properties": True,
             "pressure_independent": True,
+            "gas_mass_fraction_min": 1.0,
+            "gas_mass_fraction_max": 1.0,
+            "condensed_mass_fraction_min": 0.0,
+            "condensed_mass_fraction_max": 0.0,
         }
 
     def props(self, pressure_pa: float) -> Tuple[float, float, float]:
@@ -3236,6 +3776,349 @@ def post_run_consistency_report(res: dict, h: dict) -> dict:
     }
 
 
+def model_status_from_yg(
+    two_phase_active: bool,
+    two_phase_mode: str,
+    gas_mass_fraction_min: float,
+) -> str:
+    """Classify the modeled Yg range using the A-5.1-6 scope thresholds."""
+    if two_phase_mode == TWO_PHASE_SINGLE_LEGACY or not two_phase_active:
+        return "validated_in_scope"
+    if gas_mass_fraction_min <= MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD:
+        return "out_of_scope"
+    if gas_mass_fraction_min <= MODEL_STATUS_VALIDATED_YG_THRESHOLD:
+        return "approximate_with_limitations"
+    return "validated_in_scope"
+
+
+def out_of_validated_range_error(
+    two_phase_mode: str,
+    gas_mass_fraction_range: Sequence[float],
+    pressure_range_Pa: Sequence[float],
+) -> dict:
+    """Build the stable error record for an out-of-scope two-phase table."""
+    yg_min = float(gas_mass_fraction_range[0])
+    return {
+        "code": "E_OUT_OF_VALIDATED_RANGE",
+        "severity": "error",
+        "message": (
+            "The two-phase thermochemistry table reaches a gas mass fraction "
+            f"Yg_min={yg_min:.6g}, at or below the out-of-scope threshold "
+            f"{MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD:.6g}. This range is not "
+            "validated for the current model; do not run the ballistics "
+            "simulation as a validated case."
+        ),
+        "context": {
+            "model_status": "out_of_scope",
+            "two_phase_mode": two_phase_mode,
+            "thermochemistry_table_Yg_range": [
+                float(value) for value in gas_mass_fraction_range
+            ],
+            "thermochemistry_pressure_range_Pa": [
+                float(value) for value in pressure_range_Pa
+            ],
+            "validated_in_scope_requires_Yg_min_greater_than": (
+                MODEL_STATUS_VALIDATED_YG_THRESHOLD
+            ),
+            "out_of_scope_if_Yg_min_at_or_below": (
+                MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD
+            ),
+        },
+    }
+
+
+PHASE_FRACTION_VALIDATION_ERROR_CODE = "E_PHASE_FRACTION_VALIDATION_INVALID"
+_PHASE_FRACTION_KEYS = ("gas_mass_fraction_min", "gas_mass_fraction_max")
+
+
+class PhaseFractionValidationError(ThermochemistryError):
+    """An active two-phase backend did not provide a usable Yg range.
+
+    Distinct from ``E_OUT_OF_VALIDATED_RANGE``: that code means a valid Yg
+    range was classified as out of scope; this one means the range itself is
+    missing, non-numeric, non-finite or outside 0 < Yg_min <= Yg_max <= 1, so
+    no applicability classification is possible.
+    """
+
+    code = PHASE_FRACTION_VALIDATION_ERROR_CODE
+
+    def __init__(self, record: Dict[str, Any]):
+        super().__init__(record["message"])
+        self.record = dict(record)
+        self.context = dict(record.get("context", {}))
+
+
+def _two_phase_is_active(config: Config, backend: Any) -> bool:
+    return (
+        config.two_phase_mode == TWO_PHASE_HOMOGENEOUS
+        and bool(getattr(backend, "supports_two_phase", False))
+    )
+
+
+def phase_fraction_validation_error(
+    config: Config,
+    backend: Any,
+) -> Optional[dict]:
+    """Return a structured error if an ACTIVE two-phase backend lacks a usable Yg range.
+
+    Returns None when two-phase is not active (legacy mode or a backend without
+    two-phase support): the Yg range is not used there.  No default is ever
+    substituted for a missing value.
+    """
+    if not _two_phase_is_active(config, backend):
+        return None
+    table = getattr(backend, "property_validation", None)
+    problems: List[str] = []
+    values: Dict[str, float] = {}
+    reported: Dict[str, str] = {}
+    if not isinstance(table, dict):
+        problems.append("property_validation_missing")
+        table = {}
+    for key in _PHASE_FRACTION_KEYS:
+        if key not in table:
+            problems.append(f"missing:{key}")
+            reported[key] = "<missing>"
+            continue
+        raw = table[key]
+        reported[key] = repr(raw)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float, np.integer, np.floating)):
+            problems.append(f"not_a_number:{key}")
+            continue
+        value = float(raw)
+        if not math.isfinite(value):
+            problems.append(f"non_finite:{key}")
+            continue
+        values[key] = value
+    if len(values) == len(_PHASE_FRACTION_KEYS):
+        lo, hi = values["gas_mass_fraction_min"], values["gas_mass_fraction_max"]
+        if not (0.0 < lo <= hi <= 1.0):
+            problems.append("invalid_range")
+    if not problems:
+        return None
+    return {
+        "code": PHASE_FRACTION_VALIDATION_ERROR_CODE,
+        "severity": "error",
+        "message": (
+            "The active two-phase thermochemistry backend did not provide a "
+            "usable gas mass fraction range (" + ", ".join(problems) + "). "
+            "Model applicability cannot be classified; this is not an "
+            "out-of-scope result and no default range is assumed."
+        ),
+        "context": {
+            "problems": problems,
+            "reported_values": reported,
+            "required": "finite numbers with 0 < Yg_min <= Yg_max <= 1",
+            "two_phase_mode": config.two_phase_mode,
+            "backend": str(getattr(backend, "name", type(backend).__name__)),
+            "model_status": None,
+        },
+    }
+
+
+def model_applicability_error(
+    config: Config,
+    backend: ThermochemistryBackend,
+) -> Optional[dict]:
+    """Return a fail-fast error if an active two-phase table is out of scope.
+
+    A missing / non-finite / invalid Yg range is reported first, with its own
+    code (E_PHASE_FRACTION_VALIDATION_INVALID), never as out-of-scope.
+    """
+    if not _two_phase_is_active(config, backend):
+        return None
+    invalid = phase_fraction_validation_error(config, backend)
+    if invalid is not None:
+        return invalid
+
+    table = backend.property_validation
+    yg_range = [
+        float(table["gas_mass_fraction_min"]),
+        float(table["gas_mass_fraction_max"]),
+    ]
+    two_phase_active = True
+    status = model_status_from_yg(
+        two_phase_active,
+        config.two_phase_mode,
+        yg_range[0],
+    )
+    if status != "out_of_scope":
+        return None
+
+    return out_of_validated_range_error(
+        config.two_phase_mode,
+        yg_range,
+        [float(backend.pmin), float(backend.pmax)],
+    )
+
+
+def append_model_applicability_warnings(summary: dict) -> None:
+    """Append machine-readable two-phase warnings and scope errors."""
+    warnings = summary.setdefault("warnings", [])
+    existing_codes = {
+        warning.get("code")
+        for warning in warnings
+        if isinstance(warning, dict)
+    }
+    two_phase = summary.get("two_phase_model", {})
+    if not isinstance(two_phase, dict) or not two_phase.get("active"):
+        return
+
+    validation = summary.get("validation", {})
+    model_status = validation.get("model_status")
+    if (
+        model_status == "out_of_scope"
+        and "E_OUT_OF_VALIDATED_RANGE" not in existing_codes
+    ):
+        yg_range = validation.get(
+            "validated_Yg_range",
+            [
+                summary.get("gas_mass_fraction_table_min", 1.0),
+                summary.get("gas_mass_fraction_table_max", 1.0),
+            ],
+        )
+        pressure_range = validation.get(
+            "validated_pressure_range_Pa", [0.0, 0.0]
+        )
+        warnings.append(
+            out_of_validated_range_error(
+                two_phase.get("mode", TWO_PHASE_HOMOGENEOUS),
+                yg_range,
+                pressure_range,
+            )
+        )
+        existing_codes.add("E_OUT_OF_VALIDATED_RANGE")
+
+    if (
+        model_status == "approximate_with_limitations"
+        and "W_HIGH_CONDENSATE_MODEL_LIMITATION" not in existing_codes
+    ):
+        scope_description = "in the approximate-with-limitations Yg scope"
+        warnings.append(
+            {
+                "code": "W_HIGH_CONDENSATE_MODEL_LIMITATION",
+                "severity": "warning",
+                "message": (
+                    "The thermochemistry table is "
+                    f"{scope_description} (model_status={model_status!r}). "
+                    "The current homogeneous-equilibrium model provides "
+                    "equilibrium phase bookkeeping only; it does not model "
+                    "particle slip, finite-rate condensation, finite "
+                    "condensed-phase volume, or phase-density lag. Treat "
+                    "performance in this range as approximate, not as "
+                    "validated high-condensate performance."
+                ),
+                "context": {
+                    "model_status": model_status,
+                    "gas_mass_fraction_table_min": summary.get(
+                        "gas_mass_fraction_table_min"
+                    ),
+                    "condensed_mass_fraction_table_max": summary.get(
+                        "condensed_mass_fraction_table_max"
+                    ),
+                    "validated_in_scope_requires_Yg_min_greater_than": (
+                        MODEL_STATUS_VALIDATED_YG_THRESHOLD
+                    ),
+                    "out_of_scope_if_Yg_min_at_or_below": (
+                        MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD
+                    ),
+                    "unmodelled_effects": [
+                        "particle_slip",
+                        "finite_rate_condensation",
+                        "finite_condensed_phase_volume",
+                        "phase_density_lag",
+                    ],
+                },
+            }
+        )
+        existing_codes.add("W_HIGH_CONDENSATE_MODEL_LIMITATION")
+
+    condensed_max = float(
+        summary.get("maximum_condensed_mass_fraction_during_run", 0.0)
+    )
+    if (
+        two_phase.get("nozzle_entrainment") == "complete"
+        and condensed_max > _PHASE_FRACTION_ROUNDING_TOL
+        and "W_TWO_PHASE_NOZZLE_APPROXIMATION" not in existing_codes
+    ):
+        warnings.append(
+            {
+                "code": "W_TWO_PHASE_NOZZLE_APPROXIMATION",
+                "severity": "warning",
+                "message": (
+                    "The two-phase nozzle assumes complete entrainment and "
+                    "equal gas/condensed-phase exit velocity. Particle slip "
+                    "is not modelled, so momentum thrust may be overestimated "
+                    "when condensed particles have significant relative "
+                    "velocity."
+                ),
+                "context": {
+                    "nozzle_entrainment": two_phase.get("nozzle_entrainment"),
+                    "particle_slip_modelled": False,
+                    "maximum_condensed_mass_fraction_during_run": condensed_max,
+                    "roundoff_threshold": _PHASE_FRACTION_ROUNDING_TOL,
+                },
+            }
+        )
+
+
+def append_thermal_efficiency_warning(
+    summary: dict,
+    config: Config,
+    backend: ThermochemistryBackend,
+) -> None:
+    """Report that eta_T0 scales CEA temperature without re-solving HP state."""
+    if getattr(backend, "name", None) not in (
+        BACKEND_CEA_PYTHON,
+        BACKEND_CEA_LEGACY_EXECUTABLE,
+    ):
+        return
+    eta_t0 = float(config.eta_T0)
+    if not math.isfinite(eta_t0) or eta_t0 == 1.0:
+        return
+
+    warnings = summary.setdefault("warnings", [])
+    code = "W_THERMAL_EFFICIENCY_PARTIAL"
+    if any(
+        isinstance(warning, dict) and warning.get("code") == code
+        for warning in warnings
+    ):
+        return
+
+    direction = "above" if eta_t0 > 1.0 else "below"
+    warnings.append(
+        {
+            "code": code,
+            "severity": "warning",
+            "message": (
+                f"temperature_efficiency eta_T0={eta_t0:.6g} scales the HP CEA "
+                f"temperature {direction} its equilibrium value without "
+                "re-solving the thermochemical state. gamma_s, M_CEA, species "
+                "fractions and phase fractions remain from the unscaled CEA "
+                "solution; direct comparisons of density, sonic velocity or "
+                "CEA theoretical performance are not like-for-like. Use "
+                "eta_T0=1 for direct CEA validation comparisons."
+            ),
+            "context": {
+                "temperature_efficiency_eta_T0": eta_t0,
+                "temperature_relation": "T_used = eta_T0 * T_CEA",
+                "cea_state_re_solved_after_scaling": False,
+                "unscaled_equilibrium_outputs": [
+                    "gamma_s",
+                    "M_CEA",
+                    "species_fractions",
+                    "phase_fractions",
+                ],
+                "direct_cea_comparisons_not_like_for_like": [
+                    "density",
+                    "sonic_velocity",
+                    "theoretical_rocket_performance",
+                ],
+                "recommended_eta_T0_for_direct_cea_validation": 1.0,
+            },
+        }
+    )
+
+
 def summarize(res: dict, h: dict, c: Config,
               backend: Optional[ThermochemistryBackend] = None) -> dict:
     t = h["t"]
@@ -3290,16 +4173,20 @@ def summarize(res: dict, h: dict, c: Config,
     ledger = mass_energy_ledger(res, h, c)
     two_phase_active = (c.two_phase_mode == TWO_PHASE_HOMOGENEOUS
                         and bool(getattr(backend, "supports_two_phase", False)))
+    # An active two-phase run needs a usable Yg range; never classify a
+    # missing / non-finite / invalid range with a default (direct callers of
+    # summarize() bypass the pre-integration gate in main()).
+    _pf_error = phase_fraction_validation_error(c, backend)
+    if _pf_error is not None:
+        raise PhaseFractionValidationError(_pf_error)
     # A-5.1-6: model_status determined by Yg range in the property table
-    _yg_table_min = float(pv_table.get("gas_mass_fraction_min", 1.0))
-    if c.two_phase_mode == TWO_PHASE_SINGLE_LEGACY:
-        _model_status = "validated_in_scope"
-    elif two_phase_active and _yg_table_min <= 0.65:
-        _model_status = "out_of_scope"
-    elif two_phase_active and _yg_table_min <= 0.99:
-        _model_status = "approximate_with_limitations"
-    else:
-        _model_status = "validated_in_scope"
+    _yg_table_min = (float(pv_table["gas_mass_fraction_min"]) if two_phase_active
+                     else float(pv_table.get("gas_mass_fraction_min", 1.0)))
+    _model_status = model_status_from_yg(
+        two_phase_active,
+        c.two_phase_mode,
+        _yg_table_min,
+    )
     s = dict(
         web_mm=web_thickness(c) * 1e3,
         propellant_density_kg_m3=c.rho_p,
@@ -3478,6 +4365,8 @@ def summarize(res: dict, h: dict, c: Config,
         ),
         event_times=res["t_events"],
     )
+    append_model_applicability_warnings(s)
+    append_thermal_efficiency_warning(s, c, backend)
     return s
 
 
@@ -3530,13 +4419,16 @@ def append_run_verdict_warnings(summary: dict) -> None:
         )
 
     ledger = summary["ledger"]
-    if not ledger["passed"] and "W_MASS_LEDGER" not in existing_codes:
+    if (
+        not ledger["passed"]
+        and "W_MASS_LEDGER_FAILED" not in existing_codes
+    ):
         mass = ledger["mass"]
         total = mass["total_system"]
         propellant = mass["propellant"]
         warnings.append(
             {
-                "code": "W_MASS_LEDGER",
+                "code": "W_MASS_LEDGER_FAILED",
                 "severity": "error",
                 "message": (
                     "The mass-ledger acceptance contract failed. "
@@ -3573,11 +4465,52 @@ def append_run_verdict_warnings(summary: dict) -> None:
 
 
 def run_verdict_passed(summary: dict) -> bool:
-    """Return the combined post-run and mass-ledger verdict."""
+    """Return the combined post-run, ledger, and applicability verdict."""
+    scope_error = any(
+        isinstance(warning, dict)
+        and warning.get("code") == "E_OUT_OF_VALIDATED_RANGE"
+        for warning in (summary.get("warnings", []) or [])
+    )
     return bool(
         summary["post_run_consistency"]["passed"]
         and summary["ledger"]["passed"]
+        and not scope_error
     )
+
+
+EXIT_CODE_SUCCESS = 0
+EXIT_CODE_VERIFICATION_FAILED = 1
+EXIT_CODE_MASS_LEDGER_FAILED = 5
+
+
+def run_verification_exit_code(
+    summary: dict,
+    *,
+    allow_verification_failure: bool = False,
+) -> int:
+    """Return the CLI status for post-run, ledger, and scope gates.
+
+    Code 5 is reserved for a mass-ledger-only failure. The explicit override
+    may downgrade that one gate to 0 for sweeps; it never masks a failed
+    post-run consistency or an out-of-validated-range error.
+    """
+    if run_verdict_passed(summary):
+        return EXIT_CODE_SUCCESS
+
+    ledger_failed = not summary["ledger"]["passed"]
+    post_run_failed = not summary["post_run_consistency"]["passed"]
+    scope_error = any(
+        isinstance(warning, dict)
+        and warning.get("code") == "E_OUT_OF_VALIDATED_RANGE"
+        for warning in (summary.get("warnings", []) or [])
+    )
+    if ledger_failed and not post_run_failed and not scope_error:
+        return (
+            EXIT_CODE_SUCCESS
+            if allow_verification_failure
+            else EXIT_CODE_MASS_LEDGER_FAILED
+        )
+    return EXIT_CODE_VERIFICATION_FAILED
 
 
 MASS_LEDGER_TOTAL_RELATIVE_TOLERANCE = 1.0e-6
@@ -4956,7 +5889,11 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
         for warning in s["warnings"]
         if warning.get("code") in {
             "W_POST_RUN_CONSISTENCY",
-            "W_MASS_LEDGER",
+            "W_MASS_LEDGER_FAILED",
+            "W_HIGH_CONDENSATE_MODEL_LIMITATION",
+            "W_TWO_PHASE_NOZZLE_APPROXIMATION",
+            "W_THERMAL_EFFICIENCY_PARTIAL",
+            "E_OUT_OF_VALIDATED_RANGE",
         }
     ]
     if run_warnings:
@@ -6023,6 +6960,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="write the chamber-property table to FILE and exit")
     p.add_argument("--no-cache", action="store_true",
                    help="force a rebuild of the chamber-property table")
+    p.add_argument(
+        "--allow-verification-failure",
+        action="store_true",
+        help=(
+            "return exit 0 only for a mass-ledger-only verification failure "
+            "(diagnostics remain marked failed)"
+        ),
+    )
     p.add_argument("--version", action="version",
                    version=f"{PROGRAM_NAME} {PROGRAM_VERSION}")
     return p
@@ -6135,7 +7080,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         backend = initialize_thermochemistry(cfg, cache_dir)
     except (ThermochemistryError, ConfigurationError) as exc:
-        print(f"Thermochemistry backend error:\n{exc}", file=sys.stderr)
+        error_code = getattr(exc, "code", None)
+        if error_code:
+            print(
+                f"Thermochemistry backend error [{error_code}]:\n{exc}",
+                file=sys.stderr,
+            )
+            error_record = {
+                "code": error_code,
+                "severity": "error",
+                "message": str(exc),
+                "context": getattr(exc, "context", {}),
+            }
+            print(
+                json.dumps(error_record, ensure_ascii=False, sort_keys=True),
+                file=sys.stderr,
+            )
+        else:
+            print(f"Thermochemistry backend error:\n{exc}", file=sys.stderr)
         return 3
 
     _print_backend_banner(cfg, backend)
@@ -6155,6 +7117,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.selftest:
         return 0 if self_tests(cfg) else 1
+
+    applicability_error = model_applicability_error(cfg, backend)
+    if applicability_error is not None:
+        print(
+            f"Model applicability error [{applicability_error['code']}]: "
+            f"{applicability_error['message']}",
+            file=sys.stderr,
+        )
+        error_record = dict(applicability_error)
+        error_record["context"] = {
+            **applicability_error["context"],
+            "simulation_started": False,
+        }
+        print(
+            json.dumps(error_record, ensure_ascii=False, sort_keys=True),
+            file=sys.stderr,
+        )
+        return 1
 
     print("Running the internal-ballistics simulation ...")
     try:
@@ -6184,6 +7164,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 break
     append_run_verdict_warnings(summ)
     run_passed = run_verdict_passed(summ)
+    verification_exit_code = run_verification_exit_code(
+        summ,
+        allow_verification_failure=args.allow_verification_failure,
+    )
 
     thermo_md = backend.metadata()
     cea_diag = _cea_theoretical_diagnostics(cfg, backend, summ)
@@ -6259,17 +7243,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             for warning in summ["warnings"]
             if warning.get("code") in {
                 "W_POST_RUN_CONSISTENCY",
-                "W_MASS_LEDGER",
+                "W_MASS_LEDGER_FAILED",
+                "E_OUT_OF_VALIDATED_RANGE",
             }
         ]
+        if verification_exit_code == EXIT_CODE_SUCCESS:
+            print(
+                "Run verification failure allowed by "
+                "--allow-verification-failure after diagnostic output was "
+                "written: " + ", ".join(failed_codes),
+                file=sys.stderr,
+            )
+            return EXIT_CODE_SUCCESS
         print(
             "Run verification failed after diagnostic output was written: "
             + ", ".join(failed_codes),
             file=sys.stderr,
         )
-        return 1
+        return verification_exit_code
 
-    return 0
+    return EXIT_CODE_SUCCESS
 
 
 if __name__ == "__main__":

@@ -275,8 +275,27 @@ These values are for comparison only. They are not fed back into the GRIBS unste
 --validate-config      Validate the JSON configuration and exit
 --dump-thermo FILE     Write the chamber-property table and exit
 --no-cache             Force rebuilding of the chamber-property table
+--allow-verification-failure
+                       Return 0 only for a mass-ledger-only verification failure
 --version              Display the GRIBS version
 ```
+
+### Process exit codes
+
+| Code | Meaning |
+|---:|---|
+| 0 | Run passed, or a mass-ledger-only failure was explicitly allowed. The diagnostic outputs still record the failed ledger. |
+| 1 | Run verification gate or standalone self-test failed; also used for model-applicability rejection. |
+| 2 | Configuration is invalid. |
+| 3 | Thermochemistry backend initialization failed. |
+| 4 | Simulation/integration failed. |
+| 5 | Mass-ledger verification failed while the other run-verification gates passed. |
+
+`--allow-verification-failure` applies only when the mass ledger is the sole
+failed run-verification gate. It does not override post-run consistency or
+model-applicability failures. In a failed normal run, the CSV, text summary,
+and JSON summary are written before the nonzero exit; the ledger warning and
+residuals remain recorded even when the flag permits exit code 0.
 
 ### Backend override (`--backend`)
 
