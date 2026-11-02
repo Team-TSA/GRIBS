@@ -5329,15 +5329,30 @@ def self_tests(c: Config, verbose=True) -> bool:
     # reduce EXACTLY to the legacy Theta model (regression test).
     # T14 nozzle decomposition identities (with a condensed phase present).
     # T15 compatibility: no condensed phase -> homogeneous and legacy runs agree.
-    synth = _SyntheticTestBackend(c, condensed_fraction=0.0)
+    # Cleanup P4 v2 (A-1): every comparison builds its backends with an
+    # explicit two-phase mode, independent of the mode of the configuration
+    # the self-tests were started with.
+    def _cfg_mode(mode):
+        cc = copy.copy(c)                      # keeps reactants_spec_list
+        cc.two_phase_mode = mode
+        return cc
+    synth = _SyntheticTestBackend(_cfg_mode(TWO_PHASE_HOMOGENEOUS),
+                                  condensed_fraction=0.0)
     try:
         with _ThermoSwap(synth):
             e_psi, e_dpsi, e_rhs = 0.0, 0.0, 0.0
             c_hom = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
             c_leg = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_SINGLE_LEGACY})
+            # Cleanup P4 (A-1): the legacy side is evaluated with a backend
+            # built in legacy mode, so the backend's own legacy branch is
+            # exercised (the CEA/legacy recursion of A-6 3c24fbc went
+            # undetected because both sides used the homogeneous backend).
+            synth_leg = _SyntheticTestBackend(_cfg_mode(TWO_PHASE_SINGLE_LEGACY),
+                                              condensed_fraction=0.0)
             for p in np.geomspace(synth.pmin * 1.01, synth.pmax * 0.99, 30):
                 psi_h, dpsi_h = psi_and_deriv(float(p), c_hom)
-                th_l, dth_l = theta_and_deriv(float(p), c_leg)
+                with _ThermoSwap(synth_leg):
+                    th_l, dth_l = theta_and_deriv(float(p), c_leg)
                 e_psi = max(e_psi, abs(psi_h / th_l - 1.0))
                 if dth_l != 0.0:
                     e_dpsi = max(e_dpsi, abs(dpsi_h / dth_l - 1.0))
@@ -5353,7 +5368,8 @@ def self_tests(c: Config, verbose=True) -> bool:
                     0.0,
                 ])
                 dy_h = make_rhs(c_hom, Ae, True)(0.0, y0)
-                dy_l = make_rhs(c_leg, Ae, True)(0.0, y0)
+                with _ThermoSwap(synth_leg):
+                    dy_l = make_rhs(c_leg, Ae, True)(0.0, y0)
                 e_rhs = max(e_rhs, float(np.max(np.abs(dy_h - dy_l)
                                                 / np.maximum(np.abs(dy_l), 1e-300))))
             chk("single-phase limit: model B == Theta model",
@@ -5363,7 +5379,8 @@ def self_tests(c: Config, verbose=True) -> bool:
 
             # T14 nozzle flow decomposition: mdot_total = mdot_gas + mdot_condensed,
             # mdot_gas = Yg*mdot_total, mdot_condensed = Yc*mdot_total.
-            synth_c = _SyntheticTestBackend(c, condensed_fraction=0.3)
+            synth_c = _SyntheticTestBackend(_cfg_mode(TWO_PHASE_HOMOGENEOUS),
+                                            condensed_fraction=0.3)
             with _ThermoSwap(synth_c):
                 e_dec = 0.0
                 c_hom_c = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
@@ -5388,11 +5405,12 @@ def self_tests(c: Config, verbose=True) -> bool:
             c_hom_f = Config(**{**fast, "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
             c_leg_f = Config(**{**fast, "two_phase_mode": TWO_PHASE_SINGLE_LEGACY})
             res_h = run_model(c_hom_f)
-            res_l = run_model(c_leg_f)
             hist_h = sample(res_h, c_hom_f)
-            hist_l = sample(res_l, c_leg_f)
             s_h = summarize(res_h, hist_h, c_hom_f)
-            s_l = summarize(res_l, hist_l, c_leg_f)
+            with _ThermoSwap(synth_leg):
+                res_l = run_model(c_leg_f)
+                hist_l = sample(res_l, c_leg_f)
+                s_l = summarize(res_l, hist_l, c_leg_f)
             e_run = max(abs(s_h["p_max_Pa"] / s_l["p_max_Pa"] - 1.0),
                         abs(s_h["burn_time_s"] / s_l["burn_time_s"] - 1.0),
                         abs(s_h["impulse_total_Ns"] / s_l["impulse_total_Ns"] - 1.0),

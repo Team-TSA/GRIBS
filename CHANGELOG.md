@@ -50,6 +50,13 @@ All notable changes to GRIBS are documented in this file.
 - Thermochemistry cache files are never written or rewritten by these
   changes. The cache key, schema 4 and stored contents are unchanged.
   A reused cache keeps the diagnostic text its writer stored.
+- The self-tests now build every comparison backend with an explicit
+  two-phase mode, independent of the mode of the configuration they were
+  started with (cleanup P4).
+  - The legacy side of the homogeneous/legacy comparison uses a backend built
+    in `single_phase_legacy` mode, so its legacy branch is exercised. That
+    branch's recursion (fixed by P2) previously went undetected.
+  - Simulation results and output fields are unchanged.
 
 ### Added
 
@@ -180,6 +187,7 @@ All notable changes to GRIBS are documented in this file.
   - summary and thermo-dump outputs
 - Updated the semantic-label tests.
 - Added a direct-`summarize()` check for legacy and two-phase-inactive runs.
+- Added `tests/test_selftest_backend_modes.py`.
 
 ## [v0.5.0-alpha] - 2026-10-02
 
