@@ -1138,11 +1138,13 @@ class PressureTableBackend(ThermochemistryBackend):
     def psi_and_derivative(self, p: float) -> Tuple[float, float]:
         """Psi = R_eff*T0 [J/kg] and its ANALYTIC derivative dPsi/dp [J/(kg Pa)].
 
-        In the single-phase legacy mode Psi := Theta = Rg*T0, i.e. the exact
-        v0.4.3-alpha quantity.
+        Theta and Psi are the same tabulated quantity R_eff*T_used since
+        A-5.1-4, so every mode (including single_phase_legacy, where Yg := 1
+        elsewhere) evaluates the same PCHIP column here.  This restores the
+        pre-A-6 legacy path, whose separate Theta interpolator was built from
+        the identical R*T nodes; delegating to theta_and_derivative() here
+        recursed without bound (A-6 commit 3c24fbc regression).
         """
-        if self.c.two_phase_mode != TWO_PHASE_HOMOGENEOUS or not self.supports_two_phase:
-            return self.theta_and_derivative(p)
         pe, clamped = self._clamp_flags(p)
         z = math.log(pe)
         psi = float(self.psii(z))
