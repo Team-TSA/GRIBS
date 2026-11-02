@@ -2501,13 +2501,7 @@ class CEAPythonBackend(PressureTableBackend):
             "num_elements": int(solver.num_elements),
             "diagnostics": {
                 "density_kg_m3": rho_out,
-                "density_note": ("EqSolution.density = p*M_CEA/(Ru*T) "
-                                 "[kg-total/m^3]: total mixture mass per gas-phase "
-                                 "volume (condensed-phase volume neglected); equals "
-                                 "the gas-phase ideal density p/(R_gas*T) divided "
-                                 "by Yg. It equals the two-phase mixture density "
-                                 "only under the negligible condensed-volume "
-                                 "assumption. Diagnostic only"),
+                "density_note": CEA_DENSITY_NOTE,
                 "cp_eq_kJ_kgK": cp_out,
                 "sonic_velocity_m_s": a_out,
                 "sonic_velocity_status": (
@@ -2596,7 +2590,41 @@ class CEAPythonBackend(PressureTableBackend):
             "top_mass_fractions_at_max_pressure":
                 self.table["diagnostics"]["top_mass_fractions_at_max_pressure"],
         }
+        md["semantic_definitions"] = self.semantic_definitions()
         return md
+
+    def semantic_definitions(self) -> Dict[str, Any]:
+        """Current definitions of the CEA diagnostic columns (cleanup P3a).
+
+        Reported by the running code, so summary.json / --dump-thermo carry
+        the current definitions even when the table was read from a cache
+        file whose own diagnostic text differs (same cache key; the cache
+        file is never rewritten).  Only observable facts about the cache are
+        reported (which fields are missing, whether the stored density_note
+        equals the current one); the cache's creation date is NOT inferred.
+        """
+        diag = self.table.get("diagnostics", {})
+        if not isinstance(diag, dict):
+            diag = {}
+        n_grid = len(self.table.get("pressure_Pa", []) or [])
+        sonic_status, sonic_reason = _sonic_column_status(
+            diag.get("sonic_velocity_m_s", None), n_grid)
+        checked = ("sonic_velocity_status", "sonic_velocity_note", "density_note")
+        missing = [k for k in checked if k not in diag]
+        if "n_gas_per_kg_total_definition" not in self.table:
+            missing.append("n_gas_per_kg_total_definition")
+        return {
+            "density_definition": CEA_DENSITY_NOTE,
+            "n_gas_per_kg_total_definition": N_GAS_PER_KG_TOTAL_DEFINITION,
+            "sonic_velocity_status": sonic_status,
+            "sonic_velocity_status_reason": sonic_reason,
+            "table_source": "cache" if self.cache_used else "generated_this_run",
+            "table_fields_missing": missing,
+            "table_density_note_matches_current": (
+                diag.get("density_note") == CEA_DENSITY_NOTE),
+            "note": ("definitions above are from the running code; a cache file "
+                     "keeps the diagnostic text written by its writer"),
+        }
 
     # -- theoretical rocket diagnostics (never used by the GRIBS solver) -----
     def theoretical_rocket_performance(self, chamber_pressure_Pa: float,
@@ -3837,6 +3865,126 @@ def model_status_from_yg(
     return "in_scope_not_validated"
 
 
+# Cleanup P3a: current diagnostic definitions (single source of truth)
+CEA_DENSITY_NOTE = ("EqSolution.density = p*M_CEA/(Ru*T) "
+                    "[kg-total/m^3]: total mixture mass per gas-phase "
+                    "volume (condensed-phase volume neglected); equals "
+                    "the gas-phase ideal density p/(R_gas*T) divided "
+                    "by Yg. It equals the two-phase mixture density "
+                    "only under the negligible condensed-volume "
+                    "assumption. Diagnostic only")
+N_GAS_PER_KG_TOTAL_DEFINITION = (
+    "EqSolution.n: total gas-phase moles per kg of TOTAL equilibrium "
+    "products [kmol-gas/kg-total]; M_CEA = 1/n")
+
+
+def _sonic_column_status(column: Any, n_grid: int) -> Tuple[str, str]:
+    """Classify a stored sonic-velocity column without trusting it.
+
+    UNAVAILABLE : missing, empty, or every entry NaN/null (no value obtained)
+    AVAILABLE   : list of the grid length, every entry a finite positive number
+    INVALID     : anything else (wrong type/length, non-numeric, not
+                  convertible to float, non-positive, infinite, or a mix of
+                  values and missing entries).  Never raises.
+    """
+    if column is None:
+        return "UNAVAILABLE", "column missing"
+    if not isinstance(column, list):
+        return "INVALID", f"column is {type(column).__name__}, not a list"
+    if len(column) == 0:
+        return "UNAVAILABLE", "column empty"
+    vals: List[Optional[float]] = []
+    for v in column:
+        if v is None:
+            vals.append(None)
+        elif isinstance(v, bool) or not isinstance(v, (int, float)):
+            return "INVALID", f"non-numeric entry {_report_value_text(v, 80)}"
+        else:
+            try:
+                vals.append(float(v))
+            except Exception as exc:  # noqa: BLE001 - untrusted cache data; classification must not raise
+                return "INVALID", (f"entry not convertible to float "
+                                   f"({type(exc).__name__}): {_report_value_text(v, 80)}")
+    missing = [v is None or math.isnan(v) for v in vals]
+    if all(missing):
+        return "UNAVAILABLE", "all entries NaN/null"
+    if len(vals) != n_grid:
+        return "INVALID", f"length {len(vals)} != pressure grid {n_grid}"
+    if any(missing):
+        return "INVALID", "mix of values and NaN/null entries"
+    if any((not math.isfinite(v)) or v <= 0.0 for v in vals):
+        return "INVALID", "non-finite or non-positive entry"
+    return "AVAILABLE", "all entries finite and positive"
+
+
+def _finite_number_or_none(raw: Any) -> Optional[float]:
+    """float(raw) for a finite real number (not bool); None otherwise. Never raises."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, np.integer, np.floating)):
+        return None
+    try:
+        value = float(raw)
+    except Exception:  # noqa: BLE001 - e.g. OverflowError, or a __float__ that raises
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _validation_range_fields(backend: Any, pv_table: Any, has_table: bool) -> Dict[str, Any]:
+    """validation.* range fields of the run summary (cleanup P3b).
+
+    ``validated_pressure_range_Pa`` / ``validated_Yg_range`` keep their former
+    values and expressions for existing readers.  ``table_*`` are filled only
+    for a backend with a chamber-property table and a usable (both keys
+    present, finite) Yg range; otherwise None, so a legacy / two-phase-inactive
+    backend without a complete Yg range never fails here.
+    ``validated_range_basis`` states what the values actually are.
+    """
+    yg_lo = _finite_number_or_none(pv_table.get("gas_mass_fraction_min")) if isinstance(pv_table, dict) else None
+    yg_hi = _finite_number_or_none(pv_table.get("gas_mass_fraction_max")) if isinstance(pv_table, dict) else None
+    yg_complete = yg_lo is not None and yg_hi is not None
+    if has_table:
+        basis = ("validated_pressure_range_Pa / validated_Yg_range are the "
+                 "chamber-property table range, not an externally validated "
+                 "range")
+    elif yg_complete:
+        basis = ("no chamber-property table: validated_pressure_range_Pa is the "
+                 "configured pressure range and validated_Yg_range is the "
+                 f"backend's stated analytic phase-fraction range [{yg_lo:g}, {yg_hi:g}] "
+                 "(e.g. reference_constant: a single gas phase); neither is a "
+                 "measured or validated range")
+    else:
+        basis = ("no chamber-property table: validated_pressure_range_Pa is the "
+                 "configured pressure range and validated_Yg_range uses the "
+                 "defaults 0 / 1 for the entries the backend does not state; "
+                 "neither is a measured or validated range")
+    return {
+        "validated_pressure_range_Pa": [float(backend.pmin), float(backend.pmax)],
+        "validated_Yg_range": [
+            float(pv_table.get("gas_mass_fraction_min", 0.0)),
+            float(pv_table.get("gas_mass_fraction_max", 1.0)),
+        ],
+        # The two 'validated_*' keys above are kept for existing readers;
+        # their values are property-table (or stated analytic) ranges.
+        "table_pressure_range_Pa": (
+            [float(backend.pmin), float(backend.pmax)] if has_table else None),
+        "table_Yg_range": [yg_lo, yg_hi] if (has_table and yg_complete) else None,
+        "validated_range_basis": basis,
+    }
+
+
+def model_status_basis(two_phase_active: bool, two_phase_mode: str) -> str:
+    """Cleanup P3c: explanation matching the branch taken in
+    model_status_from_yg (thresholds unchanged)."""
+    if two_phase_mode == TWO_PHASE_SINGLE_LEGACY:
+        return ("two_phase_mode single_phase_legacy: regression-comparison "
+                "mode; Yg thresholds are not applied")
+    if not two_phase_active:
+        return ("two-phase model inactive (the backend has no two-phase "
+                "support); Yg thresholds are not applied; not linked to "
+                "external or experimental validation evidence")
+    return ("Yg_min threshold classification (code constants 0.99 / 0.65); "
+            "not linked to external or experimental validation evidence")
+
+
 # Cleanup 2026-11-01 (K-02/K-03): former status tokens, kept for readers that
 # still compare against them.  Thresholds and classification are unchanged.
 MODEL_STATUS_PREVIOUS_TOKENS = {
@@ -3845,10 +3993,56 @@ MODEL_STATUS_PREVIOUS_TOKENS = {
     "approximate_with_limitations": "approximate_with_limitations",
     "out_of_scope": "out_of_scope",
 }
+# For not_applicable the former token depended on the backend (reference
+# constant: 'fail'; synthetic table: 'pass'); the per-run value is reported
+# in summary validation.status_previous_tokens.semantic_status.
 SEMANTIC_STATUS_PREVIOUS_TOKENS = {
     "schema_ok_semantic_probe_not_linked": "pass",
+    "not_applicable_no_cea_table": "pass_or_fail_by_backend",
     "fail": "fail",
 }
+
+
+def semantic_status_for_backend(backend: Any) -> Tuple[str, str, str]:
+    """Cleanup P3c: (token, basis, previous_token) for summary validation.
+
+    * backends that do not use CEA (analytic reference_constant, the
+      synthetic self-test table) -> 'not_applicable_no_cea_table'; the
+      inherited PressureTableBackend.cache_schema of the synthetic backend is
+      deliberately ignored because it carries no CEA semantics.
+    * CEA table backends with cache schema >= 4 ->
+      'schema_ok_semantic_probe_not_linked' (schema number only).
+    * CEA table backends with schema < 4 -> 'fail'.
+    * CEA table backends with an unknown schema (not a finite real number,
+      e.g. None, a string or a bool) -> 'fail', and the basis says so.
+    previous_token reproduces the pre-cleanup rule
+    'pass' if getattr(backend, 'cache_schema', 0) >= 4 else 'fail'
+    for numeric schemas; for an unknown schema (where that expression could
+    not be evaluated) it is 'fail'.  Never raises.
+    """
+    raw_schema = getattr(backend, "cache_schema", 0)
+    schema = _finite_number_or_none(raw_schema)
+    previous = "pass" if (schema is not None and schema >= 4) else "fail"
+    name = str(getattr(backend, "name", type(backend).__name__))
+    if not getattr(backend, "uses_cea", False):
+        return ("not_applicable_no_cea_table",
+                f"backend '{name}' does not use CEA; the CEA mass-basis "
+                "semantics check does not apply",
+                previous)
+    if schema is None:
+        return ("fail",
+                f"backend '{name}': unknown cache schema "
+                f"{_report_value_text(raw_schema, 80)}; treated as fail",
+                previous)
+    if schema >= 4:
+        return ("schema_ok_semantic_probe_not_linked",
+                f"backend '{name}': cache schema number {raw_schema} only; no CEA "
+                "semantic probe result is linked to this run",
+                previous)
+    return ("fail",
+            f"backend '{name}': CEA table schema {raw_schema} < 4 (obsolete mass "
+            "basis semantics)",
+            previous)
 
 
 def out_of_validated_range_error(
@@ -4268,6 +4462,10 @@ def summarize(res: dict, h: dict, c: Config,
         c.two_phase_mode,
         _yg_table_min,
     )
+    _semantic_status, _semantic_basis, _semantic_previous = (
+        semantic_status_for_backend(backend))
+    _has_table = isinstance(getattr(backend, "table", None), dict) and \
+        "pressure_Pa" in getattr(backend, "table", {})
     s = dict(
         web_mm=web_thickness(c) * 1e3,
         propellant_density_kg_m3=c.rho_p,
@@ -4358,20 +4556,12 @@ def summarize(res: dict, h: dict, c: Config,
         nozzle_transition=transition,
         # ---------------- validation status (A-5.1-5 / A-5.1-6) ----------------
         validation={
-            "semantic_status": (
-                "schema_ok_semantic_probe_not_linked"
-                if getattr(backend, 'cache_schema', 0) >= 4 else "fail"
-            ),
-            "semantic_status_basis": (
-                "cache schema number only; no CEA semantic probe result is "
-                "linked to this run"),
-            "model_status_basis": (
-                "Yg_min threshold classification (code constants); not linked "
-                "to external or experimental validation evidence"),
+            "semantic_status": _semantic_status,
+            "semantic_status_basis": _semantic_basis,
+            "model_status_basis": model_status_basis(
+                two_phase_active, c.two_phase_mode),
             "status_previous_tokens": {
-                "semantic_status": SEMANTIC_STATUS_PREVIOUS_TOKENS[
-                    "schema_ok_semantic_probe_not_linked"
-                    if getattr(backend, 'cache_schema', 0) >= 4 else "fail"],
+                "semantic_status": _semantic_previous,
                 "model_status": MODEL_STATUS_PREVIOUS_TOKENS.get(
                     _model_status, _model_status),
             },
@@ -4379,13 +4569,7 @@ def summarize(res: dict, h: dict, c: Config,
                 "pass" if (post_run["passed"] and ledger["passed"]) else "fail"
             ),
             "model_status": _model_status,
-            "validated_pressure_range_Pa": [
-                float(backend.pmin), float(backend.pmax)
-            ],
-            "validated_Yg_range": [
-                float(pv_table.get("gas_mass_fraction_min", 0.0)),
-                float(pv_table.get("gas_mass_fraction_max", 1.0)),
-            ],
+            **_validation_range_fields(backend, pv_table, _has_table),
             "mass_basis_semantics_version": getattr(
                 backend, "mass_basis_semantics_version", None),
             "notes": (
@@ -6087,8 +6271,8 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
         A(f"  semantic status                : {val.get('semantic_status', 'n/a')}")
         A(f"  numerical status               : {val.get('numerical_status', 'n/a')}")
         A(f"  model status                   : {val.get('model_status', 'n/a')}")
-        A(f"  validated pressure range       : {val.get('validated_pressure_range_Pa', 'n/a')}")
-        A(f"  validated Yg range             : {val.get('validated_Yg_range', 'n/a')}")
+        A(f"  table pressure range [not validated] : {val.get('table_pressure_range_Pa', 'n/a')}")
+        A(f"  table Yg range [not validated]       : {val.get('table_Yg_range', 'n/a')}")
         A(f"  mass basis semantics version   : {val.get('mass_basis_semantics_version', 'n/a')}")
     lmc = s.get("local_model_cstar_m_s")
     if lmc is not None and not (isinstance(lmc, float) and math.isnan(lmc)):

@@ -27,6 +27,29 @@ All notable changes to GRIBS are documented in this file.
   (`ConfigurationError`), and the cache key are unchanged.
 - `diagnostics.density_note` now describes `EqSolution.density` as total
   mixture mass per gas-phase volume (condensed volume neglected).
+- `validation.semantic_status` now depends on the backend kind (cleanup P3).
+  The thresholds are unchanged.
+  - Backends that do not use CEA report `not_applicable_no_cea_table`. Before,
+    `reference_constant` reported `fail` and the synthetic self-test backend
+    reported `schema_ok_semantic_probe_not_linked`.
+  - CEA table backends keep `schema_ok_semantic_probe_not_linked` for schema
+    >= 4 and `fail` for schema < 4.
+  - A missing or non-numeric `cache_schema` now reports `fail` with an
+    "unknown cache schema" basis, instead of raising.
+  - `status_previous_tokens.semantic_status` still reports what the former
+    rule gave (`fail` for an unknown schema).
+- `semantic_status_basis` and `model_status_basis` now describe the branch
+  actually taken, instead of one fixed sentence.
+- `diagnostics.sonic_velocity_status` is now classified from the stored
+  column with `UNAVAILABLE` / `AVAILABLE` / `INVALID`; `PARTIAL` is replaced
+  by `INVALID`. A value that cannot be converted to a float (for example an
+  integer beyond the float range) is reported as `INVALID`. The
+  classification never raises.
+- In the text summary, the table pressure and Yg ranges are labelled
+  "[not validated]".
+- Thermochemistry cache files are never written or rewritten by these
+  changes. The cache key, schema 4 and stored contents are unchanged.
+  A reused cache keeps the diagnostic text its writer stored.
 
 ### Added
 
@@ -81,6 +104,22 @@ All notable changes to GRIBS are documented in this file.
 - `n_gas_per_kg_total_definition` (kmol-gas per kg of total products,
   `M_CEA = 1/n`) and a unit statement in `molecular_weight_definition`.
   Nothing is renamed.
+- `semantic_definitions` in the CEA backend metadata, `summary.json` and the
+  thermo dump. It gives the running code's definitions of density, `n` and
+  the sonic-velocity status, and observable facts about the table in use:
+  `table_source`, `table_fields_missing`, and
+  `table_density_note_matches_current`. A cache's creation date is not
+  inferred.
+- `validation.table_pressure_range_Pa`, `validation.table_Yg_range` and
+  `validated_range_basis`.
+  - `table_*` are filled only for a backend with a chamber-property table and
+    a complete, finite Yg range; otherwise they are null.
+  - `validated_range_basis` states what `validated_pressure_range_Pa` /
+    `validated_Yg_range` are: the table range, or the stated analytic range
+    of `reference_constant` (`[1, 1]`), or defaults. It never claims a
+    validated range.
+  - The values of `validated_pressure_range_Pa` and `validated_Yg_range` are
+    unchanged.
 
 ### Fixed
 
@@ -131,6 +170,16 @@ All notable changes to GRIBS are documented in this file.
   rejection, deprecated aliases, and the density/sonic/`n` definitions.
   Evidence tool: `tools/a5_1_cea_semantic_probe.py` (independent CEA probe for
   G1). It produces evidence only and does not approve G1.
+- Added `tests/test_cleanup_p3_compat.py`, which covers:
+  - per-backend semantic status and its basis
+  - unknown cache schemas
+  - sonic-column classification, including non-convertible entries and a
+    reused cache with altered fields
+  - checks that the cache file's bytes and mtime are unchanged
+  - range fields with incomplete Yg ranges and the reference analytic range
+  - summary and thermo-dump outputs
+- Updated the semantic-label tests.
+- Added a direct-`summarize()` check for legacy and two-phase-inactive runs.
 
 ## [v0.5.0-alpha] - 2026-10-02
 

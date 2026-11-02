@@ -48,8 +48,13 @@ def test_model_status_never_claims_validated_and_thresholds_unchanged(active, mo
 @pytest.mark.fast
 def test_semantic_status_is_not_pass_from_schema_number_alone():
     assert '"pass" if getattr(backend, \'cache_schema\', 0) >= 4' not in SOURCE
-    assert gribs.SEMANTIC_STATUS_PREVIOUS_TOKENS == {
-        "schema_ok_semantic_probe_not_linked": "pass", "fail": "fail"}
+    # no backend kind may yield 'pass' from the schema number
+    assert "pass" not in gribs.SEMANTIC_STATUS_PREVIOUS_TOKENS
+    assert gribs.SEMANTIC_STATUS_PREVIOUS_TOKENS["schema_ok_semantic_probe_not_linked"] == "pass"
+    assert gribs.SEMANTIC_STATUS_PREVIOUS_TOKENS["fail"] == "fail"
+    for schema, uses_cea in ((4, True), (99, True), (3, True), (4, False), (0, False)):
+        stub = type("B", (), {"cache_schema": schema, "uses_cea": uses_cea, "name": "x"})()
+        assert gribs.semantic_status_for_backend(stub)[0] != "pass"
 
 
 @pytest.mark.fast

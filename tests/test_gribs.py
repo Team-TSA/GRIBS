@@ -2515,7 +2515,7 @@ def test_main_reports_invalid_phase_fraction_validation_before_the_solver(
     assert not output_dir.exists()
 
 
-def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, supports_two_phase=True):
+def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, supports_two_phase=True, table=None):
     c = gribs.configuration_from_document(
         json.loads((ROOT / "gribs_config.json").read_text(encoding="utf-8"))
     ).config
@@ -2525,6 +2525,8 @@ def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, sup
     backend.name = gribs.BACKEND_CEA_PYTHON
     backend.cache_schema = 4
     backend.mass_basis_semantics_version = 1
+    if table is not None:
+        backend.table = table
     monkeypatch.setattr(gribs, "thermochemistry", lambda: backend)
     monkeypatch.setattr(gribs, "choke_limit_pressure", lambda config, At0, Ae: None)
     monkeypatch.setattr(
@@ -2679,3 +2681,19 @@ def test_value_whose_repr_raises_is_a_structured_error():
     assert "non_finite:gas_mass_fraction_min" in error["context"]["problems"]
     assert error["context"]["reported_values"]["gas_mass_fraction_min"] == "<_FloatReprRaises value; repr failed (RuntimeError)>"
     json.dumps(error, allow_nan=False)
+
+
+@pytest.mark.fast
+def test_direct_summarize_range_fields_tolerate_incomplete_yg_when_two_phase_is_not_active(monkeypatch):
+    """Legacy / two-phase-inactive runs do not validate the Yg range; a missing
+    Yg maximum must not break the (P3b) table_Yg_range field, and the former
+    validated_Yg_range value is kept."""
+    table = {"pressure_Pa": [1.0e5, 8.0e6]}
+    pv = {"gas_mass_fraction_min": 0.9}            # maximum missing
+    legacy = _direct_summarize(monkeypatch, pv, two_phase_mode=gribs.TWO_PHASE_SINGLE_LEGACY, table=table)
+    inactive = _direct_summarize(monkeypatch, pv, supports_two_phase=False, table=table)
+    for summary in (legacy, inactive):
+        v = summary["validation"]
+        assert v["validated_Yg_range"] == [0.9, 1.0]
+        assert v["table_Yg_range"] is None
+        assert v["table_pressure_range_Pa"] == [1.0e5, 8.0e6]
