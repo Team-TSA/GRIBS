@@ -2595,3 +2595,87 @@ def test_direct_summarize_legacy_and_inactive_two_phase_keep_previous_behavior(m
     assert inactive["validation"]["status_previous_tokens"]["model_status"] == "validated_in_scope"
     valid = _direct_summarize(monkeypatch, {"gas_mass_fraction_min": 0.8, "gas_mass_fraction_max": 1.0})
     assert valid["validation"]["model_status"] == "approximate_with_limitations"
+
+
+# Reported values must never make the phase-fraction check itself raise.
+class _ReprRaises:
+    def __repr__(self):
+        raise RuntimeError("repr refuses")
+
+
+class _FloatReprRaises(float):
+    def __repr__(self):
+        raise RuntimeError("float repr refuses")
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("raw, expected", [
+    (0.95, "0.95"),
+    ("0.9", "'0.9'"),
+    (float("nan"), "nan"),
+    (True, "True"),
+    (10**400, repr(10**400)[:200]),
+], ids=["float", "str", "nan", "bool", "int_1e400"])
+def test_phase_fraction_report_keeps_normal_repr(raw, expected):
+    error = gribs.model_applicability_error(
+        gribs.Config(), _phase_probe_backend({"gas_mass_fraction_min": raw, "gas_mass_fraction_max": 0.9})
+    )
+    assert error["code"] == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+    assert error["context"]["reported_values"]["gas_mass_fraction_min"] == expected
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("raw", [10**4300, 10**5000, -(10**5000)], ids=["1e4300", "1e5000", "-1e5000"])  # explicit ids: str() of these ints exceeds the digit limit
+def test_huge_integer_beyond_str_digit_limit_is_a_structured_error(raw):
+    error = gribs.model_applicability_error(
+        gribs.Config(), _phase_probe_backend({"gas_mass_fraction_min": raw, "gas_mass_fraction_max": 1.0})
+    )
+    assert error["code"] == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+    assert "not_representable:gas_mass_fraction_min" in error["context"]["problems"]
+    text = error["context"]["reported_values"]["gas_mass_fraction_min"]
+    try:
+        expected = repr(raw)[:200]          # within the interpreter's digit limit
+    except ValueError:
+        expected = None                     # beyond it (default limit: 4300 digits)
+    if expected is None:
+        assert text.startswith(f"<int with {raw.bit_length()} bits")
+    else:
+        assert text == expected
+    assert len(text) <= 200
+    json.dumps(error, allow_nan=False)
+
+
+@pytest.mark.fast
+def test_lowered_str_digit_limit_is_restored_after_the_check():
+    original = sys.get_int_max_str_digits()
+    try:
+        sys.set_int_max_str_digits(640)  # smallest allowed non-zero limit
+        raw = 10**700                    # repr fails under this limit
+        error = gribs.model_applicability_error(
+            gribs.Config(), _phase_probe_backend({"gas_mass_fraction_min": raw, "gas_mass_fraction_max": 1.0})
+        )
+        assert error["code"] == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+        assert error["context"]["reported_values"]["gas_mass_fraction_min"].startswith(
+            f"<int with {raw.bit_length()} bits"
+        )
+    finally:
+        sys.set_int_max_str_digits(original)
+    assert sys.get_int_max_str_digits() == original
+
+
+@pytest.mark.fast
+def test_value_whose_repr_raises_is_a_structured_error():
+    error = gribs.model_applicability_error(
+        gribs.Config(), _phase_probe_backend({"gas_mass_fraction_min": _ReprRaises(), "gas_mass_fraction_max": 1.0})
+    )
+    assert error["code"] == gribs.PHASE_FRACTION_VALIDATION_ERROR_CODE
+    assert "not_a_number:gas_mass_fraction_min" in error["context"]["problems"]
+    assert error["context"]["reported_values"]["gas_mass_fraction_min"] == "<_ReprRaises value; repr failed (RuntimeError)>"
+
+    # a numeric value whose repr raises: classified on its value, reported safely
+    error = gribs.model_applicability_error(
+        gribs.Config(), _phase_probe_backend({"gas_mass_fraction_min": _FloatReprRaises(float("inf")), "gas_mass_fraction_max": 1.0})
+    )
+    assert "non_finite:gas_mass_fraction_min" in error["context"]["problems"]
+    assert error["context"]["reported_values"]["gas_mass_fraction_min"] == "<_FloatReprRaises value; repr failed (RuntimeError)>"
+    json.dumps(error, allow_nan=False)
