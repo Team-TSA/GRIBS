@@ -4,6 +4,30 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `validation.model_status` no longer reports `validated_in_scope`, because no
+  external or experimental validation is linked yet (A-5.1 G4a/G4b open).
+  The rules are checked in order; the first match wins:
+  `single_phase_legacy` -> `regression_comparison_only`;
+  two-phase not active -> `in_scope_not_validated`;
+  `Yg_min <= 0.65` -> `out_of_scope`; `Yg_min <= 0.99` ->
+  `approximate_with_limitations`; otherwise `in_scope_not_validated`.
+  The thresholds and the `out_of_scope` / `approximate_with_limitations`
+  results are unchanged.
+- `validation.semantic_status` no longer reports `pass` from the cache schema
+  number alone. A schema-4 CEA table without a linked semantic probe now
+  reports `schema_ok_semantic_probe_not_linked`. Older schemas still report
+  `fail`. `semantic_status_basis` and `model_status_basis` state what each
+  status is based on.
+- Corrected the wording of the `M` description, the `cea_py_molecular_weight`
+  parameter text, and the `total_MW` rejection message. They now say M_CEA
+  (`EqSolution.M`, kg-total per kmol-gas), not a gas-phase mean molecular
+  weight. The token `gas_phase_M`, the rejection of `total_MW`
+  (`ConfigurationError`), and the cache key are unchanged.
+- `diagnostics.density_note` now describes `EqSolution.density` as total
+  mixture mass per gas-phase volume (condensed volume neglected).
+
 ### Added
 
 - Added machine-readable `W_HIGH_CONDENSATE_MODEL_LIMITATION` and
@@ -45,6 +69,18 @@ All notable changes to GRIBS are documented in this file.
   exit code 5 for a ledger-only failure, and `--allow-verification-failure`
   limited to that case. Other verification failures remain exit code 1, and
   normal-run diagnostics are written before the exit.
+- `validation.status_previous_tokens` (plus `MODEL_STATUS_PREVIOUS_TOKENS` and
+  `SEMANTIC_STATUS_PREVIOUS_TOKENS`) maps each new status token to the token
+  that earlier versions reported, so existing readers can compare.
+- Correctly named `property_validation` keys
+  `equilibrium_molecular_weight_min_kg_kmol` / `_max_kg_kmol`. The former
+  `gas_phase_molecular_weight_*` keys keep the same values and are listed in
+  `deprecated_keys`.
+- `diagnostics.sonic_velocity_status` (`AVAILABLE` / `UNAVAILABLE` /
+  `PARTIAL`) and `sonic_velocity_note`; the stored sonic column is unchanged.
+- `n_gas_per_kg_total_definition` (kmol-gas per kg of total products,
+  `M_CEA = 1/n`) and a unit statement in `molecular_weight_definition`.
+  Nothing is renamed.
 
 ### Fixed
 
@@ -89,6 +125,12 @@ All notable changes to GRIBS are documented in this file.
 - Added CLI `--backend` override tests: two-stage validation, the same first error with
   or without an override, reference defaults for an absent or partial section, the
   backend value in the file, and migrated v0.3.0/v0.4.3/v0.4.4 documents.
+- Added semantic-label regression tests (`tests/test_cleanup_semantic_labels.py`)
+  and G3-b falsification tests (`tests/test_a5_1_g3b_falsification.py`).
+  They cover status tokens and previous-token mapping, unchanged `total_MW`
+  rejection, deprecated aliases, and the density/sonic/`n` definitions.
+  Evidence tool: `tools/a5_1_cea_semantic_probe.py` (independent CEA probe for
+  G1). It produces evidence only and does not approve G1.
 
 ## [v0.5.0-alpha] - 2026-10-02
 

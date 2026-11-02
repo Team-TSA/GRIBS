@@ -420,7 +420,7 @@ class Config:
     cea_py_product_species: Tuple[str, ...] = ()
     cea_py_omit_species: Tuple[str, ...] = ()
     cea_py_insert_species: Tuple[str, ...] = ()
-    cea_py_molecular_weight: str = "gas_phase_M"   # gas_phase_M | total_MW
+    cea_py_molecular_weight: str = "gas_phase_M"   # frozen compatibility token; selects EqSolution.M = M_CEA (kg-total/kmol-gas); 'total_MW' rejected
     cea_py_smooth_truncation: bool = False
     cea_py_truncation_width: float = -1.0
     cea_py_rocket_diagnostics: bool = True
@@ -516,10 +516,14 @@ PARAM_DOC = {
     "cea_py_transport": "official CEA backend: compute transport properties",
     "cea_py_trace": "official CEA backend: trace-species threshold (<=0 uses the API default)",
     "cea_py_products_from_reactants": "official CEA backend: build the product set from the reactant elements",
-    "cea_py_molecular_weight": ("'gas_phase_M' only: the gas-phase equation of state "
-                                "must use the gas-phase molecular weight. The former "
-                                "'total_MW' choice is rejected (v0.4.4): MW is tabulated "
-                                "as a diagnostic and never enters the EOS or nozzle."),
+    "cea_py_molecular_weight": ("'gas_phase_M' only (frozen compatibility token name). "
+                                "It selects EqSolution.M = M_CEA = 1/EqSolution.n "
+                                "[kg-total/kmol-gas] = M_gas/Yg, i.e. the total-mixture "
+                                "mass per kmol of gas; it is NOT the gas-phase mean "
+                                "molecular weight. The former 'total_MW' choice is "
+                                "rejected (v0.4.4): EqSolution.MW counts condensed moles, "
+                                "is tabulated as a diagnostic and never enters the EOS "
+                                "or nozzle."),
     "cea_legacy_executable_path": "path to the native CEA executable (compatibility backend)",
     "cea_legacy_data_directory": "directory containing thermo.lib and trans.lib",
     "cea_legacy_timeout_s": "timeout for each external CEA batch [s]",
@@ -1542,10 +1546,23 @@ class PressureTableBackend(ThermochemistryBackend):
             "temperature_max_K": float(np.max(self.table["temperature_K"])),
             "gamma_min": float(np.min(self.table["gamma_s"])),
             "gamma_max": float(np.max(self.table["gamma_s"])),
+            "equilibrium_molecular_weight_min_kg_kmol":
+                float(np.min(self.table["equilibrium_molecular_weight_kg_kmol"])),
+            "equilibrium_molecular_weight_max_kg_kmol":
+                float(np.max(self.table["equilibrium_molecular_weight_kg_kmol"])),
+            # Deprecated aliases (misnamed: the values are M_CEA on the
+            # total-mixture mass basis, not the gas-phase molecular weight).
+            # Kept for existing summary readers; see deprecated_keys.
             "gas_phase_molecular_weight_min_kg_kmol":
                 float(np.min(self.table["equilibrium_molecular_weight_kg_kmol"])),
             "gas_phase_molecular_weight_max_kg_kmol":
                 float(np.max(self.table["equilibrium_molecular_weight_kg_kmol"])),
+            "deprecated_keys": {
+                "gas_phase_molecular_weight_min_kg_kmol":
+                    "equilibrium_molecular_weight_min_kg_kmol",
+                "gas_phase_molecular_weight_max_kg_kmol":
+                    "equilibrium_molecular_weight_max_kg_kmol",
+            },
             "gas_mass_fraction_min": float(np.min(Yg)),
             "gas_mass_fraction_max": float(np.max(Yg)),
             "condensed_mass_fraction_min": float(np.min(Yc)),
@@ -2150,13 +2167,16 @@ class CEAPythonBackend(PressureTableBackend):
             raise ConfigurationError(
                 "thermochemistry.cea_python.molecular_weight = 'total_MW' is no "
                 "longer accepted (v0.5.0-alpha).\n"
-                "  The chamber equation of state p*Vg = mt*Yg(p)*Rg(p)*T0(p) and "
-                "the nozzle model must use the GAS-PHASE molecular weight; using "
-                "the total molecular weight there is physically inconsistent "
+                "  The chamber equation of state and the nozzle model use "
+                "M_CEA = EqSolution.M = 1/EqSolution.n [kg-total/kmol-gas] "
+                "(= M_gas/Yg, total-mixture mass per kmol of gas), so that "
+                "R_eff = Ru/M_CEA = Yg*R_gas. EqSolution.MW also counts "
+                "condensed moles and is physically inconsistent there "
                 "whenever condensed products exist.\n"
-                "  Set molecular_weight = 'gas_phase_M'.  The total molecular "
-                "weight (EqSolution.MW) is still tabulated and reported as the "
-                "diagnostic 'total_molecular_weight_kg_kmol'.")
+                "  Set molecular_weight = 'gas_phase_M' (compatibility token "
+                "name; it selects M_CEA).  EqSolution.MW is still tabulated "
+                "and reported as the diagnostic "
+                "'total_molecular_weight_kg_kmol'.")
         if c.cea_py_molecular_weight != "gas_phase_M":
             raise ConfigurationError(
                 "thermochemistry.cea_python.molecular_weight must be "
@@ -2354,7 +2374,7 @@ class CEAPythonBackend(PressureTableBackend):
                     "Adjust the pressure range, the reactant set or the CEA options.")
 
             T = float(solution.T)
-            M = float(solution.M)          # gas-phase molecular weight [kg/kmol]
+            M = float(solution.M)          # M_CEA = 1/n [kg-total/kmol-gas] (= M_gas/Yg)
             MW = float(solution.MW)        # total molecular weight (diagnostic)
             gamma = float(solution.gamma_s)
             if not _finite_positive(T):
@@ -2363,8 +2383,9 @@ class CEAPythonBackend(PressureTableBackend):
                     f"T = {T!r} K at p = {p_pa:.8g} Pa.")
             if not _finite_positive(M):
                 raise ThermochemistryError(
-                    f"CEA returned a non-physical gas-phase molecular weight "
-                    f"M = {M!r} kg/kmol at p = {p_pa:.8g} Pa.")
+                    f"CEA returned a non-physical equilibrium molecular weight "
+                    f"M_CEA = EqSolution.M = {M!r} kg-total/kmol-gas at "
+                    f"p = {p_pa:.8g} Pa.")
             if not _finite_positive(MW):
                 raise ThermochemistryError(
                     f"CEA returned a non-physical total molecular weight "
@@ -2466,8 +2487,12 @@ class CEAPythonBackend(PressureTableBackend):
             "reactant_enthalpy_J_kg": h_c,
             "reactant_enthalpy_over_R_K": h_R,
             "reactant_enthalpy_recomputed_kJ_kg": h_out,
+            "n_gas_per_kg_total_definition": (
+                "EqSolution.n: total gas-phase moles per kg of TOTAL equilibrium "
+                "products [kmol-gas/kg-total]; M_CEA = 1/n"),
             "molecular_weight_definition": (
-                "gas_phase_M compatibility token; EqSolution.M is M_CEA on the "
+                "gas_phase_M compatibility token (name kept; not the gas-phase "
+                "mean molecular weight); EqSolution.M is M_CEA on the "
                 "total equilibrium mixture mass basis; EqSolution.MW is "
                 "tabulated as a diagnostic only"),
             "product_species_count": int(product_mixture.num_species),
@@ -2476,11 +2501,24 @@ class CEAPythonBackend(PressureTableBackend):
             "num_elements": int(solver.num_elements),
             "diagnostics": {
                 "density_kg_m3": rho_out,
-                "density_note": ("EqSolution.density equals the gas-phase ideal "
-                                 "density p/(Rg*T); it is NOT the two-phase "
-                                 "chamber density"),
+                "density_note": ("EqSolution.density = p*M_CEA/(Ru*T) "
+                                 "[kg-total/m^3]: total mixture mass per gas-phase "
+                                 "volume (condensed-phase volume neglected); equals "
+                                 "the gas-phase ideal density p/(R_gas*T) divided "
+                                 "by Yg. It equals the two-phase mixture density "
+                                 "only under the negligible condensed-volume "
+                                 "assumption. Diagnostic only"),
                 "cp_eq_kJ_kgK": cp_out,
                 "sonic_velocity_m_s": a_out,
+                "sonic_velocity_status": (
+                    "UNAVAILABLE" if all(not math.isfinite(v) for v in a_out)
+                    else ("AVAILABLE" if all(math.isfinite(v) for v in a_out)
+                          else "PARTIAL")),
+                "sonic_velocity_note": ("read from EqSolution.sonic_velocity when "
+                                        "that attribute exists; CEA 3.3.4 EqSolution "
+                                        "has no such attribute, so the column is NaN "
+                                        "and status is UNAVAILABLE. RocketSolution "
+                                        "station values are not used here"),
                 "total_molecular_weight_kg_kmol": MW_out,
                 "top_mass_fractions_at_max_pressure": species_top,
                 "condensed_species_mass_fractions_at_max_pressure": condensed_top,
@@ -3781,14 +3819,36 @@ def model_status_from_yg(
     two_phase_mode: str,
     gas_mass_fraction_min: float,
 ) -> str:
-    """Classify the modeled Yg range using the A-5.1-6 scope thresholds."""
-    if two_phase_mode == TWO_PHASE_SINGLE_LEGACY or not two_phase_active:
-        return "validated_in_scope"
+    """Classify the modeled Yg range using the A-5.1-6 scope thresholds.
+
+    The thresholds are code constants that are not yet linked to external or
+    experimental validation evidence (A-5.1 G4a/G4b open), so no branch claims
+    'validated'.  ``single_phase_legacy`` is a regression-comparison mode.
+    Former token 'validated_in_scope' -> MODEL_STATUS_PREVIOUS_TOKENS.
+    """
+    if two_phase_mode == TWO_PHASE_SINGLE_LEGACY:
+        return "regression_comparison_only"
+    if not two_phase_active:
+        return "in_scope_not_validated"
     if gas_mass_fraction_min <= MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD:
         return "out_of_scope"
     if gas_mass_fraction_min <= MODEL_STATUS_VALIDATED_YG_THRESHOLD:
         return "approximate_with_limitations"
-    return "validated_in_scope"
+    return "in_scope_not_validated"
+
+
+# Cleanup 2026-11-01 (K-02/K-03): former status tokens, kept for readers that
+# still compare against them.  Thresholds and classification are unchanged.
+MODEL_STATUS_PREVIOUS_TOKENS = {
+    "regression_comparison_only": "validated_in_scope",
+    "in_scope_not_validated": "validated_in_scope",
+    "approximate_with_limitations": "approximate_with_limitations",
+    "out_of_scope": "out_of_scope",
+}
+SEMANTIC_STATUS_PREVIOUS_TOKENS = {
+    "schema_ok_semantic_probe_not_linked": "pass",
+    "fail": "fail",
+}
 
 
 def out_of_validated_range_error(
@@ -4283,8 +4343,22 @@ def summarize(res: dict, h: dict, c: Config,
         # ---------------- validation status (A-5.1-5 / A-5.1-6) ----------------
         validation={
             "semantic_status": (
-                "pass" if getattr(backend, 'cache_schema', 0) >= 4 else "fail"
+                "schema_ok_semantic_probe_not_linked"
+                if getattr(backend, 'cache_schema', 0) >= 4 else "fail"
             ),
+            "semantic_status_basis": (
+                "cache schema number only; no CEA semantic probe result is "
+                "linked to this run"),
+            "model_status_basis": (
+                "Yg_min threshold classification (code constants); not linked "
+                "to external or experimental validation evidence"),
+            "status_previous_tokens": {
+                "semantic_status": SEMANTIC_STATUS_PREVIOUS_TOKENS[
+                    "schema_ok_semantic_probe_not_linked"
+                    if getattr(backend, 'cache_schema', 0) >= 4 else "fail"],
+                "model_status": MODEL_STATUS_PREVIOUS_TOKENS.get(
+                    _model_status, _model_status),
+            },
             "numerical_status": (
                 "pass" if (post_run["passed"] and ledger["passed"]) else "fail"
             ),
@@ -6314,9 +6388,10 @@ def migrate_v043_document(doc: dict) -> Tuple[dict, List[str]]:
     if isinstance(cea_py, dict) and cea_py.get("molecular_weight") == "total_MW":
         raise ConfigurationError(
             "thermochemistry.cea_python.molecular_weight = 'total_MW' cannot be "
-            "migrated automatically: since v0.5.0-alpha the gas-phase equation "
-            "of state and the nozzle model use the GAS-PHASE molecular weight "
-            "only, and a silent substitution is forbidden.\n"
+            "migrated automatically: since v0.5.0-alpha the chamber equation "
+            "of state and the nozzle model use M_CEA = EqSolution.M = "
+            "1/EqSolution.n [kg-total/kmol-gas] only (EqSolution.MW also "
+            "counts condensed moles), and a silent substitution is forbidden.\n"
             "Edit the configuration: set molecular_weight = 'gas_phase_M' "
             "(the total molecular weight remains available as a diagnostic).")
 
@@ -6649,8 +6724,9 @@ def configuration_from_document(doc: dict) -> Configuration:
                             "thermochemistry.cea_python", required=False)
     py_insert = _string_array(cea_py_block, "insert_species",
                               "thermochemistry.cea_python", required=False)
-    # molecular_weight: since v0.5.0-alpha the gas-phase EOS and the nozzle use
-    # the GAS-PHASE molecular weight exclusively.  A leftover "total_MW" is
+    # molecular_weight: since v0.5.0-alpha the chamber EOS and the nozzle use
+    # M_CEA = EqSolution.M = 1/n [kg-total/kmol-gas] exclusively (token name
+    # 'gas_phase_M' is a frozen compatibility name).  A leftover "total_MW" is
     # rejected with an explicit migration message - it is NEVER substituted
     # silently.
     py_mw_raw = cea_py_block.get("molecular_weight", "gas_phase_M")
@@ -6658,10 +6734,11 @@ def configuration_from_document(doc: dict) -> Configuration:
         raise ConfigurationError(
             "thermochemistry.cea_python.molecular_weight = 'total_MW' is no "
             "longer accepted (v0.5.0-alpha).\n"
-            "  The two-phase chamber EOS p*Vg = mt*Yg(p)*Rg(p)*T0(p) and the "
-            "nozzle model require the GAS-PHASE molecular weight; feeding the "
-            "total molecular weight (which includes condensed species) into a "
-            "gas-phase EOS is physically inconsistent.\n"
+            "  The two-phase chamber EOS and the nozzle model use "
+            "M_CEA = EqSolution.M = 1/EqSolution.n [kg-total/kmol-gas] "
+            "(R_eff = Ru/M_CEA = Yg*R_gas); feeding EqSolution.MW (whose mole "
+            "count includes condensed species) into the EOS is physically "
+            "inconsistent.\n"
             "  Set molecular_weight = 'gas_phase_M'.  The total molecular "
             "weight remains available as the diagnostic column "
             "'total_molecular_weight_kg_kmol' in the property table and "

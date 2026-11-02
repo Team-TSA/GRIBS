@@ -2585,9 +2585,13 @@ def test_direct_summarize_rejects_unusable_phase_fraction_validation(monkeypatch
 
 @pytest.mark.fast
 def test_direct_summarize_legacy_and_inactive_two_phase_keep_previous_behavior(monkeypatch):
+    # P1 (K-02): legacy -> regression_comparison_only, inactive two-phase ->
+    # in_scope_not_validated; both map back to the former validated_in_scope.
     legacy = _direct_summarize(monkeypatch, {}, two_phase_mode=gribs.TWO_PHASE_SINGLE_LEGACY)
-    assert legacy["validation"]["model_status"] == "validated_in_scope"
+    assert legacy["validation"]["model_status"] == "regression_comparison_only"
+    assert legacy["validation"]["status_previous_tokens"]["model_status"] == "validated_in_scope"
     inactive = _direct_summarize(monkeypatch, {}, supports_two_phase=False)
-    assert inactive["validation"]["model_status"] == "validated_in_scope"
+    assert inactive["validation"]["model_status"] == "in_scope_not_validated"
+    assert inactive["validation"]["status_previous_tokens"]["model_status"] == "validated_in_scope"
     valid = _direct_summarize(monkeypatch, {"gas_mass_fraction_min": 0.8, "gas_mass_fraction_max": 1.0})
     assert valid["validation"]["model_status"] == "approximate_with_limitations"
