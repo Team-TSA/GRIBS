@@ -3880,11 +3880,16 @@ def phase_fraction_validation_error(
             reported[key] = "<missing>"
             continue
         raw = table[key]
-        reported[key] = repr(raw)
+        reported[key] = repr(raw)[:200]
         if isinstance(raw, bool) or not isinstance(raw, (int, float, np.integer, np.floating)):
             problems.append(f"not_a_number:{key}")
             continue
-        value = float(raw)
+        try:
+            value = float(raw)
+        except (OverflowError, ValueError, TypeError):
+            # e.g. a Python int beyond the float range (10**400)
+            problems.append(f"not_representable:{key}")
+            continue
         if not math.isfinite(value):
             problems.append(f"non_finite:{key}")
             continue

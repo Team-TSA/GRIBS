@@ -2433,6 +2433,8 @@ def test_reference_backend_states_its_analytic_phase_fractions(tmp_path):
         ({"gas_mass_fraction_min": -0.1, "gas_mass_fraction_max": 1.0}, "invalid_range"),
         ({"gas_mass_fraction_min": 0.95, "gas_mass_fraction_max": 0.9}, "invalid_range"),
         ({"gas_mass_fraction_min": 0.9, "gas_mass_fraction_max": 1.2}, "invalid_range"),
+        ({"gas_mass_fraction_min": 10**400, "gas_mass_fraction_max": 1.0}, "not_representable:gas_mass_fraction_min"),
+        ({"gas_mass_fraction_min": 0.9, "gas_mass_fraction_max": -(10**400)}, "not_representable:gas_mass_fraction_max"),
     ],
 )
 def test_invalid_phase_fraction_validation_is_a_distinct_structured_error(
@@ -2569,7 +2571,11 @@ def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, sup
 
 
 @pytest.mark.fast
-@pytest.mark.parametrize("property_validation", [{}, {"gas_mass_fraction_min": float("nan"), "gas_mass_fraction_max": 1.0}])
+@pytest.mark.parametrize("property_validation", [
+    {},
+    {"gas_mass_fraction_min": float("nan"), "gas_mass_fraction_max": 1.0},
+    {"gas_mass_fraction_min": 10**400, "gas_mass_fraction_max": 1.0},
+])
 def test_direct_summarize_rejects_unusable_phase_fraction_validation(monkeypatch, property_validation):
     with pytest.raises(gribs.PhaseFractionValidationError) as info:
         _direct_summarize(monkeypatch, property_validation)
