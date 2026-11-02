@@ -5766,7 +5766,8 @@ def make_figure(res, h, s, c: Config, path: Path, cea_diag: Optional[dict] = Non
         f"{'total mass consistency':<24}{s['total_mass_consistency_error']:>11.2e}",
         f"{'property extrapolation':<24}{str(s['property_extrapolation']):>11s}",
     ]
-    if cea_diag:
+    cea_status, _cea_missing, cea_invalid = cea_diagnostics_status(cea_diag)
+    if cea_status == "ok":
         lines += [
             "",
             "CEA theoretical (comparison only)",
@@ -5775,6 +5776,25 @@ def make_figure(res, h, s, c: Config, path: Path, cea_diag: Optional[dict] = Non
             f"  {'Isp':<18}{cea_diag['cea_theoretical_isp_s']:>11.2f} s",
             f"  {'GRIBS c* (effective)':<18}{s['cstar_eff_m_s']:>11.1f} m/s",
         ]
+    elif cea_status != "not_requested":
+        # Show the diagnostic state; never draw a substituted CEA value.
+        def _fig_value(key: str, fmt: str, unit: str) -> str:
+            if not isinstance(cea_diag, dict) or key not in cea_diag:
+                return f"{'n/a':>11}"
+            if key in cea_invalid:
+                return f"{'invalid':>11}"
+            return f"{format(cea_diag[key], fmt):>11} {unit}"
+        lines += [
+            "",
+            f"CEA theoretical (comparison only): {cea_status.upper()}",
+        ]
+        if cea_status != "failed":
+            lines += [
+                f"  {'c*':<18}{_fig_value('cea_theoretical_cstar_m_s', '.1f', 'm/s')}",
+                f"  {'CF':<18}{_fig_value('cea_theoretical_cf', '.4f', '-')}",
+                f"  {'Isp':<18}{_fig_value('cea_theoretical_isp_s', '.2f', 's')}",
+            ]
+        lines.append(f"  {'GRIBS c* (effective)':<18}{s['cstar_eff_m_s']:>11.1f} m/s")
     if ev.get("unchoked"):
         lines.append(f"{'first unchoking at':<24}{ev['unchoked'][0]*1e3:>11.3f} ms")
     if ev.get("rechoked"):
@@ -6094,7 +6114,8 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
       f"{100.0*s['property_extrapolation_fraction']:.3f} %)")
     A(f"  pressure range visited           : {s['pressure_min_Pa']:.6g} - "
       f"{s['pressure_max_Pa']:.6g} Pa")
-    if cea_diag:
+    cea_status, cea_missing, cea_invalid = cea_diagnostics_status(cea_diag)
+    if cea_status == "ok":
         A("  CEA theoretical comparison only (never used by the GRIBS model):")
         A(f"    cea_theoretical_cstar_m_s      : {cea_diag['cea_theoretical_cstar_m_s']:.3f}")
         A(f"    cea_theoretical_cf             : {cea_diag['cea_theoretical_cf']:.5f}")
@@ -6103,9 +6124,29 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
         A(f"    evaluation                     : "
           f"{cea_diag['cea_theoretical_exit_definition']} at "
           f"p_c = {cea_diag['cea_theoretical_chamber_pressure_Pa']/1e6:.6f} MPa")
+    elif cea_status != "not_requested":
+        A("  CEA theoretical comparison only (never used by the GRIBS model):")
+        A(f"    status                         : {cea_status} "
+          "(no CEA comparison value is substituted)")
+        if cea_status == "failed":
+            A(f"    error                          : {cea_diag.get('cea_theoretical_error')}")
+        else:
+            if cea_missing:
+                A(f"    missing fields                 : {', '.join(cea_missing)}")
+            if cea_invalid:
+                A(f"    invalid fields                 : {', '.join(cea_invalid)}")
+            if isinstance(cea_diag, dict):
+                for _key, _fmt in (("cea_theoretical_cstar_m_s", ".3f"),
+                                   ("cea_theoretical_cf", ".5f"),
+                                   ("cea_theoretical_isp_s", ".4f"),
+                                   ("cea_theoretical_isp_vacuum_s", ".4f")):
+                    A(f"    {_key:<31}: "
+                      f"{_cea_diag_display(cea_diag, _key, _fmt, cea_invalid)}")
+    if cea_status != "not_requested":
         A(f"    GRIBS effective c*             : {s['cstar_eff_m_s']:.3f} m/s")
         A(f"    GRIBS effective CF             : {s['CF_eff']:.5f}")
         A(f"    GRIBS effective Isp            : {s['Isp_s']:.4f} s")
+    if cea_status == "ok":
         A("    note: both sets are reported side by side for context.  The CEA")
         A("          station values follow the conventions of the official package")
         A("          (throat c* is the theoretical characteristic velocity and the")
@@ -7326,9 +7367,79 @@ def _print_backend_banner(cfg: Config, backend: ThermochemistryBackend) -> None:
     print(f"  bulk rho_p used       : {cfg.rho_p:.6f} kg/m3")
 
 
+# Fields of the CEA theoretical diagnostics that the text summary and the
+# figure display.  Numeric fields must be finite real numbers; the exit
+# definition must be a string.
+_CEA_DIAG_DISPLAY_NUMERIC_FIELDS = (
+    "cea_theoretical_cstar_m_s",
+    "cea_theoretical_cf",
+    "cea_theoretical_isp_s",
+    "cea_theoretical_isp_vacuum_s",
+    "cea_theoretical_chamber_pressure_Pa",
+)
+_CEA_DIAG_DISPLAY_TEXT_FIELDS = ("cea_theoretical_exit_definition",)
+
+
+def _cea_diag_value_ok(key: str, value: Any) -> bool:
+    if key in _CEA_DIAG_DISPLAY_TEXT_FIELDS:
+        return isinstance(value, str)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, ValueError, TypeError):
+        return False
+
+
+def cea_diagnostics_status(cea_diag: Optional[dict]) -> Tuple[str, List[str], List[str]]:
+    """Classify CEA theoretical diagnostics for the output writers.
+
+    Returns ``(status, missing_fields, invalid_fields)`` with status
+      'not_requested' : None (diagnostics disabled or not applicable),
+      'failed'        : the diagnostic computation raised (error recorded),
+      'ok'            : every displayed field is present and valid, and no
+                        other cea_theoretical_* number is non-finite,
+      'incomplete'    : displayed fields are missing (none invalid),
+      'invalid'       : a field is non-finite / of the wrong type.
+    Never used by the GRIBS model or the run verdict.
+    """
+    if cea_diag is None:
+        return "not_requested", [], []
+    if not isinstance(cea_diag, dict):
+        return "invalid", [], ["<not a mapping>"]
+    if "cea_theoretical_error" in cea_diag:
+        return "failed", [], []
+    display = _CEA_DIAG_DISPLAY_NUMERIC_FIELDS + _CEA_DIAG_DISPLAY_TEXT_FIELDS
+    missing = [k for k in display if k not in cea_diag]
+    invalid = [k for k in display if k in cea_diag and not _cea_diag_value_ok(k, cea_diag[k])]
+    for k, v in cea_diag.items():
+        if (k not in display and isinstance(v, float) and not math.isfinite(v)):
+            invalid.append(k)
+    if invalid:
+        return "invalid", missing, invalid
+    if missing:
+        return "incomplete", missing, invalid
+    return "ok", [], []
+
+
+def _cea_diag_display(cea_diag: dict, key: str, fmt: str, invalid: Sequence[str]) -> str:
+    """Formatted value, or an explicit marker; never a substituted number."""
+    if key not in cea_diag:
+        return "unavailable (missing)"
+    if key in invalid:
+        return f"invalid ({cea_diag[key]!r})"
+    return format(cea_diag[key], fmt)
+
+
 def _cea_theoretical_diagnostics(cfg: Config, backend: ThermochemistryBackend,
                                  summ: dict) -> Optional[dict]:
-    """Theoretical CEA rocket comparison values (never fed back into GRIBS)."""
+    """Theoretical CEA rocket comparison values (never fed back into GRIBS).
+
+    A failed, incomplete or invalid diagnostic is returned with an explicit
+    ``cea_theoretical_status`` (plus the error or the missing / invalid field
+    names) so that it is preserved in summary.json and shown in the text
+    summary and the figure; a successful result is returned unchanged.
+    """
     if not getattr(cfg, "cea_py_rocket_diagnostics", False):
         return None
     if not hasattr(backend, "theoretical_rocket_performance"):
@@ -7337,11 +7448,24 @@ def _cea_theoretical_diagnostics(cfg: Config, backend: ThermochemistryBackend,
     if not (isinstance(p_ref, float) and math.isfinite(p_ref) and p_ref > 0.0):
         p_ref = summ.get("p_max_Pa")
     try:
-        return backend.theoretical_rocket_performance(float(p_ref), float(cfg.eps_nozzle))
+        result = backend.theoretical_rocket_performance(float(p_ref), float(cfg.eps_nozzle))
     except Exception as exc:                                   # diagnostic only
         print(f"WARNING: CEA theoretical rocket diagnostics unavailable: "
               f"{type(exc).__name__}: {exc}")
-        return {"cea_theoretical_error": f"{type(exc).__name__}: {exc}"}
+        return {"cea_theoretical_status": "failed",
+                "cea_theoretical_error": f"{type(exc).__name__}: {exc}"}
+    status, missing, invalid = cea_diagnostics_status(result)
+    if status == "ok":
+        return result
+    annotated = dict(result) if isinstance(result, dict) else {"cea_theoretical_raw": repr(result)[:200]}
+    annotated["cea_theoretical_status"] = status
+    if missing:
+        annotated["cea_theoretical_missing_fields"] = list(missing)
+    if invalid:
+        annotated["cea_theoretical_invalid_fields"] = list(invalid)
+    print(f"WARNING: CEA theoretical rocket diagnostics {status}: "
+          f"missing={list(missing)} invalid={list(invalid)}")
+    return annotated
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
