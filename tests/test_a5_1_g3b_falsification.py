@@ -116,20 +116,62 @@ def _run_cstar_ratio(path, tmp_path):
     assert rc == 0
     summary = json.loads((tmp_path / "out" / "summary.json").read_text())
     res = summary["results"]
-    cea_cstar = summary["results"]["cea_theoretical_diagnostics"]["cea_theoretical_cstar_m_s"] \
-        if "cea_theoretical_diagnostics" in res else _find(summary, "cea_theoretical_cstar_m_s")
+    cea_cstar = _cea_theoretical_cstar(summary)
     return res["cstar_eff_m_s"] / cea_cstar, res["gas_mass_fraction_min"]
 
 
-def _find(obj, key):
-    if isinstance(obj, dict):
-        if key in obj:
-            return obj[key]
-        for v in obj.values():
-            r = _find(v, key)
-            if r is not None:
-                return r
-    return None
+def _cea_theoretical_cstar(summary):
+    """CEA theoretical c* (oracle O2) from summary.json, or a clear test failure.
+
+    The diagnostics are the top-level ``cea_theoretical_diagnostics`` object.
+    Since fafe199 a failed, incomplete or invalid diagnostic is kept in the
+    summary with ``cea_theoretical_status``; the oracle is then unavailable and
+    the test must say so instead of failing later with a TypeError.
+    """
+    if "cea_theoretical_diagnostics" not in summary:
+        pytest.fail("CEA theoretical diagnostics missing from summary.json")
+    diag = summary["cea_theoretical_diagnostics"]
+    if not isinstance(diag, dict):
+        pytest.fail(f"CEA theoretical diagnostics not available: {diag!r}")
+    status = diag.get("cea_theoretical_status")
+    if status is not None:
+        pytest.fail(
+            f"CEA theoretical diagnostic unavailable: status={status!r}, "
+            f"error={diag.get('cea_theoretical_error')!r}, "
+            f"missing={diag.get('cea_theoretical_missing_fields')!r}, "
+            f"invalid={diag.get('cea_theoretical_invalid_fields')!r}")
+    cstar = diag.get("cea_theoretical_cstar_m_s")
+    if (isinstance(cstar, bool) or not isinstance(cstar, (int, float))
+            or not math.isfinite(cstar) or cstar <= 0.0):
+        pytest.fail(f"CEA theoretical c* is not a positive finite number: {cstar!r}")
+    return float(cstar)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("diag, expected", [
+    ({"cea_theoretical_cstar_m_s": 1555.25}, 1555.25),
+    ({"cea_theoretical_status": "failed",
+      "cea_theoretical_error": "ThermochemistryError: boom"}, "status='failed'"),
+    ({"cea_theoretical_cstar_m_s": float("nan"), "cea_theoretical_status": "invalid",
+      "cea_theoretical_invalid_fields": ["cea_theoretical_cstar_m_s"]}, "status='invalid'"),
+    ({"cea_theoretical_status": "incomplete",
+      "cea_theoretical_missing_fields": ["cea_theoretical_cstar_m_s"]}, "status='incomplete'"),
+    ({}, "not a positive finite number"),
+    ({"cea_theoretical_cstar_m_s": float("inf")}, "not a positive finite number"),
+    (None, "not available"),
+    ("<absent>", "missing from summary.json"),
+])
+def test_cea_theoretical_cstar_reader(diag, expected):
+    """Oracle reader: success returns c*; failed / invalid / incomplete /
+    missing diagnostics give a clear failure, never a TypeError."""
+    summary = {"results": {}}
+    if diag != "<absent>":
+        summary["cea_theoretical_diagnostics"] = diag
+    if isinstance(expected, float):
+        assert _cea_theoretical_cstar(summary) == expected
+    else:
+        with pytest.raises(pytest.fail.Exception, match=expected.replace("(", r"\(")):
+            _cea_theoretical_cstar(summary)
 
 
 @pytest.mark.integration
