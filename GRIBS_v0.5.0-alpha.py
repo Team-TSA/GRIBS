@@ -192,6 +192,7 @@ import csv
 import hashlib
 import importlib
 import importlib.metadata as importlib_metadata
+import dataclasses
 import json
 import math
 import os
@@ -3424,6 +3425,11 @@ def run_model(c: Config) -> dict:
 
 
 def validate(c: Config) -> None:
+    # PROTOTYPE V (r349): every float field of Config must be finite (also for Config objects built directly).
+    for _f in dataclasses.fields(c):
+        _v = getattr(c, _f.name)
+        if isinstance(_v, float) and not math.isfinite(_v):
+            raise ValueError(f"{_f.name} must be a finite number, got {_v!r}.")
     if c.R_i0 >= c.R_p:
         raise ValueError("R_i0 must be smaller than R_p.")
     for name in ("rho_p", "a_burn", "p_ref", "R_p", "L_p0", "V_g0", "R_t0",
@@ -6777,8 +6783,11 @@ def _load_document(path: Path) -> Tuple[dict, List[str]]:
         raise ConfigurationError(
             f"Configuration file not found: {path}\n"
             "Place gribs_config.json beside the Python file or use --config.")
+    def _reject_nonstandard_constant(token):              # PROTOTYPE P1 (r345)
+        raise ConfigurationError(
+            f"{path}: non-standard JSON constant {token!r} (NaN / Infinity are not valid JSON, RFC 8259).")
     try:
-        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc = json.loads(path.read_text(encoding="utf-8"), parse_constant=_reject_nonstandard_constant)
     except json.JSONDecodeError as exc:
         raise ConfigurationError(
             f"{path}: configuration is not valid JSON.\nOriginal error: {exc}") from exc
@@ -6826,8 +6835,20 @@ def _load_document(path: Path) -> Tuple[dict, List[str]]:
     return doc, notes
 
 
+def _reject_nonfinite_values(node, path="root"):          # PROTOTYPE P2 (r345)
+    if isinstance(node, dict):
+        for k, v in node.items():
+            _reject_nonfinite_values(v, f"{path}.{k}")
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            _reject_nonfinite_values(v, f"{path}[{i}]")
+    elif isinstance(node, float) and not math.isfinite(node):
+        raise ConfigurationError(f"{path}: non-finite number {node!r} is not allowed in a configuration.")
+
+
 def configuration_from_document(doc: dict) -> Configuration:
     """Validate a v0.5 document and build the runtime configuration."""
+    _reject_nonfinite_values(doc)
     root = _mapping(doc, "root")
     _reject_unknown(root, _ROOT_KEYS, "root")
     # optional free-text notes carried by the configuration (documentation only)
