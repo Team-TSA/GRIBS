@@ -287,7 +287,7 @@ These values are for comparison only. They are not fed back into the GRIBS unste
 | 0 | Run passed, or a mass-ledger-only failure was explicitly allowed. The diagnostic outputs still record the failed ledger. |
 | 1 | Run verification gate or standalone self-test failed; also used for model-applicability rejection. |
 | 2 | Configuration is invalid. |
-| 3 | Thermochemistry backend initialization failed. |
+| 3 | Thermochemistry backend initialization failed, including a failure to write the chamber-property cache (`E_THERMO_CACHE_WRITE_FAILED`). |
 | 4 | Simulation/integration failed. |
 | 5 | Mass-ledger verification failed while the other run-verification gates passed. |
 
@@ -356,6 +356,66 @@ results/
 - `summary.txt`: human-readable result summary
 - `summary.json`: configuration, resolved runtime inputs, derived values, environment information, thermochemistry provenance, diagnostics, and results
 - `thermo_cache/`: reusable pressure-dependent chamber-property tables
+
+### Chamber-property cache writes and concurrent runs
+
+When a table is built or rebuilt, GRIBS writes it to a temporary file in the cache
+directory (`.<name>.<pid>.<random>.tmp`), syncs it, publishes it under the cache name and
+syncs the cache directory. Readers never see a partially written cache file.
+
+- A failure while writing the cache stops the run with exit code 3 and the structured
+  error `E_THERMO_CACHE_WRITE_FAILED`. Its `context` gives `phase`, `step`, `replaced`
+  (whether this run changed the cache name) and `temp_cleanup` (what happened to this
+  run's temporary file). There is no fallback to an in-place write.
+- If syncing the cache directory is not supported (`ENOTSUP` / `EOPNOTSUPP`), the run
+  continues and records the warning `W_THERMO_CACHE_DURABILITY_NOT_GUARANTEED`.
+- Survival of the cache after a crash or power loss is not guaranteed. In particular, when
+  GRIBS creates a new cache directory, the parent of that directory is not synced, so the
+  new directory and its cache may not survive a power loss.
+
+Operating assumptions:
+
+1. Restrict access to the cache directory: only trusted users of this cache may write to
+   it. Temporary files are visible in the directory while a table is written; restrict
+   read and search access to the directory if their content must not be readable by
+   others.
+2. Use the same permission settings (umask, default ACL of the directory) for all runs
+   that write to the same cache directory. A setgid directory aligns the group only, not
+   the mode.
+3. Runs that write the same cache (same key) must produce the same content from the same
+   inputs.
+
+Concurrent runs under these assumptions (verified for one user on ext4, with threads in
+one process and with 2 to 4 synchronised processes):
+
+- If every run observed that the cache did not exist, the first run to publish keeps its
+  file (inode and permissions). A later run with identical content adopts that file,
+  removes its own temporary file and syncs the directory itself. New caches are published
+  without replacing an existing name: by a hard link, or by
+  `renameat2(RENAME_NOREPLACE)` where hard links are not available (Linux, glibc 2.28 or
+  later). If neither is available, nothing is published and the run exits with code 3.
+- A run that observes an existing cache rebuilds it. The cache name then refers to a new
+  file (new inode) with the same content; group, extended attributes and mode are copied
+  from the existing cache, so permissions are not widened.
+- Runs that write different content for the same cache are outside these assumptions.
+  Depending on timing, a later run either stops with exit code 3 without replacing the
+  cache, or replaces it.
+
+Compatibility notes (differences from earlier versions):
+
+- Exit code 3 is returned when rebuilding an existing cache that this user cannot read,
+  when creating a new cache that this user could not read back (for example with umask
+  0466), when rebuilding a cache inside a read-only directory, when a FIFO or another
+  non-regular file is at the cache name (GRIBS does not wait on it), and when creating a
+  new cache on a file system that supports neither hard links nor
+  `renameat2(RENAME_NOREPLACE)`.
+- The inode of the cache file changes when it is rebuilt, and a hard-linked alias is not
+  updated. After a forced kill (SIGKILL) a temporary file may remain; it is not removed
+  automatically.
+
+Not tested: other users (UIDs), other file systems (for example NFS), other hosts, file
+systems without hard links (simulated only), `security.*` / `trusted.*` extended
+attributes, SELinux, device files (tested with a FIFO only), and power loss.
 
 ### Example output
 

@@ -782,6 +782,7 @@ class PressureTableBackend(ThermochemistryBackend):
         self.cache_path = self.cache_root / f"{self.table_stem}_{self.key}.json"
         self.cache_used = False
         self.cache_written = False
+        self.cache_write_durability = None      # PROTOTYPE cache v4: set only when directory fsync is unsupported
 
         if (c.cea_cache_enabled and not c.cea_rebuild_cache
                 and self.cache_path.is_file()):
@@ -801,9 +802,21 @@ class PressureTableBackend(ThermochemistryBackend):
             table = self._build_table()
             self._validate_mass_basis_table(table, table_source="generated")
             if c.cea_cache_enabled:
-                self.cache_root.mkdir(parents=True, exist_ok=True)
-                self.cache_path.write_text(
-                    json.dumps(table, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+                try:                                           # PROTOTYPE cache v7 (r424)
+                    self.cache_root.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    raise _cache_write_failed(_CacheWriteError(
+                        "create_directory", "create_directory", self.cache_root, exc, False,
+                        {"status": "not_created", "created": False})) from exc
+                try:
+                    self.cache_write_durability = _cache_atomic_write_text(
+                        self.cache_path, json.dumps(table, indent=2, sort_keys=False) + "\n")
+                except _CacheWriteError as exc:
+                    raise _cache_write_failed(exc) from exc
+                if self.cache_write_durability is not None:
+                    print("WARNING: chamber-property cache written, but fsync of its directory is not supported "
+                          f"here ({self.cache_write_durability['error']}); its durability after a crash or power "
+                          "loss is not guaranteed", file=sys.stderr)
                 self.cache_written = True
         self.table = table
         self._load_table(table)
@@ -2937,6 +2950,393 @@ def build_backend(c: Config, reactants: Sequence[ReactantSpec],
     raise ConfigurationError(
         f"thermochemistry.backend: unknown backend {c.thermo_backend!r}. "
         f"Set it explicitly to one of: {', '.join(KNOWN_BACKENDS)}.")
+
+
+class _CacheWriteError(Exception):
+    """PROTOTYPE cache v4: failing phase / step of a cache write, plus the outcome of the temp-file cleanup."""
+
+    def __init__(self, phase, step, path, original, replaced, cleanup):
+        super().__init__(f"{phase}/{step}: {type(original).__name__}: {original}")
+        self.phase, self.step, self.path = phase, step, str(path)
+        self.original, self.replaced, self.cleanup = original, bool(replaced), dict(cleanup or {})
+
+
+_CACHE_CLEANUP_TEXT = {
+    "not_created": "no temporary file had been created",
+    "removed": "this run's temporary file was removed",
+    "already_absent": "this run's temporary file was no longer present",
+    "left_untouched_not_this_runs_file": ("the temporary name no longer referred to this run's file; whatever is "
+                                          "there now was left untouched"),
+    "not_applicable": "the temporary file itself had been renamed onto the cache name",
+    "left_unidentified": ("this run created a temporary file but could not identify it, so it was NOT removed; "
+                          "it may remain"),
+    "present": "this run's temporary name was still present (no removal was attempted)",
+}
+
+
+def _cache_write_failed(err):
+    c = err.cleanup or {}
+    if c.get("status") == "failed":
+        cleanup = (f"this run's temporary file could NOT be removed ({c.get('error')}); it was left at "
+                   f"{c.get('path')}")
+    elif c.get("status") == "left_unidentified":
+        cleanup = f"{_CACHE_CLEANUP_TEXT['left_unidentified']} (at {c.get('path')})"
+    else:
+        cleanup = _CACHE_CLEANUP_TEXT.get(c.get("status"), "temporary-file state unknown")
+    if err.phase == "adopt_existing":
+        state = ("this run did not change the cache name: an identical cache published by another run was adopted, "
+                 "but this run could not finish its own steps (temp removal / directory sync / close)")
+    elif err.replaced:
+        state = ("the cache name was changed by this run (published or replaced), so any previous cache is gone; "
+                 "the new file's identity or durability could not be confirmed")
+    elif err.phase == "create_directory":
+        state = "the cache directory could not be created; no cache file was written"
+    else:
+        state = "this run did not replace the cache file (an existing cache, if any, was not modified by this run)"
+    exc = err.original
+    return ThermochemistryCacheError(
+        f"Chamber-property cache could not be written ({err.phase}, {err.step}): {err.path}\n"
+        f"Original error: {type(exc).__name__}: {exc}\n{state}; {cleanup}.",
+        code="E_THERMO_CACHE_WRITE_FAILED",
+        context={"phase": err.phase, "step": err.step, "path": err.path,
+                 "error": f"{type(exc).__name__}: {exc}", "errno": getattr(exc, "errno", None),
+                 "replaced": err.replaced, "temp_cleanup": c})
+
+
+def _cache_rename_noreplace(src, dst, dir_fd) -> None:
+    """PROTOTYPE cache v7: renameat2(dir_fd, src, dir_fd, dst, RENAME_NOREPLACE) through the C library.
+    Raises FileExistsError if dst exists, OSError(ENOSYS) if the call is not available, OSError(errno) otherwise."""
+    import ctypes
+    import errno
+    try:
+        fn = ctypes.CDLL(None, use_errno=True).renameat2
+    except (OSError, AttributeError) as exc:
+        raise OSError(errno.ENOSYS, "renameat2 is not available in this C library") from exc
+    fn.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    fn.restype = ctypes.c_int
+    if fn(dir_fd, os.fsencode(src), dir_fd, os.fsencode(dst), 1) != 0:   # 1 = RENAME_NOREPLACE
+        e = ctypes.get_errno()
+        raise OSError(e, os.strerror(e), dst)
+
+
+def _cache_write_checkpoint(stage, dir_fd, temp_name):
+    """No-op test seam (PROTOTYPE): stages 'temp_created', 'attributes_set', 'before_replace', 'after_replace'."""
+
+
+def _cache_atomic_write_text(path, text: str):
+    """PROTOTYPE cache v7.  Returns None, or a dict when fsync of the directory is unsupported (ENOTSUP /
+    EOPNOTSUPP): durability not guaranteed.  Raises _CacheWriteError otherwise.
+    Assumes a trusted cache directory (writable only by trusted principals); the name checks narrow, but do not
+    close, rename races.  Concurrent writers of one key are assumed to write identical bytes."""
+    import errno
+    import stat as _stat
+    import uuid
+    UNSUP = {errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}
+    NOLINK = {errno.EPERM, errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP), errno.EMLINK}
+    RD = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC
+    path = Path(path)
+    target = Path(os.path.realpath(path)) if path.is_symlink() else path
+    parent, name = target.parent, target.name
+    tmp_name = f".{name}.{os.getpid()}.{uuid.uuid4().hex[:12]}.tmp"
+    st = {"step": "open_directory", "dfd": None, "fd": None, "tmp_id": None, "created": False,
+          "mode": None, "use_existing": False}
+    data = text.encode("utf-8")
+
+    def ident(x):
+        return (x.st_dev, x.st_ino)
+
+    def close_fd():
+        if st["fd"] is not None:
+            fd, st["fd"] = st["fd"], None
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+    def cleanup():
+        where = str(parent / tmp_name)
+        if not st["created"]:
+            close_fd()
+            return {"status": "not_created", "created": False}
+        if st["tmp_id"] is None and st["fd"] is not None:
+            try:                                         # identify it through our own descriptor
+                st["tmp_id"] = ident(os.fstat(st["fd"]))
+            except OSError:
+                pass
+        close_fd()
+        if st["tmp_id"] is None:
+            return {"status": "left_unidentified", "created": True, "path": where,
+                    "note": "created by this run but could not be identified, so it was not removed"}
+        try:
+            cur = os.stat(tmp_name, dir_fd=st["dfd"], follow_symlinks=False)
+        except FileNotFoundError:
+            return {"status": "already_absent", "created": True, "path": where}
+        except OSError as e:
+            return {"status": "failed", "created": True, "path": where, "error": f"{type(e).__name__}: {e}"}
+        if ident(cur) != st["tmp_id"] or not _stat.S_ISREG(cur.st_mode):
+            return {"status": "left_untouched_not_this_runs_file", "created": True, "path": where}
+        try:
+            os.unlink(tmp_name, dir_fd=st["dfd"])
+        except OSError as e:
+            return {"status": "failed", "created": True, "path": where, "error": f"{type(e).__name__}: {e}"}
+        return {"status": "removed", "created": True, "path": where}
+
+    def close_dir():
+        if st["dfd"] is not None:
+            d, st["dfd"] = st["dfd"], None
+            os.close(d)
+
+    def open_regular(nm):
+        """Open nm in the pinned directory only if it is a regular file: lstat first (a FIFO / device / symlink is
+        rejected without being opened), then a non-blocking, non-following open, then fstat again."""
+        pre = os.stat(nm, dir_fd=st["dfd"], follow_symlinks=False)
+        if not _stat.S_ISREG(pre.st_mode):
+            raise OSError(errno.EINVAL, f"not a regular file (mode {oct(pre.st_mode)})", str(parent / nm))
+        fd = os.open(nm, RD, dir_fd=st["dfd"])
+        try:
+            fs = os.fstat(fd)
+            if not _stat.S_ISREG(fs.st_mode):
+                raise OSError(errno.EINVAL, "not a regular file", str(parent / nm))
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd, fs
+
+    def same_bytes(fd):
+        chunks, size = [], 0
+        while size <= len(data):
+            b = os.read(fd, 1 << 16)
+            if not b:
+                break
+            chunks.append(b)
+            size += len(b)
+        return b"".join(chunks) == data
+
+    # ---------------- before publishing: nothing visible changes under the cache name -------------------------
+    try:
+        st["dfd"] = os.open(str(parent), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        dfd = st["dfd"]
+        st["step"] = "inspect_existing"
+        old, old_x = None, {}
+        try:
+            ofd, old = open_regular(name)               # attributes come from the file actually opened
+        except FileNotFoundError:
+            ofd = None
+        if ofd is not None:
+            try:
+                old_x = {k: os.getxattr(ofd, k) for k in os.listxattr(ofd)}
+            finally:
+                os.close(ofd)
+            if old.st_uid != os.getuid():
+                raise PermissionError(errno.EPERM, "cache file owned by another user; its owner cannot be kept "
+                                      "by an atomic replacement", str(target))
+            if not os.access(name, os.W_OK, dir_fd=dfd):
+                raise PermissionError(errno.EACCES, "Permission denied", str(target))
+        st["step"] = "create_temp"
+        st["fd"] = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                           0o600 if old is not None else 0o666, dir_fd=dfd)
+        st["created"] = True
+        fd = st["fd"]
+        st["tmp_id"] = ident(os.fstat(fd))
+        _cache_write_checkpoint("temp_created", dfd, tmp_name)
+        if old is not None:                              # attributes on the fd, BEFORE any content
+            st["step"] = "set_attributes"
+            if os.fstat(fd).st_gid != old.st_gid:
+                os.fchown(fd, -1, old.st_gid)
+            for k in set(os.listxattr(fd)) - set(old_x):  # e.g. inherited default ACL
+                os.removexattr(fd, k)
+            for k, v in old_x.items():
+                try:
+                    same = os.getxattr(fd, k) == v
+                except OSError:
+                    same = False
+                if not same:
+                    os.setxattr(fd, k, v)
+            if "system.posix_acl_access" not in old_x:
+                os.fchmod(fd, _stat.S_IMODE(old.st_mode))
+            st["step"] = "verify_attributes"
+            now = os.fstat(fd)
+            got = {k: os.getxattr(fd, k) for k in os.listxattr(fd)}
+            bad = sorted(set(got) ^ set(old_x)) + sorted(k for k in set(got) & set(old_x) if got[k] != old_x[k])
+            if bad or now.st_gid != old.st_gid or _stat.S_IMODE(now.st_mode) != _stat.S_IMODE(old.st_mode):
+                raise OSError(errno.EPERM, "attributes of the existing cache could not be reproduced "
+                              f"(xattrs {bad}, gid {now.st_gid}/{old.st_gid}, mode "
+                              f"{oct(_stat.S_IMODE(now.st_mode))}/{oct(_stat.S_IMODE(old.st_mode))})", str(target))
+        _cache_write_checkpoint("attributes_set", dfd, tmp_name)
+        st["step"] = "write"
+        view = memoryview(data); off = 0
+        while off < len(data):
+            off += os.write(fd, view[off:])
+        st["step"] = "fsync_file"
+        os.fsync(fd)
+        st["step"] = "close_temp"
+        st["fd"] = None
+        os.close(fd)
+        _cache_write_checkpoint("before_replace", dfd, tmp_name)
+        st["step"] = "verify_temp_name"
+        cur = os.stat(tmp_name, dir_fd=dfd, follow_symlinks=False)
+        if ident(cur) != st["tmp_id"] or not _stat.S_ISREG(cur.st_mode):
+            raise OSError(errno.ESTALE, "the temporary name no longer refers to this run's file "
+                          "(the cache directory was modified concurrently)", str(parent / tmp_name))
+        st["step"] = "check_readable"                    # never publish a cache this user cannot read back
+        try:
+            rfd = os.open(tmp_name, RD, dir_fd=dfd)
+        except PermissionError as e:
+            raise PermissionError(errno.EACCES, "the new cache file would not be readable by this user "
+                                  "(umask / default ACL / copied mode); it was not published",
+                                  str(parent / tmp_name)) from e
+        try:
+            if ident(os.fstat(rfd)) != st["tmp_id"]:
+                raise OSError(errno.ESTALE, "the temporary name no longer refers to this run's file",
+                              str(parent / tmp_name))
+        finally:
+            os.close(rfd)
+        if old is None:                                  # new cache: publish without clobbering
+            def adopt_or_refuse():                       # another writer published first
+                st["step"] = "verify_concurrent_existing"
+                efd, _ = open_regular(name)
+                try:
+                    identical = same_bytes(efd)
+                finally:
+                    os.close(efd)
+                if not identical:
+                    raise OSError(errno.EEXIST, "a cache with different content appeared concurrently; it was "
+                                  "left in place", str(target))
+                st["use_existing"] = True
+            st["step"] = "publish_new"
+            try:
+                os.link(tmp_name, name, src_dir_fd=dfd, dst_dir_fd=dfd, follow_symlinks=False)
+                st["mode"] = "link"
+            except FileExistsError:
+                adopt_or_refuse()
+            except OSError as e:
+                if e.errno not in NOLINK:
+                    raise
+                st["step"] = "publish_new_noreplace"     # no hard links: rename WITHOUT replacing, or fail
+                try:
+                    _cache_rename_noreplace(tmp_name, name, dfd)
+                    st["mode"] = "rename_noreplace"
+                except FileExistsError:
+                    adopt_or_refuse()
+                except OSError as e2:
+                    raise OSError(e2.errno or errno.ENOTSUP,
+                                  "no non-clobbering way to publish a new cache on this file system "
+                                  f"(link: {e}; renameat2 RENAME_NOREPLACE: {e2}); nothing was published",
+                                  str(target)) from e2
+        else:
+            st["step"] = "replace"
+            os.rename(tmp_name, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+            st["mode"] = "rename"
+    except BaseException as exc:
+        step = st["step"]
+        c = cleanup()
+        try:
+            close_dir()
+        except OSError:
+            pass
+        if isinstance(exc, OSError):
+            raise _CacheWriteError("before_replace", step, target, exc, False, c) from exc
+        if hasattr(exc, "add_note"):
+            exc.add_note(f"cache temp cleanup: {c}")
+        raise
+    if st["use_existing"]:                               # identical cache already there: adopt it
+        c = {"status": "present", "created": True, "path": str(parent / tmp_name)}
+        try:
+            st["step"] = "remove_temp"
+            c = cleanup()
+            if c.get("status") != "removed":
+                raise OSError(errno.EIO, "an identical cache was already published, but this run's temporary "
+                              f"file could not be removed ({c.get('status')})", str(parent / tmp_name))
+            st["step"] = "fsync_directory"               # make the adopted name durable from our side too
+            warn = None
+            try:
+                os.fsync(st["dfd"])
+            except OSError as e:
+                if e.errno not in UNSUP:
+                    raise
+                warn = {"reason": "directory_fsync_unsupported", "errno": e.errno,
+                        "error": f"{type(e).__name__}: {e}", "directory": str(parent),
+                        "replaced": False, "adopted_existing": True, "durability": "not_guaranteed"}
+            st["step"] = "close_directory"
+            close_dir()
+            return warn
+        except BaseException as exc:
+            step = st["step"]
+            try:
+                close_dir()
+            except OSError:
+                pass
+            if isinstance(exc, OSError):
+                raise _CacheWriteError("adopt_existing", step, target, exc, False, c) from exc
+            if hasattr(exc, "add_note"):
+                exc.add_note(f"cache write interrupted while adopting an identical cache (step {step}); the "
+                             f"cache name was not changed by this run; temp cleanup: {c}")
+            raise
+    # ---------------- after publishing: the cache name holds the new file ------------------------------------
+    where = str(parent / tmp_name)
+
+    def drop_temp_link():                                # remove only the temp NAME; never the cache name
+        try:
+            cur = os.stat(tmp_name, dir_fd=st["dfd"], follow_symlinks=False)
+        except FileNotFoundError:
+            return {"status": "already_absent", "created": True, "path": where}, None
+        except OSError as e:
+            return {"status": "failed", "created": True, "path": where, "error": f"{type(e).__name__}: {e}"}, e
+        if ident(cur) != st["tmp_id"]:
+            return {"status": "left_untouched_not_this_runs_file", "created": True, "path": where}, None
+        try:
+            os.unlink(tmp_name, dir_fd=st["dfd"])
+        except OSError as e:
+            return {"status": "failed", "created": True, "path": where, "error": f"{type(e).__name__}: {e}"}, e
+        return {"status": "removed", "created": True, "path": where}, None
+
+    if st["mode"] == "link":                             # the cache and the temp name share one inode
+        done = {"status": "present", "created": True, "path": where}
+    else:
+        done = {"status": "not_applicable", "created": True}
+    try:
+        st["step"] = "after_rename"
+        _cache_write_checkpoint("after_replace", st["dfd"], tmp_name)
+        if st["mode"] == "link":                         # drop the temporary second name
+            st["step"] = "remove_temp_name"
+            done, err = drop_temp_link()
+            if err is not None:
+                raise err
+        st["step"] = "verify_target"
+        vfd, cur = open_regular(name)                    # never blocks on a FIFO / device
+        try:
+            if ident(cur) != st["tmp_id"] and not same_bytes(vfd):
+                raise OSError(errno.ESTALE, "the cache name refers to a different file with different content "
+                              "(the cache directory was modified concurrently)", str(target))
+        finally:
+            os.close(vfd)
+        st["step"] = "fsync_directory"
+        warn = None
+        try:
+            os.fsync(st["dfd"])
+        except OSError as e:
+            if e.errno not in UNSUP:
+                raise
+            warn = {"reason": "directory_fsync_unsupported", "errno": e.errno,
+                    "error": f"{type(e).__name__}: {e}", "directory": str(parent),
+                    "replaced": True, "durability": "not_guaranteed"}
+        st["step"] = "close_directory"
+        close_dir()
+        return warn
+    except BaseException as exc:
+        step = st["step"]
+        if done.get("status") == "present" and st["dfd"] is not None:
+            done, _ = drop_temp_link()                   # cache name untouched
+        try:
+            close_dir()
+        except OSError:
+            pass
+        if isinstance(exc, OSError):
+            raise _CacheWriteError("after_replace", step, target, exc, True, done) from exc
+        if hasattr(exc, "add_note"):
+            exc.add_note(f"cache write interrupted after publishing (step {step}); the cache name already holds "
+                         f"the new file; directory descriptor closed; temp cleanup: {done}")
+        raise
 
 
 def initialize_thermochemistry(c: Config, default_cache_dir: Path) -> ThermochemistryBackend:
@@ -7639,6 +8039,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "context": {"migration_note": _note},
                 })
                 break
+    _cache_dur = getattr(backend, "cache_write_durability", None)      # PROTOTYPE cache v4
+    if _cache_dur:
+        summ.setdefault("warnings", []).append({
+            "code": "W_THERMO_CACHE_DURABILITY_NOT_GUARANTEED", "severity": "warning",
+            "message": ("The chamber-property cache was written, but fsync of its directory is not supported on "
+                        "this file system; the cache file's durability after a crash or power loss is not "
+                        "guaranteed."),
+            "context": dict(_cache_dur)})
     append_run_verdict_warnings(summ)
     run_passed = run_verdict_passed(summ)
     verification_exit_code = run_verification_exit_code(
