@@ -15,12 +15,15 @@ existing handling of huge integers, and the CLI --backend override.
 """
 import copy
 import dataclasses
+import decimal
+import fractions
 import importlib.util
 import json
 import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -163,3 +166,92 @@ def test_huge_integers_keep_previous_handling():
 def test_backend_override_unchanged(backend, expected):
     p = _validate_cli(next(GOLD.glob("g2_*.json")), "--backend", backend)
     assert p.returncode == expected, p.stderr[-300:]
+
+
+# --- non-float numeric types (NumPy scalars / 0-d arrays / Decimal) ----------
+# Finite values are never converted: a finite long double beyond the float
+# range, huge ints, Fractions and finite NumPy scalars keep their previous
+# handling; only NaN / +-Infinity are rejected.
+
+NONFLOAT_NONFINITE = {
+    "float32-nan": np.float32("nan"), "float32-inf": np.float32("inf"), "float32--inf": np.float32("-inf"),
+    "float16-nan": np.float16("nan"), "float16--inf": np.float16("-inf"),
+    "longdouble-nan": np.longdouble("nan"), "longdouble-inf": np.longdouble("inf"),
+    "array0d-nan": np.array(np.nan), "array0d--inf": np.array(-np.inf),
+    "Decimal-NaN": decimal.Decimal("NaN"), "Decimal-sNaN": decimal.Decimal("sNaN"),
+    "Decimal-Infinity": decimal.Decimal("Infinity"), "Decimal--Infinity": decimal.Decimal("-Infinity"),
+}
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("field", ["p_a", "V_g0", "rtol", "cea_pressure_points"])
+@pytest.mark.parametrize("key", list(NONFLOAT_NONFINITE))
+def test_validate_rejects_nonfinite_nonfloat_types(field, key):
+    config = _config()
+    setattr(config, field, NONFLOAT_NONFINITE[key])
+    with pytest.raises(ValueError, match=f"{field} must be a finite number"):
+        gribs.validate(config)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("value", [np.longdouble("1e400"), np.float32(1.5), np.float16(1.5), np.array(1.5),
+                                   decimal.Decimal("1.5"), fractions.Fraction(3, 2), 10 ** 5000],
+                         ids=["longdouble-1e400", "float32", "float16", "array0d", "Decimal", "Fraction", "huge-int"])
+def test_validate_keeps_finite_nonfloat_values_unchanged(value):
+    config = _config()
+    config.V_g0 = value
+    gribs.validate(config)          # accepted before and after: finiteness only, no float conversion
+    assert config.V_g0 is value
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("path", [("propellant", "burn_law", "erosive_burning", "alpha"),
+                                  ("nozzle", "throat_erosion", "rate_m_s_at_reference_pressure"),
+                                  ("environment", "ambient_pressure_Pa"),
+                                  ("propellant", "reactants", 0, "wt_percent")],
+                         ids=["disabled-alpha", "disabled-throat-rate", "enabled-ambient", "list-wt-percent"])
+@pytest.mark.parametrize("key", list(NONFLOAT_NONFINITE))
+def test_document_rejects_nonfinite_nonfloat_types_in_every_section(path, key):
+    doc = _doc()
+    node = doc
+    for k in path[:-1]:
+        node = node[k]
+    node[path[-1]] = NONFLOAT_NONFINITE[key]
+    with pytest.raises(gribs.ConfigurationError, match="non-finite number"):
+        gribs.configuration_from_document(doc)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("value", [np.float32(-1.0), decimal.Decimal(-1), np.array(-1.0)],
+                         ids=["float32", "Decimal", "array0d"])
+def test_disabled_section_finite_nonfloat_values_keep_previous_behaviour(value):
+    doc = _doc()
+    doc["propellant"]["burn_law"]["erosive_burning"]["alpha"] = value
+    config = gribs.configuration_from_document(doc).config
+    gribs.validate(config)
+    assert config.ero_alpha == 0.0
+
+
+@pytest.mark.fast
+def test_enabled_field_finite_nonfloat_value_keeps_previous_type_error():
+    doc = _doc()
+    doc["environment"]["ambient_pressure_Pa"] = np.float32(101325.0)
+    with pytest.raises(gribs.ConfigurationError, match="expected a number"):
+        gribs.configuration_from_document(doc)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("key", ["float32-nan", "Decimal-Infinity", "array0d-nan"])
+def test_initialize_thermochemistry_alone_rejects_nonfinite(tmp_path, key):
+    config = _config("g1")
+    config.p_a = NONFLOAT_NONFINITE[key]
+    with pytest.raises(ValueError, match="p_a must be a finite number"):
+        gribs.initialize_thermochemistry(config, tmp_path / "cache")
+
+
+@pytest.mark.fast
+def test_initialize_before_validate_order_still_works(tmp_path):
+    config = _config("g1")
+    gribs.initialize_thermochemistry(config, tmp_path / "cache")   # finiteness only, no range rules
+    gribs.validate(config)
+    assert gribs.run_model(config)["stop_burn"] in ("burnout", "ambient", "time-limit")

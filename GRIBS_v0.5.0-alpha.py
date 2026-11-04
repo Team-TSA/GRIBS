@@ -193,6 +193,7 @@ import hashlib
 import importlib
 import importlib.metadata as importlib_metadata
 import dataclasses
+import decimal
 import json
 import math
 import os
@@ -2941,6 +2942,7 @@ def build_backend(c: Config, reactants: Sequence[ReactantSpec],
 def initialize_thermochemistry(c: Config, default_cache_dir: Path) -> ThermochemistryBackend:
     """Build (or load from cache) the chamber-property backend and its density."""
     global _THERMO
+    require_finite_config(c)   # finiteness only; the range rules stay in validate()
     cache_root = Path(c.cea_cache_dir).expanduser() if c.cea_cache_dir else Path(default_cache_dir)
     _THERMO = build_backend(c, c.reactants_spec_list, c.packing_fraction, cache_root)
     # Additive-volume mixture density x packing fraction.  A CEA combustion-product
@@ -3424,12 +3426,40 @@ def run_model(c: Config) -> dict:
                           for nm, te in zip(names, sol1.t_events)})
 
 
+def _is_nonfinite_number(value: Any) -> bool:
+    """True only for a numeric NaN or infinity; finite values are never converted.
+
+    Python float (and subclasses such as numpy.float64) uses math.isfinite;
+    other numpy floating scalars and 0-d float arrays use numpy.isfinite in
+    their own precision (a finite long double beyond the float range stays
+    finite); decimal.Decimal uses is_finite().  bool and int (including huge
+    integers) are always finite.  Other types are left to the existing checks.
+    """
+    if isinstance(value, (bool, int)):
+        return False
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if isinstance(value, decimal.Decimal):
+        return not value.is_finite()
+    if isinstance(value, (np.floating, np.complexfloating)):
+        return not bool(np.isfinite(value))
+    if isinstance(value, np.ndarray) and value.ndim == 0 and value.dtype.kind in "fc":
+        return not bool(np.isfinite(value))
+    return False
+
+
+def require_finite_config(c: Config) -> None:
+    """Reject a NaN or infinite value in any Config field (finiteness only)."""
+    for field in dataclasses.fields(c):
+        value = getattr(c, field.name)
+        if _is_nonfinite_number(value):
+            raise ValueError(f"{field.name} must be a finite number, got {value!r}.")
+
+
 def validate(c: Config) -> None:
-    # PROTOTYPE V (r349): every float field of Config must be finite (also for Config objects built directly).
-    for _f in dataclasses.fields(c):
-        _v = getattr(c, _f.name)
-        if isinstance(_v, float) and not math.isfinite(_v):
-            raise ValueError(f"{_f.name} must be a finite number, got {_v!r}.")
+    # Every numeric Config field must be finite, also for Config objects built
+    # or changed directly in Python (run_model() calls validate() first).
+    require_finite_config(c)
     if c.R_i0 >= c.R_p:
         raise ValueError("R_i0 must be smaller than R_p.")
     for name in ("rho_p", "a_burn", "p_ref", "R_p", "L_p0", "V_g0", "R_t0",
@@ -6783,7 +6813,7 @@ def _load_document(path: Path) -> Tuple[dict, List[str]]:
         raise ConfigurationError(
             f"Configuration file not found: {path}\n"
             "Place gribs_config.json beside the Python file or use --config.")
-    def _reject_nonstandard_constant(token):              # PROTOTYPE P1 (r345)
+    def _reject_nonstandard_constant(token):   # NaN / Infinity / -Infinity are not JSON
         raise ConfigurationError(
             f"{path}: non-standard JSON constant {token!r} (NaN / Infinity are not valid JSON, RFC 8259).")
     try:
@@ -6835,14 +6865,15 @@ def _load_document(path: Path) -> Tuple[dict, List[str]]:
     return doc, notes
 
 
-def _reject_nonfinite_values(node, path="root"):          # PROTOTYPE P2 (r345)
+def _reject_nonfinite_values(node, path="root"):
+    """Reject any non-finite number in a configuration document (all sections)."""
     if isinstance(node, dict):
         for k, v in node.items():
             _reject_nonfinite_values(v, f"{path}.{k}")
     elif isinstance(node, list):
         for i, v in enumerate(node):
             _reject_nonfinite_values(v, f"{path}[{i}]")
-    elif isinstance(node, float) and not math.isfinite(node):
+    elif _is_nonfinite_number(node):
         raise ConfigurationError(f"{path}: non-finite number {node!r} is not allowed in a configuration.")
 
 
