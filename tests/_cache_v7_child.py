@@ -1,4 +1,4 @@
-"""r424 PROTOTYPE test helper (not collected): one cache writer in its own process (own umask).
+"""Test helper (not collected): one cache writer in its own process (own umask).
 argv: <body.py> <cache file> <umask octal> <sync dir> <name> <text file> [nolink] [noreplace_unavailable]
   nolink: os.link raises EPERM (file system without hard links, simulated)
   noreplace_unavailable: renameat2(RENAME_NOREPLACE) reported unavailable (ENOSYS, simulated)

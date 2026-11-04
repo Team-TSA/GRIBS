@@ -1,9 +1,11 @@
-"""r406 PROTOTYPE tests (isolated copy only): CEA cache atomic replacement + write errors, v5 (v4 tests kept;
-round-57 regressions at the end).  Originally: v4 (cache-only diff on
-da4e95d).  v3 behaviour that is kept, plus regressions for the round-56 review:
-xattrs (user.*) kept or refused non-destructively; directory open / file fsync / directory fsync / close classified
-separately (only ENOTSUP / EOPNOTSUPP from fsync(dir_fd) is the warning; EINVAL is exit 3); fd-based attributes;
-temp/target name checks against a symlink swap; truthful cleanup report."""
+"""Chamber-property cache: atomic replacement and write errors (E_THERMO_CACHE_WRITE_FAILED, exit 3).
+
+Covers: output format of a default run; read-only / non-creatable cache locations; directory open / file fsync /
+directory fsync / close classified separately (only ENOTSUP / EOPNOTSUPP from fsync of the directory is the
+durability warning; EINVAL is exit 3); extended attributes (user.*) kept or refused non-destructively; fd-based
+attributes and temp / target name checks against a symlink swap; truthful temporary-file cleanup report;
+permissions while the content is written; cooperative writers; unidentified temporary files; descriptor release;
+no-clobber publication of new caches; unreadable caches; special files; adoption of an identical cache."""
 import errno
 import hashlib
 import importlib.util
@@ -86,7 +88,7 @@ def checkpoint(monkeypatch):
     return calls
 
 
-# ===================================================================== CLI: format, errors (kept from v3)
+# ===================================================================== CLI: format, errors
 @pytest.mark.integration
 def test_default_run_format_unchanged(tmp_path):
     out = tmp_path / "out"
@@ -137,7 +139,7 @@ def test_cache_directory_cannot_be_created(tmp_path):
         os.chmod(ro, 0o755)
 
 
-# ===================================================================== review 2: operation stages separated
+# ===================================================================== operation stages classified separately
 def _is_dir_fd(fd):
     return stat.S_ISDIR(os.fstat(fd).st_mode)
 
@@ -224,7 +226,7 @@ def test_directory_close_failure_after_replace(tmp_path, monkeypatch):
     assert f.read_text() == "new"
 
 
-# ===================================================================== review 1: extended attributes
+# ===================================================================== extended attributes
 @pytest.mark.fast
 def test_user_xattrs_kept(tmp_path):
     f = existing(tmp_path)
@@ -268,7 +270,7 @@ def test_silently_dropped_xattr_is_detected(tmp_path, monkeypatch):
     assert e.value.step == "verify_attributes" and f.read_text() == "old" and xall(f) == {"user.ghost": b"v"}
 
 
-# ===================================================================== review 3: fd-based attributes, name checks
+# ===================================================================== fd-based attributes, name checks
 @pytest.mark.fast
 def test_symlink_swap_before_rename_is_refused(tmp_path, checkpoint):
     f = existing(tmp_path); victim = tmp_path / "victim.json"; victim.write_text("NOT A CACHE"); os.chmod(victim, 0o600)
@@ -315,7 +317,7 @@ def test_swap_after_rename_is_reported_not_success(tmp_path, monkeypatch):
     assert (e.value.phase, e.value.step, e.value.replaced) == ("after_replace", "verify_target", True)
 
 
-# ===================================================================== review 4: truthful cleanup report
+# ===================================================================== truthful cleanup report
 @pytest.mark.fast
 def test_cleanup_failure_is_reported_and_primary_error_kept(tmp_path, checkpoint, monkeypatch):
     f = existing(tmp_path)
@@ -359,7 +361,7 @@ def test_only_own_temp_removed(tmp_path, checkpoint, stage, exc):
     assert sorted(p.name for p in f.parent.iterdir()) == sorted([leftover.name, "x.json"])
 
 
-# ===================================================================== permissions during the write (kept from v3)
+# ===================================================================== permissions during the write
 def _window(f, monkeypatch, checkpoint):
     want = attrs(f); seen = []
 
@@ -469,7 +471,7 @@ def test_no_mutable_hook_globals():
     assert g._cache_write_checkpoint("before_replace", -1, "x") is None
 
 
-# ===================================================================== round 57 (v5)
+# ===================================================================== cooperative writers, unidentified temp, descriptor release
 CONTENT = '{"same": "bytes"}\n' * 200
 
 
@@ -694,7 +696,7 @@ def test_no_descriptor_leak_on_any_interruption(tmp_path, monkeypatch, stage, ex
     assert _fds_to(f.parent) == [] and len(after - before) <= 0, after - before
 
 
-# ===================================================================== round 58 (v6)
+# ===================================================================== inspection race, no-clobber publication, unreadable, FIFO
 import signal
 import time
 
@@ -796,7 +798,7 @@ def test_new_cache_threads_released_together(tmp_path, monkeypatch):
 
 @pytest.mark.fast
 def test_link_unsupported_publishes_with_rename_noreplace(tmp_path, monkeypatch):
-    """v7: no silent clobbering rename; renameat2(RENAME_NOREPLACE) is used instead."""
+    """No silent clobbering rename; renameat2(RENAME_NOREPLACE) is used instead."""
     d = tmp_path / "c"; d.mkdir(); f = d / "x.json"
 
     def nolink(*a, **k):
@@ -842,7 +844,8 @@ def test_new_cache_unreadable_by_umask_not_published(tmp_path):
 
 @pytest.mark.fast
 def test_existing_write_only_cache_refused_compat_change(tmp_path):
-    """Documented compatibility change: HEAD rewrites a write-only cache in place; v6 refuses (cannot read it)."""
+    """Documented compatibility change: earlier versions rewrote a write-only cache in place; it is now refused
+    (it cannot be read)."""
     f = existing(tmp_path, 0o200)
     try:
         with pytest.raises(g._CacheWriteError) as e:
@@ -904,7 +907,7 @@ def test_fifo_as_existing_cache_does_not_block(tmp_path, no_hang):
 
 
 
-# ===================================================================== round 59 (v7)
+# ===================================================================== adoption, no-clobber only, link temp-name cleanup
 def _dir_fsync_counter(monkeypatch):
     counts = {}
 

@@ -359,9 +359,16 @@ results/
 
 ### Chamber-property cache writes and concurrent runs
 
-When a table is built or rebuilt, GRIBS writes it to a temporary file in the cache
-directory (`.<name>.<pid>.<random>.tmp`), syncs it, publishes it under the cache name and
-syncs the cache directory. Readers never see a partially written cache file.
+With caching enabled, a run writes the cache only when it builds the table: when no cache
+exists yet, or when it rebuilds the table (`rebuild_cache = true` or `--no-cache`). An
+existing cache is replaced only in the second case; otherwise it is read and left
+unchanged. GRIBS writes the table to a temporary file in the cache directory
+(`.<name>.<pid>.<random>.tmp`), syncs it, publishes it under the cache name and syncs the
+cache directory. Under the operating assumptions below, a run that reads the cache sees
+either the previous complete file or the new complete file, never a partially written one.
+Reading is not changed by this: a run checks that the cache name is a regular file and then
+opens it normally (following symbolic links), without the special-file protection that the
+writer has.
 
 - A failure while writing the cache stops the run with exit code 3 and the structured
   error `E_THERMO_CACHE_WRITE_FAILED`. Its `context` gives `phase`, `step`, `replaced`
@@ -394,9 +401,9 @@ one process and with 2 to 4 synchronised processes):
   without replacing an existing name: by a hard link, or by
   `renameat2(RENAME_NOREPLACE)` where hard links are not available (Linux, glibc 2.28 or
   later). If neither is available, nothing is published and the run exits with code 3.
-- A run that observes an existing cache rebuilds it. The cache name then refers to a new
-  file (new inode) with the same content; group, extended attributes and mode are copied
-  from the existing cache, so permissions are not widened.
+- A run that rebuilds the table while a cache already exists replaces it. The cache name
+  then refers to a new file (new inode) with the same content; group, extended attributes
+  and mode are copied from the existing cache, so permissions are not widened.
 - Runs that write different content for the same cache are outside these assumptions.
   Depending on timing, a later run either stops with exit code 3 without replacing the
   cache, or replaces it.
@@ -406,9 +413,13 @@ Compatibility notes (differences from earlier versions):
 - Exit code 3 is returned when rebuilding an existing cache that this user cannot read,
   when creating a new cache that this user could not read back (for example with umask
   0466), when rebuilding a cache inside a read-only directory, when a FIFO or another
-  non-regular file is at the cache name (GRIBS does not wait on it), and when creating a
-  new cache on a file system that supports neither hard links nor
-  `renameat2(RENAME_NOREPLACE)`.
+  non-regular file is found where the writer checks the cache name (the writer does not
+  wait on it), and when creating a new cache on a file system that supports neither hard
+  links nor `renameat2(RENAME_NOREPLACE)`.
+- If the cache name is a symbolic link when the run starts, the file it points to is
+  rewritten (in the target's directory) and the link is kept. A symbolic link that appears
+  at a checked name during the write makes the run stop with exit code 3. Device files
+  have not been tested.
 - The inode of the cache file changes when it is rebuilt, and a hard-linked alias is not
   updated. After a forced kill (SIGKILL) a temporary file may remain; it is not removed
   automatically.

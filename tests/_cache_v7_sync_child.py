@@ -1,4 +1,4 @@
-"""r434 PROTOTYPE test helper (not collected): one cache writer in its own process, held at a chosen stage.
+"""Test helper (not collected): one cache writer in its own process, held at a chosen stage.
 argv: <body.py> <cache file> <umask octal> <sync dir> <name> <text file> <hold stage|-> [nolink]
 At checkpoint <hold stage> (temp_created / attributes_set / before_replace / after_replace): touch
 <sync>/<name>.held, then wait for <sync>/<name>.go.  Prints a JSON result line."""

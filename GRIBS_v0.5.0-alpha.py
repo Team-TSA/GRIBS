@@ -782,7 +782,7 @@ class PressureTableBackend(ThermochemistryBackend):
         self.cache_path = self.cache_root / f"{self.table_stem}_{self.key}.json"
         self.cache_used = False
         self.cache_written = False
-        self.cache_write_durability = None      # PROTOTYPE cache v4: set only when directory fsync is unsupported
+        self.cache_write_durability = None      # set only when fsync of the cache directory is unsupported
 
         if (c.cea_cache_enabled and not c.cea_rebuild_cache
                 and self.cache_path.is_file()):
@@ -802,7 +802,7 @@ class PressureTableBackend(ThermochemistryBackend):
             table = self._build_table()
             self._validate_mass_basis_table(table, table_source="generated")
             if c.cea_cache_enabled:
-                try:                                           # PROTOTYPE cache v7 (r424)
+                try:                                           # atomic cache write, see _cache_atomic_write_text
                     self.cache_root.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
                     raise _cache_write_failed(_CacheWriteError(
@@ -2953,7 +2953,7 @@ def build_backend(c: Config, reactants: Sequence[ReactantSpec],
 
 
 class _CacheWriteError(Exception):
-    """PROTOTYPE cache v4: failing phase / step of a cache write, plus the outcome of the temp-file cleanup."""
+    """Internal: failing phase / step of a cache write, plus the outcome of the temporary-file cleanup."""
 
     def __init__(self, phase, step, path, original, replaced, cleanup):
         super().__init__(f"{phase}/{step}: {type(original).__name__}: {original}")
@@ -3004,7 +3004,7 @@ def _cache_write_failed(err):
 
 
 def _cache_rename_noreplace(src, dst, dir_fd) -> None:
-    """PROTOTYPE cache v7: renameat2(dir_fd, src, dir_fd, dst, RENAME_NOREPLACE) through the C library.
+    """renameat2(dir_fd, src, dir_fd, dst, RENAME_NOREPLACE) through the C library (Linux, glibc 2.28 or later).
     Raises FileExistsError if dst exists, OSError(ENOSYS) if the call is not available, OSError(errno) otherwise."""
     import ctypes
     import errno
@@ -3020,11 +3020,13 @@ def _cache_rename_noreplace(src, dst, dir_fd) -> None:
 
 
 def _cache_write_checkpoint(stage, dir_fd, temp_name):
-    """No-op test seam (PROTOTYPE): stages 'temp_created', 'attributes_set', 'before_replace', 'after_replace'."""
+    """No-op test seam called at the stages 'temp_created', 'attributes_set', 'before_replace' and
+    'after_replace'; tests replace it to synchronise writers or inject failures.  It does nothing in a run."""
 
 
 def _cache_atomic_write_text(path, text: str):
-    """PROTOTYPE cache v7.  Returns None, or a dict when fsync of the directory is unsupported (ENOTSUP /
+    """Write a chamber-property cache file atomically.  Returns None, or a dict when fsync of the directory is
+    unsupported (ENOTSUP /
     EOPNOTSUPP): durability not guaranteed.  Raises _CacheWriteError otherwise.
     Assumes a trusted cache directory (writable only by trusted principals); the name checks narrow, but do not
     close, rename races.  Concurrent writers of one key are assumed to write identical bytes."""
@@ -8039,7 +8041,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "context": {"migration_note": _note},
                 })
                 break
-    _cache_dur = getattr(backend, "cache_write_durability", None)      # PROTOTYPE cache v4
+    _cache_dur = getattr(backend, "cache_write_durability", None)      # cache durability warning
     if _cache_dur:
         summ.setdefault("warnings", []).append({
             "code": "W_THERMO_CACHE_DURABILITY_NOT_GUARANTEED", "severity": "warning",

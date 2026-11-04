@@ -1,4 +1,4 @@
-"""r434 PROTOTYPE tests (isolated copies only): cache v7 - what the README may and may not promise.
+"""Chamber-property cache: what the README may and may not promise about concurrent runs.
 Two synchronised writer PROCESSES (own umask), held at chosen stages:
  * no-clobber path (both observed "no cache"): the first publisher's file stays (inode kept), the later one adopts;
  * a writer that observes the cache as EXISTING rebuilds it: same bytes, but the inode changes (attributes copied);
