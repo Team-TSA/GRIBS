@@ -10,9 +10,9 @@ title: >-
 
 type: software
 
-version: "0.3.1-alpha"
+version: "0.6.0-alpha"
 
-date-released: "2026-09-18"
+date-released: "2026-11-05"
 
 authors:
   - family-names: "Kurokawa"
@@ -38,5 +38,9 @@ abstract: >-
   simulator. It includes grain regression, unsteady chamber-pressure
   calculation, nozzle-flow modeling, thrust calculation, optional
   erosive burning, optional throat erosion, and post-burnout blowdown.
-  GRIBS supports an external NASA CEA thermochemistry backend and a
-  manually configured pressure-dependent property-fit backend.
+  GRIBS supports the official NASA CEA Python package as its primary
+  thermochemistry backend, a transitional external CEA executable backend,
+  and a constant-property reference backend (reference_constant) for
+  verification.
+  It is alpha-stage research software; physical validity has not been
+  established.

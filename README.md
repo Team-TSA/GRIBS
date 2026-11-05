@@ -2,8 +2,8 @@
 
 GRIBS is a JSON-configured transient internal-ballistics simulator for solid rocket motors. It models cylindrical-bore grain regression, unsteady chamber pressure, choked and unchoked nozzle flow, optional flow separation, optional erosive burning, optional throat erosion, and post-burnout blowdown.
 
-**Current release:** v0.4.3-alpha  
-**Release status:** Pre-release. Results must be independently validated before engineering or experimental use.
+**Current release:** v0.6.0-alpha "Keystone" — Consistent Thermochemistry Foundation  
+**Release status:** Alpha research software. Physical validity has not been established; the comparison with the CEA reference `c*` (gate G4a) has not passed, and reported-data / experimental reproduction (G4b) and the release gate (G5) are not complete. Results must not be used for production, safety-critical, or design decisions without independent validation. See [Validation status](#validation-status) and [Known limitations](#known-limitations).
 
 ## Highlights
 
@@ -14,12 +14,28 @@ GRIBS is a JSON-configured transient internal-ballistics simulator for solid roc
 - Pressure-dependent chamber properties tabulated and interpolated with PCHIP in `ln(p)`
 - Constituent-density-based propellant mixture-density calculation
 - Packing-fraction correction for bulk propellant density
-- Numerical self-tests before production calculations
+- Homogeneous-equilibrium two-phase chamber model on a total-product mass basis (condensed products carried with the gas)
+- Numerical self-tests on request (`--selftest`)
+- Atomic writes of the chamber-property cache, with a structured error on write failure
 - PNG, CSV, text, and JSON outputs
 - Detailed configuration, environment, cache, and thermochemistry provenance in `summary.json`
 - Optional theoretical CEA rocket-performance diagnostics for comparison only
 
-## What changed from the v0.3 series
+## What changed in v0.6.0-alpha
+
+v0.6.0-alpha is the first public release after v0.4.3-alpha. The intermediate v0.5.0-alpha was an internal Phase A baseline and was not published. The program version is 0.6.0-alpha; the configuration schema is unchanged at `0.5.0-alpha`. See `CHANGELOG.md` for the full list.
+
+- **Two-phase model B and corrected mass basis.** The conserved chamber mass is the total product mass (gas + condensed). The equation of state acts on the gas phase only, and the CEA molecular weight is used as total mass per kmol of gas, without a second gas-fraction factor. Thermochemistry cache columns and cache identity were renamed accordingly; caches written under the old mass basis are not silently reused.
+- **Validation and status reporting.** `validation.model_status` no longer reports `validated_in_scope`; statuses state what they are based on. Model-applicability checks fail closed on missing or non-finite phase fractions.
+- **Input robustness.** NaN and infinite numbers are rejected in configuration files and in `Config` values (including NumPy and `Decimal` values), before any calculation.
+- **Diagnostics.** A failed CEA theoretical diagnostic no longer stops the run or the summary; its status is reported.
+- **Chamber-property cache.** The cache is written atomically; a write failure stops the run with exit code 3 (`E_THERMO_CACHE_WRITE_FAILED`). See [Chamber-property cache writes and concurrent runs](#chamber-property-cache-writes-and-concurrent-runs) for the operating assumptions and what is not tested.
+- **Verification assets.** Golden regression cases (`cases/golden/`), reference problems, a mass and energy ledger, a convergence harness, and the A-5.1 mass-basis evidence (`verification/`).
+- **CLI.** Self-tests run only with `--selftest`; normal runs no longer run them first. The `--backend` override is validated in two stages (see below).
+
+Not included in this release (see [Known limitations](#known-limitations)): stopping at the property-table range with a dedicated exit code (M3), the safe output mode, the Phase B physical extensions (B1), and the Phase B comparison layers (B2-C / B2-D).
+
+## What changed from the v0.3 series (v0.4 series)
 
 The v0.4 series retains the established GRIBS unsteady internal-ballistics, grain-regression, burn-rate, nozzle-flow, throat-erosion, and blowdown models. The main changes are in thermochemistry integration, configuration validation, reproducibility, diagnostics, and provenance reporting.
 
@@ -40,23 +56,32 @@ The update from the supplied v0.4.2-alpha implementation to v0.4.3-alpha changes
 
 ```text
 GRIBS/
-├── GRIBS_v0.4.3-alpha.py
+├── GRIBS_v0.6.0-alpha.py
 ├── gribs_config.json
 ├── requirements.txt
+├── requirements-dev.txt
 ├── README.md
 ├── CHANGELOG.md
+├── MODEL_LIMITATIONS.md
 ├── LICENSE
 ├── CITATION.cff
 ├── CONTRIBUTING.md
 ├── SECURITY.md
-└── .gitignore
+├── cases/            golden and reference input cases
+├── examples/         example configuration
+├── tests/            pytest suite
+├── tools/            verification tools
+├── verification/     recorded verification evidence
+└── results_golden_g1 … g6/   recorded golden outputs (regression references)
 ```
+
+The repository root also keeps the patch files (`*.diff`) of earlier Phase A steps as historical records.
 
 External CEA runtime files are not distributed by GRIBS.
 
 ## Requirements
 
-- Python 3.11 or later is recommended
+- Python 3.11 or later. The GitHub CI runs the test suite on Python 3.11, 3.12 and 3.13. Python 3.14 is checked locally only (it is the environment of the recorded G0 evidence; see [Validation status](#validation-status)); it is not part of the CI matrix.
 - NumPy
 - SciPy
 - Matplotlib
@@ -80,30 +105,30 @@ python -c "import numpy, scipy, matplotlib, cea; print(cea.__version__)"
 
 ## Quick start
 
-Place `GRIBS_v0.4.3-alpha.py` and `gribs_config.json` in the same directory.
+Place `GRIBS_v0.6.0-alpha.py` and `gribs_config.json` in the same directory.
 
 Validate the configuration without initializing CEA:
 
 ```bash
-python GRIBS_v0.4.3-alpha.py --config gribs_config.json --validate-config
+python GRIBS_v0.6.0-alpha.py --config gribs_config.json --validate-config
 ```
 
 Run the numerical self-tests:
 
 ```bash
-python GRIBS_v0.4.3-alpha.py --config gribs_config.json --selftest
+python GRIBS_v0.6.0-alpha.py --config gribs_config.json --selftest
 ```
 
 Run the simulation:
 
 ```bash
-python GRIBS_v0.4.3-alpha.py --config gribs_config.json
+python GRIBS_v0.6.0-alpha.py --config gribs_config.json
 ```
 
 Display the program version:
 
 ```bash
-python GRIBS_v0.4.3-alpha.py --version
+python GRIBS_v0.6.0-alpha.py --version
 ```
 
 The default configuration path is resolved relative to the Python file. This allows the program to be started with the Visual Studio Code Run command even when the terminal working directory differs from the source directory.
@@ -127,11 +152,11 @@ The current configuration schema is:
 
 ```json
 {
-  "schema_version": "0.4.3-alpha"
+  "schema_version": "0.5.0-alpha"
 }
 ```
 
-The v0.4 schema is not a drop-in replacement for a v0.3 configuration.
+The configuration schema did not change in v0.6.0-alpha: it is still `0.5.0-alpha`, so v0.5.0-alpha configurations are used as they are. Configurations with schema `0.4.4-alpha`, `0.4.3-alpha` or `0.3.0-alpha` are migrated automatically when loaded where possible, and the migration notes are recorded in `summary.json`; a configuration that selects a removed backend is rejected. Other schema values are rejected.
 
 ## Thermochemistry backend selection
 
@@ -176,7 +201,7 @@ Official NASA CEA project:
 }
 ```
 
-The `cea_legacy_executable` backend retains the v0.3 external `fcea2` workflow for regression comparison during the v0.4 alpha series. It requires a compatible executable and thermodynamic database files.
+The `cea_legacy_executable` backend retains the v0.3 external `fcea2` workflow for regression comparison during the alpha series. It requires a compatible executable and thermodynamic database files.
 
 When using this backend, place the following files in the same directory as the selected GRIBS Python file unless alternative paths are configured:
 
@@ -196,7 +221,7 @@ NASA CEA is not developed, maintained, or distributed by the GRIBS project. User
 
 ### Removed backend
 
-The v0.3 `legacy_fit` backend is no longer supported. GRIBS v0.4 does not use manually fitted pressure correlations as a substitute for CEA.
+The v0.3 `legacy_fit` backend is no longer supported. GRIBS does not use manually fitted pressure correlations as a substitute for CEA.
 
 ## Propellant composition and bulk density
 
@@ -333,7 +358,7 @@ See `verification/cli/CLI_BACKEND_OVERRIDE_ADR.md`.
 Example thermochemistry-table export:
 
 ```bash
-python GRIBS_v0.4.3-alpha.py \
+python GRIBS_v0.6.0-alpha.py \
   --config gribs_config.json \
   --dump-thermo thermo_table.json
 ```
@@ -437,29 +462,42 @@ regression, and a summary of the principal calculated results.
 
 ![docs/images/ballistics-example.png](docs/images/ballistics-example.png)
 
-*Example combined diagnostic figure generated by GRIBS v0.4.3-alpha. Click the
+*Example combined diagnostic figure generated by an earlier version (GRIBS v0.4.3-alpha). Click the
 image to view the full-resolution version. The displayed values are from an
 example calculation and are not validated design recommendations.*
 
 ## Validation status
 
-For v0.4.3-alpha:
+GRIBS v0.6.0-alpha is alpha research software. **Its physical validity has not been established.** The evidence below fixes the reproducibility of the software and the internal numerical consistency of its use of NASA CEA within stated limits. It is not experimental validation, not independent verification, and not a qualification for any application. The gates G0–G5 are the project's Phase A acceptance steps.
 
-- Python syntax compilation was checked.
-- JSON syntax validation was checked.
-- `--version` reports `GRIBS 0.4.3-alpha`.
-- `--validate-config` accepts the supplied v0.4.3-alpha configuration.
-- The full program runs numerical self-tests before each production calculation.
-- Full numerical behavior must be validated in the user's target environment with the selected CEA backend and installed dependency versions.
+- **G0 — evidence fixation (reproducibility): approved for revision `6ec2e6b` only.** This is the code basis of this release before the version identifiers, the program file name and the documentation were updated for publication. The approval is limited to that revision, the recorded environment and the following objects:
+  - environment: Ubuntu 26.04.1 LTS, Linux 7.0.0-42, glibc 2.43, Python 3.14.4, cea 3.3.4 (with recorded library and data-file hashes), NumPy 2.5.3, SciPy 1.18.1, Matplotlib 3.11.2, pytest 9.1.1;
+  - tests: 783 tracked tests passed;
+  - golden cases g1–g6 rerun through the CLI: 13 result metrics each, maximum relative difference 0 against `cases/golden/golden_values.json`; time histories identical cell by cell to the recorded outputs;
+  - output files compared with an earlier reproduction: time histories, figures and CEA caches byte-identical; `summary.json` and `summary.txt` identical after replacing run-directory paths;
+  - G1 probes: numerical difference 0 against the earlier record.
+
+  G0 does not extend automatically to any later revision, including the release commit; the release commit is reproduced separately before tagging. G0 does not cover physical validity, other kernels, other Python or dependency versions (including other `cea` versions; `requirements.txt` accepts `cea>=3.0`), other CPUs or floating-point environments, the external `fcea2` executable, or CI.
+- **G1 — CEA semantics (internal consistency): approved within a limited scope.** It covers the numerical internal consistency of cea 3.3.4 outputs (mass-fraction sums, molecular-weight and density identities, species reconstruction, nozzle stations) for golden cases g2–g5 and two mid-condensed AP/Al evidence compositions (AP70/Al5/HTPB25 and AP70/Al7/HTPB23): 60 equilibrium points and 54 nozzle-station points. Conditions: some checks at a stricter tolerance (1e-8) remain recorded mismatches; some interpretations of CEA quantities are inferred and not confirmed against a CEA specification; G1 is not independent verification or physical validation.
+- **G4a — comparison with the CEA reference `c*`: not passed (known limitation).** The criterion (relative difference within 2e-3 between the GRIBS constant-gamma nozzle `c*` and the CEA infinite-area-chamber `c*`) and its tolerance are unchanged. 9 of 18 points exceed it: g3 at 10/30/70 bar (−2.0e-3 to −2.1e-3), g4 at 70 bar (+2.05e-3), AP70/Al5 at 10 and 30 bar (+2.1e-3 to +2.6e-3), and AP70/Al7 at 10/30/70 bar (about −2.1% to −2.3%). The larger differences coincide with condensed species appearing or changing phase between the chamber and the throat; this is supported by intervention tests but not proven. The equilibrium-expansion alternative studied during Phase A is not part of this release.
+- **G4b — reproduction of reported or experimental data: not done.** The complete inputs of the reported AP/Al cases, experimental data and an independent two-phase model are not available.
+- **G5 — release gate: not done.** The golden reference values in `cases/golden/` and the recorded outputs in `results_golden_*` were frozen before G5. They are regression references, not validated or approved values.
+- **Continuous integration:** the GitHub workflow runs the self-tests and the test suite on Python 3.11, 3.12 and 3.13. Python 3.14 is checked locally only. CI results are not part of the G0 evidence.
 
 ## Known limitations
 
-- This is alpha-stage research software and is not certified for safety-critical use.
+- This is alpha-stage research software. It is not certified for safety-critical use and is not intended for production use; physical validity has not been established (see [Validation status](#validation-status)).
+- The nozzle `c*` uses a constant-gamma isentropic relation. Against the CEA equilibrium reference it differs by up to about 2.3% in the tested condensed AP/Al compositions (G4a not passed).
+- The chamber gas phase is treated as an ideal gas; non-ideal effects at high pressure are not modelled or bounded. The condensed-phase volume is neglected.
+- By default (`property_policy = "clamp"`), chamber properties outside the tabulated pressure range are held at the nearest table limit. Results in that region depend on this approximation; the run is not stopped.
 - Chemical equilibrium does not model finite-rate chemistry.
 - The additive-volume density rule is an approximation.
 - Burn-rate and erosive-burning coefficients are empirical inputs.
 - The external executable backend depends on the user's compatible executable and database files.
 - Theoretical CEA rocket diagnostics do not replace GRIBS results.
+- The chamber-property cache relies on the operating assumptions in [Chamber-property cache writes and concurrent runs](#chamber-property-cache-writes-and-concurrent-runs). Survival after a crash or power loss is not guaranteed (the parent of a newly created cache directory is not synced), and other users (UIDs), other file systems, other hosts, file systems without hard links, `security.*` / `trusted.*` extended attributes, SELinux and device files have not been tested. Publishing a new cache requires hard links or Linux `renameat2` (glibc 2.28 or later).
+- Not included in this release and not approved for use: stopping at the property-table range with a dedicated exit code (M3), the safe output mode (output-directory locking and overwrite refusal), the Phase B physical extensions (B1: energy / equation-of-state closure), and the Phase B CEA comparison layers (B2-C, B2-D). None of them is connected to the program.
+- `MODEL_LIMITATIONS.md` summarises the model assumptions. It was written for the earlier v0.3 / v0.4 model and has been revised only minimally for v0.6.0-alpha; where it differs, this README and `CHANGELOG.md` take precedence.
 - Model outputs are not substitutes for static firing tests, material characterization, or independent review.
 
 ## License

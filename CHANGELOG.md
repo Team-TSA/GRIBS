@@ -4,6 +4,63 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+## [v0.6.0-alpha] "Keystone" - 2026-11-05
+
+**Consistent Thermochemistry Foundation.** First public release after
+v0.4.3-alpha. v0.5.0-alpha (below) was an internal Phase A baseline and was
+not published; this release contains it, the A-5.1-5 to A-7 changes listed in
+`CHANGELOG_v0.5.0-alpha_A5.1-5_to_A7.md`, the A-8 golden regression cases, and
+the changes in this section.
+
+Status: alpha research software. Physical validity has not been established.
+Gate G4a (comparison with the CEA reference `c*`) has not passed and is
+documented as a known limitation with its definition and tolerance unchanged;
+G4b and G5 are not complete. G0 (reproducibility) was approved for the code
+basis `6ec2e6b` only, and G1 (CEA semantics) within a limited scope. See the
+README sections "Validation status" and "Known limitations". Stopping at the
+property-table range (M3), the safe output mode, and the Phase B work (B1,
+B2-C, B2-D) are not included.
+
+### Release identity
+
+- `PROGRAM_VERSION` is `0.6.0-alpha`; `--version` reports `GRIBS 0.6.0-alpha`,
+  and `summary.json`, `summary.txt` and the figure note show the new program
+  version.
+- The program file is renamed from `GRIBS_v0.5.0-alpha.py` to
+  `GRIBS_v0.6.0-alpha.py`. Scripts that call the old file name must be
+  updated.
+- The configuration schema is unchanged: `SCHEMA_VERSION` stays
+  `0.5.0-alpha`, so existing v0.5.0-alpha configurations, the golden and
+  reference cases, and the chamber-property cache keys are unaffected.
+
+### Fixed (late Phase A)
+
+- Run outputs are kept when the comparison-only CEA theoretical diagnostics
+  fail or are incomplete. Previously a failed diagnostic raised `KeyError`
+  after the simulation and before any output file was written. The status is
+  reported as `cea_theoretical_status` (`not_requested` / `ok` / `failed` /
+  `incomplete` / `invalid`); no CEA value is substituted, and the simulation
+  results and the run verdict are not affected.
+- A gas-mass-fraction value whose `__float__` raises is reported as a
+  structured phase-fraction error instead of an unhandled exception.
+- Non-finite numbers are rejected before any calculation:
+  - configuration files: the non-standard JSON constants `NaN`, `Infinity`
+    and `-Infinity` are rejected (exit code 2);
+  - any non-finite number in a configuration document, including values such
+    as `1e999` that overflow to infinity and values in disabled sections, is
+    rejected with its path;
+  - `validate()` rejects non-finite values in `Config` fields, including
+    NumPy scalars, 0-d arrays and `Decimal` values; finite values are never
+    converted.
+- The chamber-property cache is written atomically: a temporary file in the
+  cache directory, attributes of an existing cache copied first, content
+  synced, a new cache published without replacing an existing name, and the
+  directory synced. A write failure stops the run with exit code 3 and the
+  structured error `E_THERMO_CACHE_WRITE_FAILED`; there is no fallback to an
+  in-place write. If syncing the directory is not supported, the run
+  continues with `W_THERMO_CACHE_DURABILITY_NOT_GUARANTEED`. Operating
+  assumptions, compatibility notes and untested conditions are in the README.
+
 ### Changed
 
 - `validation.model_status` no longer reports `validated_in_scope`, because no

@@ -25,7 +25,7 @@ import pytest
 
 _GOLDEN_DIR = Path(__file__).resolve().parent.parent / "cases" / "golden"
 _GOLDEN_VALUES = _GOLDEN_DIR / "golden_values.json"
-_MAIN = Path(__file__).resolve().parent.parent / "GRIBS_v0.5.0-alpha.py"
+_MAIN = Path(__file__).resolve().parent.parent / "GRIBS_v0.6.0-alpha.py"
 
 # Relative tolerances for each metric group
 _RTOL_TIGHT = 1e-9    # mass balance, timing
