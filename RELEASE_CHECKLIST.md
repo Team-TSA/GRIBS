@@ -35,6 +35,8 @@ needs the maintainer's explicit approval.
       Python 3.11, 3.12 and 3.13; Python 3.14 is checked locally (not in the
       CI matrix). Record skipped tests (for example ACL tests without
       `setfacl`) and the installed `cea` version for each run.
+- [ ] Push the release branch and confirm that the GitHub CI passes on it before merging (golden residual metrics are checked against the verification thresholds; physical metrics against the frozen values).
+- [ ] Long-running or stalled integrations: confirm that the integration safety limits (2,000,000 RHS evaluations, 300 s wall time, 10,000 table-limit restarts; exit 4 with E_INTEGRATION_BUDGET_EXCEEDED) are documented and not reached by the golden and example cases.
 - [ ] Results from Python or dependency versions other than the G0 environment
       are reported as CI or reference results, not as G0 evidence.
 

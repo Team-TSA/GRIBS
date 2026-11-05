@@ -3728,6 +3728,140 @@ def _event(fn, terminal=True, direction=0.0):
     return fn
 
 
+
+# ==============================================================================
+# Integration budget and solver restart at the property-table limits
+# ==============================================================================
+#: Safety limits of one run_model() call (burning + blowdown phases together).
+#: A run that exceeds one of them stops with IntegrationBudgetError
+#: (E_INTEGRATION_BUDGET_EXCEEDED), reported by the CLI as an integration
+#: failure (exit code 4).  The values are fixed (not configurable): normal runs
+#: use a few thousand right-hand-side evaluations, a few seconds and at most a
+#: few restarts.
+import time as _integration_time
+
+INTEGRATION_MAX_RHS_CALLS = 2_000_000
+INTEGRATION_MAX_WALL_S = 300.0
+INTEGRATION_MAX_TABLE_RESTARTS = 10_000
+_INTEGRATION_RESTART_FIRST_STEP_S = 1.0e-7
+
+
+class IntegrationBudgetError(RuntimeError):
+    """The ODE integration exceeded a safety limit (E_INTEGRATION_BUDGET_EXCEEDED)."""
+
+    code = "E_INTEGRATION_BUDGET_EXCEEDED"
+
+
+class _IntegrationBudget:
+    def __init__(self):
+        self.rhs_calls = 0
+        self.t_start = _integration_time.monotonic()
+
+    def wrap(self, fun):
+        def counted(t, y):
+            self.rhs_calls += 1
+            if self.rhs_calls > INTEGRATION_MAX_RHS_CALLS:
+                raise IntegrationBudgetError(
+                    f"{IntegrationBudgetError.code}: more than {INTEGRATION_MAX_RHS_CALLS} "
+                    f"right-hand-side evaluations (t = {t:.9g} s, p0 = {y[IP]:.9g} Pa).")
+            if (self.rhs_calls & 1023) == 0 and _integration_time.monotonic() - self.t_start > INTEGRATION_MAX_WALL_S:
+                raise IntegrationBudgetError(
+                    f"{IntegrationBudgetError.code}: wall time above {INTEGRATION_MAX_WALL_S:g} s "
+                    f"(t = {t:.9g} s, p0 = {y[IP]:.9g} Pa).")
+            return fun(t, y)
+        return counted
+
+
+class _SegmentedSolution:
+    """Solutions of consecutive solve_ivp segments joined into one object.
+
+    Offers the attributes used by the post-processing (t, y, sol(), t_events,
+    success, status, message, nfev); sol() dispatches each time to the segment
+    that contains it (a restart time belongs to the earlier segment).
+    """
+
+    def __init__(self, segments, t_events, restarts):
+        self.segments = segments
+        self.t = np.concatenate([segments[0].t] + [s.t[1:] for s in segments[1:]])
+        self.y = np.concatenate([segments[0].y] + [s.y[:, 1:] for s in segments[1:]], axis=1)
+        self._ends = np.array([float(s.t[-1]) for s in segments])
+        self.t_events = [np.asarray(te, dtype=float) for te in t_events]
+        self.success = all(bool(s.success) for s in segments)
+        self.status = segments[-1].status
+        self.message = segments[-1].message
+        self.nfev = int(sum(int(s.nfev) for s in segments))
+        self.table_restarts = restarts
+
+    def sol(self, t):
+        scalar = np.ndim(t) == 0
+        tt = np.atleast_1d(np.asarray(t, dtype=float))
+        out = np.empty((self.y.shape[0], tt.size))
+        k = np.searchsorted(self._ends[:-1], tt, side="left")
+        for i, s in enumerate(self.segments):
+            m = k == i
+            if m.any():
+                out[:, m] = s.sol(tt[m])
+        return out[:, 0] if scalar else out
+
+
+def _segmented_solve(fun, t_span, y0, c: Config, budget: _IntegrationBudget, events=(), **kw):
+    """solve_ivp with a restart of the solver at the property-table limits.
+
+    With property_policy = "clamp" (table backends only; reference_constant has
+    no table limit) the pressure derivative of the chamber properties jumps to
+    zero at p_fit_min / p_fit_max, so dp/dt is discontinuous there.  LSODA can
+    then shrink its step to ~1e-10 s and, depending on its history, never
+    recover (the run does not end).  Each crossing of a limit therefore ends
+    the segment (terminal event) and a fresh solver continues from the crossing
+    state; right after a restart the limit just crossed is watched only for the
+    crossing back, so it cannot fire again at once.
+    """
+    events = list(events)
+    nu = len(events)
+    active = (c.property_policy == "clamp" and c.thermo_backend != BACKEND_REFERENCE_CONSTANT)
+    t, t1 = float(t_span[0]), float(t_span[1])
+    y = np.asarray(y0, dtype=float).copy()
+    segments, t_events, restarts = [], [[] for _ in range(nu)], []
+    last = None
+    while True:
+        limits = []
+        if active:
+            for name, pb in (("p_fit_max", float(c.p_fit_max)), ("p_fit_min", float(c.p_fit_min))):
+                f = (lambda level: (lambda tt, yy: yy[IP] - level))(pb)
+                f.terminal = True
+                f.direction = -last[1] if (last is not None and last[0] == name) else 0.0
+                limits.append((name, pb, f))
+        kw_seg = dict(kw)
+        if segments:
+            kw_seg["first_step"] = min(_INTEGRATION_RESTART_FIRST_STEP_S, max(t1 - t, 1.0e-12))
+        sol = solve_ivp(budget.wrap(fun), (t, t1), y, events=events + [lim[2] for lim in limits], **kw_seg)
+        segments.append(sol)
+        for i in range(nu):
+            t_events[i].extend(float(v) for v in sol.t_events[i])
+        if not sol.success or sol.status != 1:
+            break
+        if any(len(sol.t_events[i]) and getattr(events[i], "terminal", False) for i in range(nu)):
+            break
+        hit = None
+        for j, (name, pb, _f) in enumerate(limits):
+            if len(sol.t_events[nu + j]):
+                p_prev = float(sol.y[IP, -2]) if sol.y.shape[1] > 1 else float(y[IP])
+                hit = (name, 1.0 if p_prev < pb else -1.0)
+                break
+        if hit is None:
+            break
+        if len(restarts) >= INTEGRATION_MAX_TABLE_RESTARTS:
+            raise IntegrationBudgetError(
+                f"{IntegrationBudgetError.code}: more than {INTEGRATION_MAX_TABLE_RESTARTS} solver restarts "
+                f"at the property-table limits (t = {float(sol.t[-1]):.9g} s).")
+        t, y, last = float(sol.t[-1]), sol.y[:, -1].copy(), hit
+        restarts.append({"t_s": t, "limit": hit[0], "direction": "up" if hit[1] > 0 else "down",
+                         "p0_Pa": float(y[IP])})
+        if t >= t1:
+            break
+    return _SegmentedSolution(segments, t_events, restarts)
+
+
 def run_model(c: Config) -> dict:
     """Integrate the burning phase and (optionally) the blowdown phase."""
     validate(c)
@@ -3785,7 +3919,8 @@ def run_model(c: Config) -> dict:
     ev_amb = _event(lambda t, y: y[IP] - c.p_a * 1.0005, True, -1.0)
     names = ["burnout", "unchoked", "rechoked", "ambient"]
 
-    sol1 = solve_ivp(make_rhs(c, Ae, True), (0.0, c.t_max), y0,
+    budget = _IntegrationBudget()
+    sol1 = _segmented_solve(make_rhs(c, Ae, True), (0.0, c.t_max), y0, c, budget,
                      method=c.method, events=[ev_burn, ev_unch, ev_rech, ev_amb],
                      dense_output=True, rtol=c.rtol, atol=atol,
                      max_step=c.max_step_burn, first_step=1.0e-7)
@@ -3810,8 +3945,8 @@ def run_model(c: Config) -> dict:
                                                     math.pi * max(y[IRT], 1e-9) ** 2,
                                                     Ae, c),
                           c.unchoked_policy == "stop", -1.0)
-        sol2 = solve_ivp(make_rhs(c, Ae, False),
-                         (sol1.t[-1], sol1.t[-1] + c.blowdown_tmax), y_bo,
+        sol2 = _segmented_solve(make_rhs(c, Ae, False),
+                         (sol1.t[-1], sol1.t[-1] + c.blowdown_tmax), y_bo, c, budget,
                          method=c.method, events=[ev_amb2, ev_unch2],
                          dense_output=True, rtol=c.rtol, atol=atol,
                          max_step=c.max_step_blow)
@@ -3822,6 +3957,10 @@ def run_model(c: Config) -> dict:
             stop2 = "choking-loss"
 
     return dict(sol_burn=sol1, sol_blow=sol2, stop_burn=stop1, stop_blow=stop2,
+                integration_budget={"rhs_calls": budget.rhs_calls,
+                                    "table_restarts_burn": list(sol1.table_restarts),
+                                    "table_restarts_blowdown": (list(sol2.table_restarts)
+                                                                if sol2 is not None else [])},
                 Ae=Ae, At0=At0, m_total0=m_total0,
                 init_regime=init_regime,
                 t_events={nm: [float(v) for v in te]
@@ -8022,6 +8161,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except (GribsError, ValueError, RuntimeError) as exc:
         print(f"Simulation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 4
+    _ib = (res.get("integration_budget") if isinstance(res, dict) else None) or {}
+    if _ib.get("table_restarts_burn") or _ib.get("table_restarts_blowdown"):
+        # Diagnostic record only (stderr, not JSON-first so that structured error parsers ignore it); the
+        # summary / CSV schema is unchanged.
+        print("INTEGRATION_TABLE_RESTARTS " + json.dumps(_ib, sort_keys=True), file=sys.stderr)
     summ = summarize(res, hist, cfg, backend=backend)
     # If migration from v0.4.3 changed the physical model, record it as a
     # machine-readable warning (previously this only appeared in stderr and

@@ -32,6 +32,37 @@ _RTOL_TIGHT = 1e-9    # mass balance, timing
 _RTOL_LOOSE = 1e-6    # performance (c*, Isp, CF)
 
 # Metrics and their tolerances
+# Residual metrics (propellant mass balance, total mass consistency, maximum condensed mass fraction) are numerical
+# residuals at round-off level.  A last-digit difference of the CEA table (another CPU, for example) or a different
+# integration path changes them by tens of percent while the physical results move by <= ~1e-9 (reports 72, 76, 78),
+# so a relative comparison with the frozen value is not meaningful.  They are judged by absolute bounds equal to the
+# program's own verification thresholds:
+#   propellant_mass_balance_error  <= max(MASS_LEDGER_PROPELLANT_TOLERANCE_FLOOR = 1e-9,
+#                                         MASS_LEDGER_PROPELLANT_TOLERANCE_RTL_FACTOR = 100 x solver rtol)
+#                                     (the mass-ledger propellant gate; the golden cases use rtol 1e-10 -> 1e-8)
+#   total_mass_consistency_error   <= POST_RUN_MASS_TOLERANCE = 1e-6
+#                                     (tolerance of the post-run mass-consistency check; this field is the retained
+#                                      instantaneous form, the check itself uses the invariant form with the same bound)
+#   maximum_condensed_mass_fraction_during_run: |got - expected| <= max(1e-9 x |expected|, 1e-12)
+#                                     (1e-12 = _PHASE_FRACTION_ROUNDING_TOL; meaningful also for single-phase ~0)
+# The physical and timing metrics keep the relative comparison with the frozen golden values.
+_PROPELLANT_GATE_FLOOR = 1.0e-9
+_PROPELLANT_GATE_RTOL_FACTOR = 100.0
+_POST_RUN_MASS_TOLERANCE = 1.0e-6
+_PHASE_FRACTION_ROUNDING_TOL = 1.0e-12
+_RESIDUAL_METRICS = ("propellant_mass_balance_error", "total_mass_consistency_error",
+                     "maximum_condensed_mass_fraction_during_run")
+
+
+def _residual_check(metric, got, expected, solver_rtol):
+    """Return (checked value, bound) for a residual metric."""
+    if metric == "propellant_mass_balance_error":
+        return got, max(_PROPELLANT_GATE_FLOOR, _PROPELLANT_GATE_RTOL_FACTOR * solver_rtol)
+    if metric == "total_mass_consistency_error":
+        return got, _POST_RUN_MASS_TOLERANCE
+    return abs(got - expected), max(1.0e-9 * abs(expected), _PHASE_FRACTION_ROUNDING_TOL)
+
+
 _METRICS = {
     "p_max_Pa":                              _RTOL_LOOSE,
     "burn_time_s":                           _RTOL_TIGHT,
@@ -103,6 +134,11 @@ def test_golden_regression(case_id, config_path, tmp_path):
         expected = golden.get(metric)
         got = actual.get(metric)
         if expected is None or got is None:
+            continue
+        if metric in _RESIDUAL_METRICS:
+            value, bound = _residual_check(metric, got, expected, float(doc["solver"]["relative_tolerance"]))
+            if not value <= bound:
+                failures.append(f"  {metric}: got {got:.6e} (checked {value:.3e}) > bound {bound:.3e}")
             continue
         if expected == 0.0 and got == 0.0:
             continue

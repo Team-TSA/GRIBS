@@ -313,7 +313,7 @@ These values are for comparison only. They are not fed back into the GRIBS unste
 | 1 | Run verification gate or standalone self-test failed; also used for model-applicability rejection. |
 | 2 | Configuration is invalid. |
 | 3 | Thermochemistry backend initialization failed, including a failure to write the chamber-property cache (`E_THERMO_CACHE_WRITE_FAILED`). |
-| 4 | Simulation/integration failed. |
+| 4 | Simulation/integration failed, including an integration that exceeds a safety limit (`E_INTEGRATION_BUDGET_EXCEEDED`: more than 2,000,000 right-hand-side evaluations, more than 300 s of wall time, or more than 10,000 solver restarts at the property-table limits). |
 | 5 | Mass-ledger verification failed while the other run-verification gates passed. |
 
 `--allow-verification-failure` applies only when the mass ledger is the sole
@@ -481,6 +481,7 @@ GRIBS v0.6.0-alpha is alpha research software. **Its physical validity has not b
 - **G1 — CEA semantics (internal consistency): approved within a limited scope.** It covers the numerical internal consistency of cea 3.3.4 outputs (mass-fraction sums, molecular-weight and density identities, species reconstruction, nozzle stations) for golden cases g2–g5 and two mid-condensed AP/Al evidence compositions (AP70/Al5/HTPB25 and AP70/Al7/HTPB23): 60 equilibrium points and 54 nozzle-station points. Conditions: some checks at a stricter tolerance (1e-8) remain recorded mismatches; some interpretations of CEA quantities are inferred and not confirmed against a CEA specification; G1 is not independent verification or physical validation.
 - **G4a — comparison with the CEA reference `c*`: not passed (known limitation).** The criterion (relative difference within 2e-3 between the GRIBS constant-gamma nozzle `c*` and the CEA infinite-area-chamber `c*`) and its tolerance are unchanged. 9 of 18 points exceed it: g3 at 10/30/70 bar (−2.0e-3 to −2.1e-3), g4 at 70 bar (+2.05e-3), AP70/Al5 at 10 and 30 bar (+2.1e-3 to +2.6e-3), and AP70/Al7 at 10/30/70 bar (about −2.1% to −2.3%). The larger differences coincide with condensed species appearing or changing phase between the chamber and the throat; this is supported by intervention tests but not proven. The equilibrium-expansion alternative studied during Phase A is not part of this release.
 - **G4b — reproduction of reported or experimental data: not done.** The complete inputs of the reported AP/Al cases, experimental data and an independent two-phase model are not available.
+- **Golden regression test:** the physical and timing metrics are compared with the frozen golden values (relative 1e-6 / 1e-9). The three residual metrics (propellant mass balance, total mass consistency, maximum condensed mass fraction) are round-off-level numerical residuals that change by tens of percent with last-digit differences of the CEA table; they are checked against the program's own verification thresholds instead: propellant mass balance <= max(1e-9, 100 x solver rtol) (the mass-ledger gate), total mass consistency <= 1e-6 (the post-run consistency tolerance), maximum condensed mass fraction within max(1e-9 x |golden|, 1e-12) of the golden value. The golden values themselves are unchanged.
 - **G5 — release gate: not done.** The golden reference values in `cases/golden/` and the recorded outputs in `results_golden_*` were frozen before G5. They are regression references, not validated or approved values.
 - **Continuous integration:** the GitHub workflow runs the self-tests and the test suite on Python 3.11, 3.12 and 3.13. Python 3.14 is checked locally only. CI results are not part of the G0 evidence.
 
@@ -489,7 +490,7 @@ GRIBS v0.6.0-alpha is alpha research software. **Its physical validity has not b
 - This is alpha-stage research software. It is not certified for safety-critical use and is not intended for production use; physical validity has not been established (see [Validation status](#validation-status)).
 - The nozzle `c*` uses a constant-gamma isentropic relation. Against the CEA equilibrium reference it differs by up to about 2.3% in the tested condensed AP/Al compositions (G4a not passed).
 - The chamber gas phase is treated as an ideal gas; non-ideal effects at high pressure are not modelled or bounded. The condensed-phase volume is neglected.
-- By default (`property_policy = "clamp"`), chamber properties outside the tabulated pressure range are held at the nearest table limit. Results in that region depend on this approximation; the run is not stopped.
+- By default (`property_policy = "clamp"`), chamber properties outside the tabulated pressure range are held at the nearest table limit. Results in that region depend on this approximation; the run is not stopped. The pressure derivative of the properties jumps to zero at the table limits, so dp/dt is discontinuous there; the ODE solver is restarted at each crossing of a table limit so that it does not stall at the jump.
 - Chemical equilibrium does not model finite-rate chemistry.
 - The additive-volume density rule is an approximation.
 - Burn-rate and erosive-burning coefficients are empirical inputs.

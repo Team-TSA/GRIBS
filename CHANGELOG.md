@@ -35,6 +35,8 @@ B2-C, B2-D) are not included.
 
 ### Fixed (late Phase A)
 
+- The ODE integration no longer stalls at the property-table limits. With `property_policy = "clamp"` (table backends) dp/dt jumps at `p_fit_min` / `p_fit_max`; LSODA could shrink its step to ~1e-10 s there and, depending on its history, never finish (observed for g2 with a 1e-13 perturbation of the gamma_s table). The integration now ends a segment at each crossing of a table limit and continues with a fresh solver from the crossing state. Runs that never cross a limit, and the reference_constant backend, are integrated exactly as before. A run that restarts writes one diagnostic line `INTEGRATION_TABLE_RESTARTS {...}` to stderr; the summary and CSV formats are unchanged.
+- Safety limits for one run: 2,000,000 right-hand-side evaluations, 300 s of wall time and 10,000 restarts at the table limits. Exceeding one stops the run with `E_INTEGRATION_BUDGET_EXCEEDED` (exit code 4) instead of running without end.
 - Run outputs are kept when the comparison-only CEA theoretical diagnostics
   fail or are incomplete. Previously a failed diagnostic raised `KeyError`
   after the simulation and before any output file was written. The status is
@@ -60,6 +62,10 @@ B2-C, B2-D) are not included.
   in-place write. If syncing the directory is not supported, the run
   continues with `W_THERMO_CACHE_DURABILITY_NOT_GUARANTEED`. Operating
   assumptions, compatibility notes and untested conditions are in the README.
+
+### Changed (tests)
+
+- The golden regression test checks the three residual metrics (propellant mass balance, total mass consistency, maximum condensed mass fraction) against absolute bounds equal to the program's verification thresholds (mass-ledger propellant gate max(1e-9, 100 x rtol); post-run mass tolerance 1e-6; phase-fraction rounding tolerance 1e-12 around the golden value) instead of a relative 1e-9 comparison with the frozen values. These residuals are round-off level: a last-digit difference of the CEA table (for example on another CPU) changed them by tens of percent and failed CI on Python 3.13 while every physical metric stayed within its tolerance. Physical and timing metrics and the golden values are unchanged.
 
 ### Changed
 
