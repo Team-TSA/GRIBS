@@ -100,5 +100,39 @@
     "total_mass_consistency_error": 3.7938708756545493e-07,
     "two_phase_mode": "homogeneous_equilibrium",
     "two_phase_active": true
+  },
+  "g7": {
+    "p_max_Pa": 3753588.718454475,
+    "burn_time_s": 1.3971208111796796,
+    "total_time_s": 1.4069792515428434,
+    "impulse_total_Ns": 95.00725452207158,
+    "Isp_s": 161.74876667259807,
+    "cstar_eff_m_s": 1325.3680675096125,
+    "CF_eff": 1.1927549943491051,
+    "F_max_N": 129.08150661446547,
+    "gas_mass_fraction_min": 0.986784073447042,
+    "gas_mass_fraction_max": 0.9868325807836141,
+    "maximum_condensed_mass_fraction_during_run": 0.013215926552958002,
+    "propellant_mass_balance_error": 3.6891223409440954e-10,
+    "total_mass_consistency_error": 3.2742867112167694e-08,
+    "two_phase_mode": "homogeneous_equilibrium",
+    "two_phase_active": true
+  },
+  "g8": {
+    "p_max_Pa": 3753588.7182554207,
+    "burn_time_s": 1.3971208111094828,
+    "total_time_s": 1.4064390426111504,
+    "impulse_total_Ns": 110.64933842359814,
+    "Isp_s": 188.37923601926724,
+    "cstar_eff_m_s": 1325.3680681227693,
+    "CF_eff": 1.3892551735041547,
+    "F_max_N": 153.64664474549153,
+    "gas_mass_fraction_min": 0.986784073447042,
+    "gas_mass_fraction_max": 0.9868325807836126,
+    "maximum_condensed_mass_fraction_during_run": 0.013215926552958002,
+    "propellant_mass_balance_error": 8.272406093468021e-10,
+    "total_mass_consistency_error": 3.2588999341681754e-07,
+    "two_phase_mode": "homogeneous_equilibrium",
+    "two_phase_active": true
   }
 }

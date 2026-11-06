@@ -17,6 +17,8 @@ All notable changes to GRIBS are documented in this file.
 
 ### Tests
 
+- New golden cases g7 and g8 (`cases/golden/g7_low_condensed_graphite.json`, `g8_cd_nozzle_blowdown_graphite.json`): g3 and g6 with graphite `C(gr)` instead of gaseous `C`, otherwise identical (carbon density 2200 kg/m³ as in g3 and g6). Their values are frozen in `golden_values.json`; the entries of g1-g6 are unchanged. They have no recorded output directory.
+- The golden regression test also compares `two_phase_mode` and `two_phase_active` with the frozen values (previously recorded but not checked).
 - `test_cd_nozzle_transition_classification` reads a dedicated fixture, `tests/fixtures/cd_nozzle_transition_eps4.json` (the v0.6.0-alpha default configuration with Ae/At = 4), instead of the default `gribs_config.json`. Its frozen jump values are unchanged, and it no longer depends on the default configuration.
 
 ## [v0.6.0-alpha] "Keystone" - 2026-11-05

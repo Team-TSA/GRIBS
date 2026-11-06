@@ -12,6 +12,18 @@ Golden cases:
   g4  medium_condensed     AP/Al/HTPB 70/12/18, Yg ~ 0.78
   g5  high_condensed_ap_al AP/Al/HTPB 68/18/14, Yg ~ 0.70
   g6  cd_nozzle_blowdown   C-D nozzle (eps=2.5) + blowdown
+  g7  low_condensed_graphite      as g3 with graphite C(gr) instead of gaseous C
+  g8  cd_nozzle_blowdown_graphite as g6 with graphite C(gr) instead of gaseous C
+
+g3 and g6 use the CEA species "C" (gaseous atomic carbon); they are kept
+unchanged as numerical regression references and are not representative of a
+real propellant.  g7 and g8 were added in v0.6.1-alpha (GitHub issue #7) with
+the carbon density 2200 kg/m3 of g3 and g6 (the default configuration uses
+2260).  Like g1-g6 they were frozen before the release gate G5, with the
+maintainer's approval, as regression references that are not validated.
+
+Each case is checked on 15 fields of golden_values.json: the 13 numeric
+metrics below and the two-phase model mode and activity (exact match).
 
 model_status for g5 is ``approximate_with_limitations`` by design.
 """
@@ -96,12 +108,13 @@ def test_golden_regression(case_id, config_path, tmp_path):
     """Run a golden case and compare all metrics against frozen values.
 
     The run output goes to pytest's tmp_path.  For the cea_python cases
-    (g2-g6) the CEA cache directory is set explicitly to
+    (g2-g8) the CEA cache directory is set explicitly to
     tmp_path/results_golden_<id>/thermo_cache (the same place the default
     rule would choose, made independent of it); the reference_constant case
     (g1) has no cache.  The frozen inputs (cases/golden/*.json,
     golden_values.json) and the tracked results_golden_* reference
-    directories are never written.  Golden values are unchanged.
+    directories are never written.  The values of g1-g6 are unchanged;
+    g7 and g8 were added in v0.6.1-alpha.
     """
     golden = json.loads(_GOLDEN_VALUES.read_text())[case_id]
 
@@ -130,6 +143,10 @@ def test_golden_regression(case_id, config_path, tmp_path):
 
     # Compare each metric
     failures = []
+    for key, got in (("two_phase_mode", actual["two_phase_model"]["mode"]),
+                     ("two_phase_active", actual["two_phase_model"]["active"])):
+        if got != golden[key]:
+            failures.append(f"  {key}: expected {golden[key]!r}, got {got!r}")
     for metric, rtol in _METRICS.items():
         expected = golden.get(metric)
         got = actual.get(metric)
