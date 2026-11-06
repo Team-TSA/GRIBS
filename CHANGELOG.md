@@ -4,6 +4,21 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- The default configuration `gribs_config.json` uses graphite `C(gr)` instead of `C`. In the NASA CEA database `C` is gaseous atomic carbon (about +59.67 MJ/kg), which made the reactant enthalpy strongly positive and the default results non-physical (CEA HP at 30 bar: chamber temperature 3678 K and `c*` 1901 m/s with `C`; 2138 K and 1330 m/s with `C(gr)`). Results of the default configuration change accordingly. With `C(gr)` the minimum gas mass fraction of the default configuration is about 0.987, below the in-scope threshold 0.99, so its `validation.model_status` is `approximate_with_limitations` (previously `in_scope_not_validated`) and the run reports the warning `W_HIGH_CONDENSATE_MODEL_LIMITATION` in addition to `W_TWO_PHASE_NOZZLE_APPROXIMATION`. `examples/example_config.json` already used `C(gr)`.
+- The notes of `gribs_config.json` are updated: they no longer describe the file as a v0.4.3-alpha configuration, no longer say that the backend is left empty, and no longer refer to `VALIDATION_REPORT.md`, which does not exist.
+
+### Documentation
+
+- README, MODEL_LIMITATIONS.md: the outside-range setting is named by its JSON key `thermochemistry.outside_range_policy` (previously the internal name `property_policy` was used, which is not accepted in a configuration file); the README "Configuration" section describes it and lists the `two_phase_model` section.
+- README, MODEL_LIMITATIONS.md: GRIBS does not check whether a composition is plausible. The shape of the pressure and thrust histories is set mainly by the grain geometry and the burn law; with these fixed, normalized pressure histories of different compositions nearly overlap. The README explains the CEA species names `C` / `C(gr)` and `AL` / `AL(cr)`.
+- README: golden cases g3 and g6 use gaseous `C`; they are kept unchanged as numerical regression references.
+
+### Tests
+
+- `test_cd_nozzle_transition_classification` reads a dedicated fixture, `tests/fixtures/cd_nozzle_transition_eps4.json` (the v0.6.0-alpha default configuration with Ae/At = 4), instead of the default `gribs_config.json`. Its frozen jump values are unchanged, and it no longer depends on the default configuration.
+
 ## [v0.6.0-alpha] "Keystone" - 2026-11-05
 
 **Consistent Thermochemistry Foundation.** First public release after

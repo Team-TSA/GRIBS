@@ -1,13 +1,14 @@
 {
   "schema_version": "0.5.0-alpha",
   "notes": [
-    "GRIBS v0.4.3-alpha configuration.",
-    "ACTION REQUIRED: set thermochemistry.backend explicitly to 'cea_python' (official NASA CEA Python package, recommended) or 'cea_legacy_executable' (external fcea2 executable).  It is intentionally left empty here: GRIBS has no default backend, never substitutes another one, and stops with an actionable message until this choice is made.",
+    "GRIBS default configuration (configuration schema 0.5.0-alpha).",
+    "The thermochemistry backend is selected explicitly: 'cea_python' (official NASA CEA Python package, recommended) or 'cea_legacy_executable' (external fcea2 executable). GRIBS has no default backend and never substitutes another one.",
     "The v0.3 backends 'cea2' and 'legacy_fit' are not accepted: 'legacy_fit' was removed in v0.4.0-alpha and 'cea2' is renamed to 'cea_legacy_executable'.",
-    "The bulk propellant density is always rho_p = packing_fraction / sum_i(w_i/density_i); it is not a configuration setting any more."
+    "The bulk propellant density is always rho_p = packing_fraction / sum_i(w_i/density_i); it is not a configuration setting any more.",
+    "The input values are examples, not design recommendations."
   ],
   "propellant": {
-    "description": "Solid-propellant formulation as a mass-fraction mixture. reactant name must exist in the thermochemistry database of the selected backend; wt_percent must sum to 100. density_kg_m3 is the solid constituent density. The bulk density is rho_p = packing_fraction / sum_i(w_i/rho_i) (additive-volume model) and is completely independent of any CEA combustion-product (gas) density. NOTE (v0.4): in the official NASA CEA database the bare name 'C' denotes gaseous atomic carbon (h ~ +59.67 MJ/kg at 298.15 K) while 'C(gr)' is graphite; 'C' is retained here unchanged from the v0.3 formulation - see README.md and VALIDATION_REPORT.md before changing it.",
+    "description": "Solid-propellant formulation as a mass-fraction mixture. reactant name must exist in the thermochemistry database of the selected backend; wt_percent must sum to 100. density_kg_m3 is the solid constituent density. The bulk density is rho_p = packing_fraction / sum_i(w_i/rho_i) (additive-volume model) and is completely independent of any CEA combustion-product (gas) density. In the official NASA CEA database the bare name 'C' denotes gaseous atomic carbon (h ~ +59.67 MJ/kg at 298.15 K) and 'C(gr)' is graphite; this configuration uses 'C(gr)' (up to v0.6.0-alpha it used 'C').",
     "packing_fraction": 1.0,
     "reactants": [
       {
@@ -23,7 +24,7 @@
         "density_kg_m3": 2700.0
       },
       {
-        "name": "C",
+        "name": "C(gr)",
         "wt_percent": 10.6,
         "temperature_K": 298.15,
         "density_kg_m3": 2260.0

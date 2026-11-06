@@ -49,10 +49,33 @@ def test_default_self_tests_pass():
 
 @pytest.mark.integration
 def test_cd_nozzle_transition_classification(tmp_path):
-    """C-D nozzle mass flow passes T4 while thrust jump remains diagnostic."""
-    source = ROOT / "gribs_config.json"
+    """C-D nozzle mass flow passes T4 while thrust jump remains diagnostic.
+
+    The input is the dedicated fixture tests/fixtures/cd_nozzle_transition_eps4.json
+    (the v0.6.0-alpha default configuration with Ae/At = 4).  The test does not read
+    the default gribs_config.json, so changes of the default geometry, burn law,
+    nozzle, solver or composition do not affect it.  The frozen jump values below
+    (mdot 4.02e-08, F 1.04, relative 1e-2) belong to exactly this input.  Its
+    reactant "C" is gaseous atomic carbon in the NASA CEA database; it is kept as
+    a numerical regression input only, not a representative propellant (GitHub
+    issue #7).
+    """
+    source = ROOT / "tests" / "fixtures" / "cd_nozzle_transition_eps4.json"
     supplied = json.loads(source.read_text(encoding="utf-8"))
-    supplied["nozzle"]["expansion_ratio"] = 4.0
+    # Guard the inputs that the frozen values depend on.
+    assert supplied["nozzle"]["expansion_ratio"] == 4.0
+    assert [
+        (r["name"], r["wt_percent"], r["temperature_K"], r["density_kg_m3"])
+        for r in supplied["propellant"]["reactants"]
+    ] == [
+        ("NH4NO3(IV)", 88.7, 298.15, 1720.0),
+        ("AL(cr)", 0.7, 298.15, 2700.0),
+        ("C", 10.6, 298.15, 2260.0),
+    ]
+    # Write the run outputs (CEA cache) under tmp_path, not into the repository.
+    # A relative output.directory is resolved against the program file's
+    # directory, not the working directory, so it is replaced at run time.
+    supplied["output"]["directory"] = str(tmp_path / "results")
 
     config_path = tmp_path / "gribs_config_eps4.json"
     config_path.write_text(

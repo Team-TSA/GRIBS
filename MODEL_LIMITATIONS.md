@@ -18,9 +18,11 @@ GRIBS is a lumped-parameter numerical model. Users must evaluate whether each as
 12. The condensed-phase volume is neglected against the chamber free volume.
 13. The nozzle `c*` uses a constant-gamma isentropic relation. Against the CEA equilibrium reference it differs by up to about 2.3% in the tested condensed AP/Al compositions; the comparison gate G4a has not passed (see the README, "Validation status").
 
+14. The composition is not checked for plausibility. GRIBS does not decide whether a composition is combustible, ignites or sustains combustion. The burn rate is the configured law, so the shapes of the pressure and thrust histories are set mainly by the grain geometry and the burn law. With the geometry, burn law and nozzle fixed, the normalized pressure histories of different compositions nearly overlap: the composition changes mainly their level, and their shape only slightly.
+
 ## Property and input limitations
 
-The chamber-property tables have a configured pressure range. With the default `property_policy = "clamp"`, properties outside that range are held at the nearest table limit and the run is not stopped. Clamping improves numerical robustness outside that interval but suppresses pressure dependence there. Extrapolation remains smooth but may be physically unreliable. Combustion coefficients, efficiencies, flow coefficients, and erosion parameters require independent evidence for the intended formulation and operating range.
+The chamber-property tables have a configured pressure range. With `thermochemistry.outside_range_policy = "clamp"` (used by the supplied configurations), properties outside that range are held at the nearest table limit and the run is not stopped. Clamping improves numerical robustness outside that interval but suppresses pressure dependence there. Extrapolation remains smooth but may be physically unreliable. Combustion coefficients, efficiencies, flow coefficients, and erosion parameters require independent evidence for the intended formulation and operating range.
 
 ## Interpretation limits
 
