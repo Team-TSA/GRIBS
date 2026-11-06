@@ -10,9 +10,9 @@ title: >-
 
 type: software
 
-version: "0.6.0-alpha"
+version: "0.6.1-alpha"
 
-date-released: "2026-11-05"
+date-released: "2026-11-06"
 
 authors:
   - family-names: "Kurokawa"

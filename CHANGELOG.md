@@ -4,6 +4,27 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+## [v0.6.1-alpha] - 2026-11-06
+
+Patch release of v0.6.0-alpha "Keystone". The simulation code is unchanged
+apart from the version identifiers and one source comment; the default
+configuration, the golden set and the documentation change. Status:
+unchanged from v0.6.0-alpha (physical validity not established; G4a not
+passed; G4b and G5 not complete). G0 for the v0.6.1-alpha release commit is
+decided by the maintainer separately; see the README section
+"Validation status".
+
+### Release identity
+
+- `PROGRAM_VERSION` is `0.6.1-alpha`; `--version` reports `GRIBS 0.6.1-alpha`.
+- The program file is renamed from `GRIBS_v0.6.0-alpha.py` to
+  `GRIBS_v0.6.1-alpha.py`. Scripts that call the old file name must be
+  updated.
+- The configuration schema is unchanged: `SCHEMA_VERSION` stays
+  `0.5.0-alpha`.
+- A source comment no longer refers to `VALIDATION_REPORT.md`, which does not
+  exist; it refers to the README section "Validation status".
+
 ### Changed
 
 - The default configuration `gribs_config.json` uses graphite `C(gr)` instead of `C`. In the NASA CEA database `C` is gaseous atomic carbon (about +59.67 MJ/kg), which made the reactant enthalpy strongly positive and the default results non-physical (CEA HP at 30 bar: chamber temperature 3678 K and `c*` 1901 m/s with `C`; 2138 K and 1330 m/s with `C(gr)`). Results of the default configuration change accordingly. With `C(gr)` the minimum gas mass fraction of the default configuration is about 0.987, below the in-scope threshold 0.99, so its `validation.model_status` is `approximate_with_limitations` (previously `in_scope_not_validated`) and the run reports the warning `W_HIGH_CONDENSATE_MODEL_LIMITATION` in addition to `W_TWO_PHASE_NOZZLE_APPROXIMATION`. `examples/example_config.json` already used `C(gr)`.
@@ -14,6 +35,7 @@ All notable changes to GRIBS are documented in this file.
 - README, MODEL_LIMITATIONS.md: the outside-range setting is named by its JSON key `thermochemistry.outside_range_policy` (previously the internal name `property_policy` was used, which is not accepted in a configuration file); the README "Configuration" section describes it and lists the `two_phase_model` section.
 - README, MODEL_LIMITATIONS.md: GRIBS does not check whether a composition is plausible. The shape of the pressure and thrust histories is set mainly by the grain geometry and the burn law; with these fixed, normalized pressure histories of different compositions nearly overlap. The README explains the CEA species names `C` / `C(gr)` and `AL` / `AL(cr)`.
 - README: golden cases g3 and g6 use gaseous `C`; they are kept unchanged as numerical regression references.
+- README "Validation status": G0 is described for the v0.6.0-alpha release commit `4e7896a` (797 tests), for which it was approved after the v0.6.0-alpha entry below was written; the v0.6.1-alpha changes are stated as not covered by that approval.
 
 ### Tests
 

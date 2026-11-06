@@ -3,7 +3,7 @@
 """Run the Phase A-3 numerical-convergence and event-policy sweep.
 
 This harness adapts the historical investigation preserved under
-Specification/ to the current GRIBS v0.6.0-alpha implementation.
+Specification/ to the current GRIBS v0.6.1-alpha implementation.
 
 It intentionally loads the current single-file GRIBS module dynamically.
 Migration into gribs/numerics/sweep.py belongs to the later package
@@ -30,7 +30,7 @@ from typing import Any, Sequence
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_GRIBS_PATH = REPOSITORY_ROOT / "GRIBS_v0.6.0-alpha.py"
+DEFAULT_GRIBS_PATH = REPOSITORY_ROOT / "GRIBS_v0.6.1-alpha.py"
 DEFAULT_CONFIG_PATH = REPOSITORY_ROOT / "gribs_config.json"
 DEFAULT_SWEEP_CONFIG_PATH = (
     REPOSITORY_ROOT / "tools" / "convergence_sweep_config.json"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GRIBS v0.6.0-alpha
+GRIBS v0.6.1-alpha
 ================================================================================
 JSON-CONFIGURED INTERNAL BALLISTICS OF A SOLID ROCKET MOTOR
   Grain    : cylindrical bore + N burning end face(s) (outer surface inhibited)
@@ -161,9 +161,9 @@ OUTPUT
   All user inputs are read from gribs_config.json beside this script.
   Select thermochemistry.backend in that file.  An alternative complete
   configuration may be supplied with:
-      python GRIBS_v0.6.0-alpha.py --config another_config.json
+      python GRIBS_v0.6.1-alpha.py --config another_config.json
   Run numerical self-tests only with:
-      python GRIBS_v0.6.0-alpha.py --selftest
+      python GRIBS_v0.6.1-alpha.py --selftest
 
 --------------------------------------------------------------------------------
 STATUS / LIMITATIONS
@@ -222,7 +222,7 @@ from scipy.interpolate import PchipInterpolator
 # 0. PROGRAM IDENTITY AND CONSTANTS
 # ==============================================================================
 PROGRAM_NAME = "GRIBS"
-PROGRAM_VERSION = "0.6.0-alpha"
+PROGRAM_VERSION = "0.6.1-alpha"
 SCHEMA_VERSION = "0.5.0-alpha"
 #: Schema string of the pre-migration configuration; used only by the explicit
 #: v0.3 -> v0.4 migration helper (never for normal operation).
@@ -276,7 +276,7 @@ REMOVED_BACKENDS = {
 CEA_PROJECT_URL = "https://github.com/nasa/CEA"
 CEA_INSTALL_COMMAND = "python -m pip install cea"
 #: Official NASA CEA Python API series this file was developed and validated
-#: against (see VALIDATION_REPORT.md).  Older majors do not provide the
+#: against (see the README, "Validation status").  Older majors do not provide the
 #: EqSolver/EqSolution/RocketSolver surface used here.
 CEA_MIN_API_VERSION = (3, 0)
 CEA_TESTED_API_VERSION = (3, 3)
