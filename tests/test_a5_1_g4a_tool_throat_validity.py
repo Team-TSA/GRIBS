@@ -111,10 +111,45 @@ def test_tool_records_the_body_it_executed():
     body = _the_body()
     info = tool.GRIBS_MODULE_INFO
     assert Path(info["path"]) == body
-    assert info["sha256"] == hashlib.sha256(body.read_bytes()).hexdigest()
+    # independent recomputation of the composite identity (ADR_A6_PACKAGE_SPLIT, High-1)
+    pkg_dir = (ROOT / "src" / "gribs").resolve()
+    entries = sorted((p.relative_to(pkg_dir.parent).as_posix().encode(), p.read_bytes())
+                     for p in pkg_dir.rglob("*.py")
+                     if not any(x == "__pycache__" or x.endswith(".egg-info") or x.startswith(".")
+                                for x in p.relative_to(pkg_dir.parent).parts))
+    digest = hashlib.sha256(b"".join(k + b"\0" + str(len(v)).encode() + b"\0" + v + b"\0" for k, v in entries)).hexdigest()
+    entry_bytes = body.read_bytes()
+    assert info["entry_sha256"] == hashlib.sha256(entry_bytes).hexdigest()
+    assert Path(info["package_root"]) == pkg_dir
+    assert info["package_tree_digest"] == digest
+    assert info["sha256"] == hashlib.sha256(entry_bytes + b"\0" + digest.encode("ascii")).hexdigest()
+    assert info["sha256_kind"] == "body_composite_v1"
     assert info["module_name"] != "gribs" and info["reused_existing_module"] is False
     assert Path(tool.gribs.__file__).resolve() == body
     assert tool.build_result([])["gribs_module"] == info
+
+
+@pytest.mark.fast
+def test_check_package_root_rejects_none():
+    with pytest.raises(RuntimeError, match="did not import"):
+        tool._check_package_root(None, ROOT / "src" / "gribs")
+
+
+@pytest.mark.fast
+def test_check_package_root_rejects_another_path(tmp_path):
+    import types
+    other = tmp_path / "other" / "src" / "gribs"; other.mkdir(parents=True); (other / "__init__.py").write_text("")
+    fake = types.ModuleType("gribs"); fake.__file__ = str(other / "__init__.py"); fake.__path__ = [str(other)]
+    with pytest.raises(RuntimeError, match="not from"):
+        tool._check_package_root(fake, ROOT / "src" / "gribs")
+
+
+@pytest.mark.fast
+def test_check_package_root_rejects_namespace_package():
+    import types
+    ns = types.ModuleType("gribs"); ns.__file__ = None; ns.__path__ = [str(ROOT / "src" / "gribs"), "/elsewhere/gribs"]
+    with pytest.raises(RuntimeError, match="not a regular package"):
+        tool._check_package_root(ns, ROOT / "src" / "gribs")
 
 
 _FOREIGN_CHECK = r"""

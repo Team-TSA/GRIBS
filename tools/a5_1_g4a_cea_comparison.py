@@ -28,12 +28,51 @@ ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_MODULE_NAME = "gribs_a5_1_g4a_tool_body"
 
 
-def load_gribs_body(root):
-    """Load the GRIBS body of THIS repository privately.
+def package_tree_digest(package_dir):
+    """ADR_A6_PACKAGE_SPLIT: SHA-256 over <path>\\0<len>\\0<bytes>\\0 of every *.py under the imported package
+    (paths POSIX, relative to the package's parent, sorted by UTF-8 bytes; __pycache__, *.egg-info and names
+    starting with "." are excluded)."""
+    package_dir = Path(package_dir); base = package_dir.parent; items = []
+    for p in package_dir.rglob("*.py"):
+        rel = p.relative_to(base)
+        if any(part == "__pycache__" or part.endswith(".egg-info") or part.startswith(".") for part in rel.parts):
+            continue
+        if p.is_file():
+            items.append((rel.as_posix().encode("utf-8"), p.read_bytes()))
+    h = hashlib.sha256()
+    for path_bytes, data in sorted(items):
+        h.update(path_bytes + b"\0" + str(len(data)).encode("ascii") + b"\0" + data + b"\0")
+    return h.hexdigest()
 
-    Never reuses ``sys.modules["gribs"]`` (it may come from another tree or an
-    older file state) and never replaces it.  The module is executed from the
-    exact bytes whose sha256 is recorded, so the reported hash is the code that ran.
+
+def body_sha256(entry_bytes, tree_digest):
+    """Identity of the executed code: SHA256(entry bytes || "\\0" || package_tree_digest as ASCII hex)."""
+    return hashlib.sha256(entry_bytes + b"\0" + tree_digest.encode("ascii")).hexdigest()
+
+
+def _check_package_root(package, expected):
+    """Return the directory of the imported gribs package; raise RuntimeError unless it is the regular package
+    <root>/src/gribs (None, another path, a namespace package or a module without __file__ are rejected)."""
+    expected = Path(expected).resolve()
+    if package is None:
+        raise RuntimeError(f"the entry did not import the gribs package (expected {expected})")
+    file = getattr(package, "__file__", None)
+    paths = list(getattr(package, "__path__", None) or ())
+    if not file or len(paths) != 1:
+        raise RuntimeError(f"gribs is not a regular package: __file__={file!r}, __path__={paths!r} (expected {expected})")
+    if Path(file).resolve().parent != expected or Path(paths[0]).resolve() != expected:
+        raise RuntimeError(f"the entry imported gribs from {file!r}, not from {expected}")
+    return expected
+
+
+def load_gribs_body(root):
+    """Load the GRIBS entry of THIS repository privately and identify the code that ran.
+
+    The entry GRIBS_v*.py is executed under a private module name from the exact bytes that are hashed; it is never
+    taken from or written to the tests' registration name. The entry imports the package ``gribs`` (A-6); the
+    package that was imported must be the regular package <root>/src/gribs of the same tree (checked by
+    _check_package_root), otherwise RuntimeError. The recorded "sha256" is the composite body identity
+    (sha256_kind "body_composite_v1"): SHA256(entry bytes || b"\\0" || package_tree_digest of that package).
     """
     candidates = sorted(Path(root).glob("GRIBS_v*.py"))
     if len(candidates) != 1:
@@ -52,7 +91,11 @@ def load_gribs_body(root):
         else:
             sys.modules[PRIVATE_MODULE_NAME] = previous
         raise
-    info = {"path": str(path), "sha256": hashlib.sha256(source).hexdigest(),
+    package_dir = _check_package_root(sys.modules.get("gribs"), Path(root) / "src" / "gribs")
+    tree_digest = package_tree_digest(package_dir)
+    info = {"path": str(path), "sha256": body_sha256(source, tree_digest), "sha256_kind": "body_composite_v1",
+            "entry_sha256": hashlib.sha256(source).hexdigest(), "package_root": str(package_dir),
+            "package_tree_digest": tree_digest,
             "module_name": PRIVATE_MODULE_NAME, "reused_existing_module": False}
     return module, info
 

@@ -60,6 +60,16 @@ ALLOWLIST = {
 }
 
 
+# package module -> unit that introduced it (ADR_A6_PACKAGE_SPLIT; report 112 order). A module may import only
+# gribs modules of the same or an earlier unit. Every module under src/gribs must be listed.
+MODULE_UNIT = {
+    "gribs": 0,
+    "gribs.constants": 1,
+    "gribs.errors": 1,
+    "gribs.util": 1,
+}
+
+
 def _entry():
     bodies = sorted(ROOT.glob("GRIBS_v*.py"))
     if len(bodies) != 1:
@@ -155,6 +165,9 @@ def _sites():
                     sym, prefix = _moved_target(first.value)
                     if sym is not None:
                         yield path, node.lineno, sym, "string", prefix == MOVED[sym][0]
+                    elif first.value == "gribs" or first.value.startswith("gribs."):
+                        # a gribs target that names no moved name: counted, so T0 needs it in ALLOWLIST
+                        yield path, node.lineno, first.value.split(".")[-1], "string-unclassified", False
                     continue
                 chain = _chain(first)
                 if chain is None or not isinstance(second, ast.Constant) or not isinstance(second.value, str):
@@ -172,6 +185,8 @@ def _sites():
                     sym, prefix = _moved_target(".".join(parts))
                     if sym is not None:
                         yield path, node.lineno, sym, "package-object", prefix == MOVED[sym][0]
+                    else:
+                        yield path, node.lineno, parts[-1], "package-object-unclassified", False
             elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
                 for t in (node.targets if isinstance(node, ast.Assign) else [node.target]):
                     if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name):
@@ -179,8 +194,8 @@ def _sites():
                             yield path, node.lineno, t.attr, "entry-assign", False
                         elif t.value.id in pkgroots:
                             sym, _prefix = _moved_target(f"{pkgroots[t.value.id]}.{t.attr}")
-                            if sym is not None:
-                                yield path, node.lineno, sym, "package-assign", False
+                            yield path, node.lineno, sym if sym is not None else t.attr, \
+                                "package-assign" if sym is not None else "package-assign-unclassified", False
 
 
 @pytest.mark.fast
@@ -265,3 +280,40 @@ def test_t7_module_names_do_not_collide_with_moved_names():
     for path in SRC.rglob("*.py"):
         basenames.add(path.parent.name if path.name == "__init__.py" else path.stem)
     assert not basenames & set(MOVED), sorted(basenames & set(MOVED))
+
+
+def _module_name(path):
+    rel = path.relative_to(SRC).with_suffix("")
+    parts = rel.parts[:-1] if rel.name == "__init__" else rel.parts
+    return ".".join(parts)
+
+
+@pytest.mark.fast
+def test_t8_package_modules_import_only_same_or_earlier_units():
+    problems = []
+    for path in sorted(SRC.rglob("*.py")):
+        me = _module_name(path)
+        if me not in MODULE_UNIT:
+            problems.append(f"{path}: module {me} is not in MODULE_UNIT")
+            continue
+        package = me if path.name == "__init__.py" else me.rpartition(".")[0]
+        for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+            targets = []
+            if isinstance(node, ast.Import):
+                targets = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    base_parts = package.split(".")[: len(package.split(".")) - (node.level - 1)]
+                    base = ".".join(base_parts + ([node.module] if node.module else []))
+                else:
+                    base = node.module or ""
+                targets = [f"{base}.{a.name}" if f"{base}.{a.name}" in MODULE_UNIT else base for a in node.names]
+            for target in targets:
+                if not (target == "gribs" or target.startswith("gribs.")):
+                    continue
+                unit = MODULE_UNIT.get(target)
+                if unit is None:
+                    problems.append(f"{path}:{node.lineno}: imports {target}, which is not in MODULE_UNIT")
+                elif unit > MODULE_UNIT[me]:
+                    problems.append(f"{path}:{node.lineno}: {me} (unit {MODULE_UNIT[me]}) imports {target} (unit {unit})")
+    assert not problems, "\n".join(problems)
