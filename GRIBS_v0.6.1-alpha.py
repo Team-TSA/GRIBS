@@ -295,6 +295,11 @@ _MASS_BASIS_PHASE_SUM_ATOL = 1.0e-13
 #: Scope thresholds for the A-5.1-6 gas-mass-fraction model classification.
 MODEL_STATUS_VALIDATED_YG_THRESHOLD = 0.99
 MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD = 0.65
+#: Upper Yg_min bound of the high-condensate band (10/07 A-5.1-1 target band
+#: Yg 0.65-0.80) for which reproduction of reported or experimental data
+#: (gate G4b) has not been done.  It only selects the warning
+#: W_HIGH_CONDENSATE_G4B_UNVALIDATED; model_status is unchanged.
+HIGH_CONDENSATE_G4B_UNVALIDATED_YG_THRESHOLD = 0.80
 G0 = 9.80665                      # standard gravity [m/s^2]
 _TRAPZ = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
 
@@ -4885,6 +4890,49 @@ def append_model_applicability_warnings(summary: dict) -> None:
         )
         existing_codes.add("W_HIGH_CONDENSATE_MODEL_LIMITATION")
 
+    # Validation-evidence warning for the high-condensate band.  It is emitted
+    # in addition to W_HIGH_CONDENSATE_MODEL_LIMITATION (which describes the
+    # unmodelled physics) and does not change model_status, the run verdict or
+    # the exit code.  Out-of-scope tables (Yg_min <= 0.65) report
+    # E_OUT_OF_VALIDATED_RANGE instead and do not get this warning.
+    g4b_yg_min = _finite_number_or_none(summary.get("gas_mass_fraction_table_min"))
+    if (
+        model_status == "approximate_with_limitations"
+        and g4b_yg_min is not None
+        and g4b_yg_min <= HIGH_CONDENSATE_G4B_UNVALIDATED_YG_THRESHOLD
+        and "W_HIGH_CONDENSATE_G4B_UNVALIDATED" not in existing_codes
+    ):
+        warnings.append(
+            {
+                "code": "W_HIGH_CONDENSATE_G4B_UNVALIDATED",
+                "severity": "warning",
+                "message": (
+                    "Validation evidence: the thermochemistry table reaches "
+                    f"Yg_min={g4b_yg_min:.6g}, inside the high-condensate band "
+                    f"(Yg_min <= {HIGH_CONDENSATE_G4B_UNVALIDATED_YG_THRESHOLD:.6g}). "
+                    "Reproduction of reported or experimental data (gate G4b) "
+                    "has not been done for this band, so results here are not "
+                    "validated predictions. This warning concerns missing "
+                    "validation evidence; the unmodelled physics is described by "
+                    "W_HIGH_CONDENSATE_MODEL_LIMITATION. It does not change the "
+                    "run verdict or the exit code."
+                ),
+                "context": {
+                    "model_status": model_status,
+                    "gas_mass_fraction_table_min": g4b_yg_min,
+                    "high_condensate_band_if_Yg_min_at_or_below": (
+                        HIGH_CONDENSATE_G4B_UNVALIDATED_YG_THRESHOLD
+                    ),
+                    "out_of_scope_if_Yg_min_at_or_below": (
+                        MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD
+                    ),
+                    "g4b_reported_or_experimental_reproduction": "not_done",
+                    "related_warning": "W_HIGH_CONDENSATE_MODEL_LIMITATION",
+                },
+            }
+        )
+        existing_codes.add("W_HIGH_CONDENSATE_G4B_UNVALIDATED")
+
     condensed_max = float(
         summary.get("maximum_condensed_mass_fraction_during_run", 0.0)
     )
@@ -6807,6 +6855,7 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
             "W_POST_RUN_CONSISTENCY",
             "W_MASS_LEDGER_FAILED",
             "W_HIGH_CONDENSATE_MODEL_LIMITATION",
+            "W_HIGH_CONDENSATE_G4B_UNVALIDATED",
             "W_TWO_PHASE_NOZZLE_APPROXIMATION",
             "W_THERMAL_EFFICIENCY_PARTIAL",
             "E_OUT_OF_VALIDATED_RANGE",

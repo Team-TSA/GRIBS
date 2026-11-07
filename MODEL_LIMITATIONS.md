@@ -19,6 +19,7 @@ GRIBS is a lumped-parameter numerical model. Users must evaluate whether each as
 13. The nozzle `c*` uses a constant-gamma isentropic relation. Against the CEA equilibrium reference it differs by up to about 2.3% in the tested condensed AP/Al compositions; the comparison gate G4a has not passed (see the README, "Validation status").
 
 14. The composition is not checked for plausibility. GRIBS does not decide whether a composition is combustible, ignites or sustains combustion. The burn rate is the configured law, so the shapes of the pressure and thrust histories are set mainly by the grain geometry and the burn law. With the geometry, burn law and nozzle fixed, the normalized pressure histories of different compositions nearly overlap: the composition changes mainly their level, and their shape only slightly.
+15. Condensed-phase scope is classified by the minimum gas mass fraction `Yg_min` of the thermochemistry table (code constants, not linked to validation evidence): `model_status` is classified with 0.99 / 0.65, and 0.80 only selects an additional warning. For `0.65 < Yg_min <= 0.99` the run reports `W_HIGH_CONDENSATE_MODEL_LIMITATION` (unmodelled two-phase physics). For `0.65 < Yg_min <= 0.80` it also reports `W_HIGH_CONDENSATE_G4B_UNVALIDATED`: reproduction of reported or experimental data (G4b) has not been done for this band. For `Yg_min <= 0.65` the run stops (`E_OUT_OF_VALIDATED_RANGE`).
 
 ## Property and input limitations
 

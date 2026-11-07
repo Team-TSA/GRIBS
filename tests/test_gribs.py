@@ -1506,8 +1506,16 @@ def test_model_applicability_warnings_cover_condensed_scope_and_nozzle_limits():
 
     assert set(warnings) == {
         "W_HIGH_CONDENSATE_MODEL_LIMITATION",
+        "W_HIGH_CONDENSATE_G4B_UNVALIDATED",
         "W_TWO_PHASE_NOZZLE_APPROXIMATION",
     }
+    assert len(summary["warnings"]) == 3
+    g4b = warnings["W_HIGH_CONDENSATE_G4B_UNVALIDATED"]
+    assert g4b["severity"] == "warning"
+    assert g4b["context"]["model_status"] == "approximate_with_limitations"
+    assert g4b["context"]["gas_mass_fraction_table_min"] == pytest.approx(0.72)
+    assert g4b["context"]["high_condensate_band_if_Yg_min_at_or_below"] == 0.80
+    assert g4b["context"]["related_warning"] == "W_HIGH_CONDENSATE_MODEL_LIMITATION"
     high_condensate = warnings["W_HIGH_CONDENSATE_MODEL_LIMITATION"]
     assert high_condensate["severity"] == "warning"
     assert high_condensate["context"]["model_status"] == (
@@ -1529,7 +1537,7 @@ def test_model_applicability_warnings_cover_condensed_scope_and_nozzle_limits():
 
     # Emission is idempotent if a caller applies the reporting helper twice.
     gribs.append_model_applicability_warnings(summary)
-    assert len(summary["warnings"]) == 2
+    assert len(summary["warnings"]) == 3
 
 
 @pytest.mark.fast
@@ -1652,7 +1660,11 @@ def test_model_applicability_warnings_do_not_fail_run_verdict():
 
     gribs.append_model_applicability_warnings(summary)
 
-    assert len(summary["warnings"]) == 2
+    assert [w["code"] for w in summary["warnings"]] == [
+        "W_HIGH_CONDENSATE_MODEL_LIMITATION",
+        "W_HIGH_CONDENSATE_G4B_UNVALIDATED",
+        "W_TWO_PHASE_NOZZLE_APPROXIMATION",
+    ]
     assert gribs.run_verdict_passed(summary) is True
 
 
@@ -2747,3 +2759,42 @@ def test_float_conversion_does_not_swallow_interrupts(exc_type):
     backend = _phase_probe_backend({"gas_mass_fraction_min": _float_raising(exc_type), "gas_mass_fraction_max": 1.0})
     with pytest.raises(exc_type):
         gribs.phase_fraction_validation_error(gribs.Config(), backend)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize(
+    "yg_min,expected_status,expected_codes",
+    [
+        (0.65, "out_of_scope", ["E_OUT_OF_VALIDATED_RANGE", "W_TWO_PHASE_NOZZLE_APPROXIMATION"]),
+        (0.80, "approximate_with_limitations",
+         ["W_HIGH_CONDENSATE_MODEL_LIMITATION", "W_HIGH_CONDENSATE_G4B_UNVALIDATED",
+          "W_TWO_PHASE_NOZZLE_APPROXIMATION"]),
+        (0.8001, "approximate_with_limitations",
+         ["W_HIGH_CONDENSATE_MODEL_LIMITATION", "W_TWO_PHASE_NOZZLE_APPROXIMATION"]),
+    ],
+)
+def test_high_condensate_g4b_warning_band_boundaries(yg_min, expected_status, expected_codes):
+    """W_HIGH_CONDENSATE_G4B_UNVALIDATED: only for approximate_with_limitations with
+    Yg_min <= 0.80; never with out_of_scope; emitted once; thresholds unchanged."""
+    assert gribs.MODEL_STATUS_OUT_OF_SCOPE_YG_THRESHOLD == 0.65
+    assert gribs.MODEL_STATUS_VALIDATED_YG_THRESHOLD == 0.99
+    assert gribs.HIGH_CONDENSATE_G4B_UNVALIDATED_YG_THRESHOLD == 0.80
+    status = gribs.model_status_from_yg(True, gribs.TWO_PHASE_HOMOGENEOUS, yg_min)
+    assert status == expected_status
+    summary = {
+        "warnings": [],
+        "two_phase_model": {
+            "active": True,
+            "mode": "homogeneous_equilibrium",
+            "nozzle_entrainment": "complete",
+        },
+        "validation": {"model_status": status},
+        "gas_mass_fraction_table_min": yg_min,
+        "condensed_mass_fraction_table_max": 1.0 - yg_min,
+        "maximum_condensed_mass_fraction_during_run": 1.0 - yg_min,
+    }
+    gribs.append_model_applicability_warnings(summary)
+    assert [w["code"] for w in summary["warnings"]] == expected_codes
+    # a second call must not duplicate any warning
+    gribs.append_model_applicability_warnings(summary)
+    assert [w["code"] for w in summary["warnings"]] == expected_codes

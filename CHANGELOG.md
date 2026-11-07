@@ -4,6 +4,19 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Warning `W_HIGH_CONDENSATE_G4B_UNVALIDATED` (severity `warning`): reported when `validation.model_status` is `approximate_with_limitations` and the thermochemistry table reaches `Yg_min <= 0.80` (the high-condensate band). It states that reproduction of reported or experimental data (G4b) has not been done for this band. It is reported together with `W_HIGH_CONDENSATE_MODEL_LIMITATION`, which continues to describe the unmodelled two-phase physics. `model_status`, its thresholds (0.99 / 0.65), the run verdict, the exit codes, the numerical results, the configuration schema and the thermochemistry cache are unchanged. Out-of-scope tables (`Yg_min <= 0.65`) keep stopping with `E_OUT_OF_VALIDATED_RANGE` and do not get the new warning. Golden cases g4 and g5 now report it; their values are unchanged.
+
+### Tests
+
+- The two model-applicability warning tests expect the new warning in their exact warning list. New boundary test at `Yg_min` = 0.65 / 0.80 / 0.8001: the warning is present at 0.80, absent at 0.8001, absent for `out_of_scope` at 0.65, and never duplicated.
+
+### Documentation
+
+- README "Validation status": G0 is described as approved for the v0.6.1-alpha release commit `cf91f97` (as well as `4e7896a`); the earlier text said that this approval was still to be decided.
+- README "Known limitations" and MODEL_LIMITATIONS.md describe the condensed-phase scope bands and the two high-condensate warnings.
+
 ## [v0.6.1-alpha] - 2026-11-06
 
 Patch release of v0.6.0-alpha "Keystone". The simulation code is unchanged
