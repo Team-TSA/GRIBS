@@ -1,15 +1,15 @@
 # Public release checklist
 
-Checklist for publishing a GRIBS release (current target: v0.6.1-alpha,
+Checklist for publishing a GRIBS release (current target: v0.6.2-alpha,
 a patch release of v0.6.0-alpha "Keystone"). Each step that runs tests, changes history or publishes anything
 needs the maintainer's explicit approval.
 
 ## 1. Decisions recorded before preparation
 
-- [ ] Scope of the release decided (v0.6.1-alpha: default configuration
-      uses `C(gr)`; golden cases g7 and g8 added; G4a still a documented
-      known limitation; M3 and the safe output mode still deferred;
-      `SCHEMA_VERSION` unchanged).
+- [ ] Scope of the release decided (v0.6.2-alpha: warning
+      `W_HIGH_CONDENSATE_G4B_UNVALIDATED` added; README G0 text for
+      v0.6.1-alpha corrected; numerical results unchanged; G4a still a
+      documented known limitation; `SCHEMA_VERSION` unchanged).
 - [ ] Release name and title decided.
 
 ## 2. Release-preparation changes

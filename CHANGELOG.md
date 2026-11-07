@@ -4,6 +4,16 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+## [v0.6.2-alpha] - 2026-11-07
+
+Patch release of v0.6.0-alpha "Keystone". Numerical results are unchanged; a model-applicability warning is added and the README G0 text is corrected. Status: unchanged from v0.6.1-alpha (physical validity not established; G4a not passed; G4b and G5 not complete). The G0 decision for the v0.6.2-alpha release commit is stated in the release notes.
+
+### Release identity
+
+- `PROGRAM_VERSION` is `0.6.2-alpha`; `--version` reports `GRIBS 0.6.2-alpha`.
+- The program file is renamed from `GRIBS_v0.6.1-alpha.py` to `GRIBS_v0.6.2-alpha.py`. Scripts that call the old file name must be updated.
+- The configuration schema is unchanged: `SCHEMA_VERSION` stays `0.5.0-alpha`.
+
 ### Added
 
 - Warning `W_HIGH_CONDENSATE_G4B_UNVALIDATED` (severity `warning`): reported when `validation.model_status` is `approximate_with_limitations` and the thermochemistry table reaches `Yg_min <= 0.80` (the high-condensate band). It states that reproduction of reported or experimental data (G4b) has not been done for this band. It is reported together with `W_HIGH_CONDENSATE_MODEL_LIMITATION`, which continues to describe the unmodelled two-phase physics. `model_status`, its thresholds (0.99 / 0.65), the run verdict, the exit codes, the numerical results, the configuration schema and the thermochemistry cache are unchanged. Out-of-scope tables (`Yg_min <= 0.65`) keep stopping with `E_OUT_OF_VALIDATED_RANGE` and do not get the new warning. Golden cases g4 and g5 now report it; their values are unchanged.

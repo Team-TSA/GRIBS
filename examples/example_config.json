@@ -1,7 +1,7 @@
 {
   "schema_version": "0.5.0-alpha",
   "notes": [
-    "Minimal example configuration for GRIBS v0.6.1-alpha (configuration schema 0.5.0-alpha).",
+    "Minimal example configuration for GRIBS v0.6.2-alpha (configuration schema 0.5.0-alpha).",
     "Uses the default NH4NO3/Al/C propellant with a converging nozzle."
   ],
   "propellant": {

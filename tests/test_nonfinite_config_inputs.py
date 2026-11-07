@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-MAIN = ROOT / "GRIBS_v0.6.1-alpha.py"
+MAIN = ROOT / "GRIBS_v0.6.2-alpha.py"
 GOLD = ROOT / "cases" / "golden"
 spec = importlib.util.spec_from_file_location("gribs_nonfinite_inputs", MAIN)
 gribs = importlib.util.module_from_spec(spec)
