@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gribs"
+# Development placeholder during A-6 stage 1. The program reports PROGRAM_VERSION only; this value is not
+# used in any output (ADR_A6_PACKAGE_SPLIT). The release version is decided at release preparation.
+version = "0.7.0.dev0"
+description = "JSON-configured solid rocket motor internal-ballistics simulator"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy", "scipy", "matplotlib", "cea>=3.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

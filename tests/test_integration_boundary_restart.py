@@ -16,7 +16,10 @@ import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-BODY = sorted(ROOT.glob("GRIBS_v*.py"))[0]
+_BODIES = sorted(ROOT.glob("GRIBS_v*.py"))
+if len(_BODIES) != 1:
+    raise RuntimeError(f"expected exactly one GRIBS_v*.py, found {[b.name for b in _BODIES]}")
+BODY = _BODIES[0]
 GOLD = ROOT / "cases" / "golden"
 spec = importlib.util.spec_from_file_location("gribs_boundary_restart", BODY)
 g = importlib.util.module_from_spec(spec)

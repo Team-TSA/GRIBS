@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = sorted(ROOT.glob("GRIBS_v*.py"))[0]
+_BODIES = sorted(ROOT.glob("GRIBS_v*.py"))
+if len(_BODIES) != 1:
+    raise RuntimeError(f"expected exactly one GRIBS_v*.py, found {[b.name for b in _BODIES]}")
+MODULE_PATH = _BODIES[0]
 if "gribs" in sys.modules:
     gribs = sys.modules["gribs"]
 else:

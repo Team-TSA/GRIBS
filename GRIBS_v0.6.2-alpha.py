@@ -218,6 +218,14 @@ from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 from scipy.interpolate import PchipInterpolator
 
+# A-6 (package split, stage 1; ADR_A6_PACKAGE_SPLIT): the package lives in src/gribs next to this entry file.
+# Names moved into the package are imported back below so that existing callers keep working. This entry
+# is never a patch target for a moved name (tests/test_a6_patch_targets.py).
+_GRIBS_PACKAGE_ROOT = Path(__file__).resolve().parent / "src"
+if _GRIBS_PACKAGE_ROOT.is_dir() and str(_GRIBS_PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_GRIBS_PACKAGE_ROOT))
+# --- re-exports of moved names (A-6): none yet ---
+
 # ==============================================================================
 # 0. PROGRAM IDENTITY AND CONSTANTS
 # ==============================================================================

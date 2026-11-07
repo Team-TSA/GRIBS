@@ -30,6 +30,11 @@ gribs_*.inp
 gribs_*.out
 gribs_*.plt
 
+# Python packaging (A-6)
+*.egg-info/
+build/
+dist/
+
 # Test and tooling caches
 .pytest_cache/
 .mypy_cache/

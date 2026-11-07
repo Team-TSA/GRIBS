@@ -21,7 +21,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-BODY = sorted(ROOT.glob("GRIBS_v*.py"))[0]
+_BODIES = sorted(ROOT.glob("GRIBS_v*.py"))
+if len(_BODIES) != 1:
+    raise RuntimeError(f"expected exactly one GRIBS_v*.py, found {[b.name for b in _BODIES]}")
+BODY = _BODIES[0]
 G3 = ROOT / "cases" / "golden" / "g3_low_condensed.json"
 spec = importlib.util.spec_from_file_location("gribs_cache_v7", BODY)
 g = importlib.util.module_from_spec(spec); sys.modules[spec.name] = g; spec.loader.exec_module(g)

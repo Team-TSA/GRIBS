@@ -14,7 +14,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = sorted(ROOT.glob("GRIBS_v*.py"))[-1]
+_BODIES = sorted(ROOT.glob("GRIBS_v*.py"))
+if len(_BODIES) != 1:
+    raise RuntimeError(f"expected exactly one GRIBS_v*.py, found {[b.name for b in _BODIES]}")
+MODULE_PATH = _BODIES[0]
 spec = importlib.util.spec_from_file_location("gribs_cli_override", MODULE_PATH)
 gribs = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = gribs

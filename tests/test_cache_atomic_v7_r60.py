@@ -15,7 +15,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-BODY = sorted(ROOT.glob("GRIBS_v*.py"))[0]
+_BODIES = sorted(ROOT.glob("GRIBS_v*.py"))
+if len(_BODIES) != 1:
+    raise RuntimeError(f"expected exactly one GRIBS_v*.py, found {[b.name for b in _BODIES]}")
+BODY = _BODIES[0]
 CHILD = Path(__file__).with_name("_cache_v7_sync_child.py")
 CONTENT = '{"same": "bytes"}\n' * 200
 pytestmark = pytest.mark.integration

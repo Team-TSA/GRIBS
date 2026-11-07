@@ -98,10 +98,17 @@ def _load_tool_fresh(name):
     return mod
 
 
+def _the_body():
+    bodies = sorted(ROOT.glob("GRIBS_v*.py"))
+    if len(bodies) != 1:
+        raise RuntimeError(f"expected exactly one GRIBS_v*.py, found {[b.name for b in bodies]}")
+    return bodies[0].resolve()
+
+
 @pytest.mark.fast
 def test_tool_records_the_body_it_executed():
     import hashlib
-    body = sorted(ROOT.glob("GRIBS_v*.py"))[0].resolve()
+    body = _the_body()
     info = tool.GRIBS_MODULE_INFO
     assert Path(info["path"]) == body
     assert info["sha256"] == hashlib.sha256(body.read_bytes()).hexdigest()
@@ -119,7 +126,7 @@ def test_foreign_gribs_module_is_neither_reused_nor_replaced(tmp_path):
     try:
         fresh = _load_tool_fresh("a5_1_g4a_tool_foreign_check")
         assert fresh.gribs is not fake
-        assert Path(fresh.GRIBS_MODULE_INFO["path"]) == sorted(ROOT.glob("GRIBS_v*.py"))[0].resolve()
+        assert Path(fresh.GRIBS_MODULE_INFO["path"]) == _the_body()
         assert sys.modules["gribs"] is fake          # not replaced
     finally:
         if saved is None:
