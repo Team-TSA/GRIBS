@@ -20,7 +20,7 @@ if len(MODULE_FILES) != 1:
     )
 
 MODULE_PATH = MODULE_FILES[0]
-spec = importlib.util.spec_from_file_location("gribs", MODULE_PATH)
+spec = importlib.util.spec_from_file_location("gribs_entry", MODULE_PATH)
 
 if spec is None or spec.loader is None:
     raise ImportError(f"Could not load GRIBS module from {MODULE_PATH}")

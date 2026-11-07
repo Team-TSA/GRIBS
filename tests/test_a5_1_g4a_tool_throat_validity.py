@@ -117,22 +117,35 @@ def test_tool_records_the_body_it_executed():
     assert tool.build_result([])["gribs_module"] == info
 
 
-@pytest.mark.fast
-def test_foreign_gribs_module_is_neither_reused_nor_replaced(tmp_path):
-    import types
-    fake = types.ModuleType("gribs"); fake.__file__ = str(tmp_path / "other_tree" / "GRIBS_v0.0.0.py")
-    saved = sys.modules.get("gribs")
-    sys.modules["gribs"] = fake
-    try:
-        fresh = _load_tool_fresh("a5_1_g4a_tool_foreign_check")
-        assert fresh.gribs is not fake
-        assert Path(fresh.GRIBS_MODULE_INFO["path"]) == _the_body()
-        assert sys.modules["gribs"] is fake          # not replaced
-    finally:
-        if saved is None:
-            sys.modules.pop("gribs", None)
-        else:
-            sys.modules["gribs"] = saved
+_FOREIGN_CHECK = r"""
+import importlib.util, sys, types
+from pathlib import Path
+root = Path(sys.argv[1])
+bodies = sorted(root.glob("GRIBS_v*.py"))
+if len(bodies) != 1:
+    raise RuntimeError(f"expected exactly one GRIBS_v*.py, found {[b.name for b in bodies]}")
+body = bodies[0].resolve()
+fake = types.ModuleType("gribs_entry"); fake.__file__ = str(root / "other_tree" / "GRIBS_v0.0.0.py")
+sys.modules["gribs_entry"] = fake                      # a foreign entry under the tests' registration name
+spec = importlib.util.spec_from_file_location("a5_1_g4a_tool_foreign_check", root / "tools" / "a5_1_g4a_cea_comparison.py")
+tool = importlib.util.module_from_spec(spec); spec.loader.exec_module(tool)
+assert tool.gribs is not fake                          # not reused
+assert Path(tool.GRIBS_MODULE_INFO["path"]) == body    # this tree's single entry
+assert sys.modules["gribs_entry"] is fake              # not replaced
+pkg = sys.modules.get("gribs")                         # the package, if the entry imported it, is this tree's src/gribs
+assert pkg is None or Path(pkg.__file__).resolve().parent == (root / "src" / "gribs").resolve(), pkg
+print("ok")
+"""
+
+
+@pytest.mark.integration
+def test_foreign_gribs_module_is_neither_reused_nor_replaced():
+    """Runs in a fresh interpreter: after the split the entry imports the package `gribs`, so a foreign module
+    placed in this process would be hit by the entry's own imports (ADR_A6_PACKAGE_SPLIT, unit 0b)."""
+    import subprocess
+    r = subprocess.run([sys.executable, "-B", "-P", "-s", "-c", _FOREIGN_CHECK, str(ROOT)],
+                       capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0 and r.stdout.strip().endswith("ok"), (r.returncode, r.stdout[-2000:], r.stderr[-4000:])
 
 
 def _cea_throat(reactants, pc):

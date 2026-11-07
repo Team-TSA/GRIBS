@@ -17,7 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_FILES = sorted(ROOT.glob("GRIBS_v*.py"))
 assert len(MODULE_FILES) == 1, MODULE_FILES
-spec = importlib.util.spec_from_file_location("gribs", MODULE_FILES[0])
+spec = importlib.util.spec_from_file_location("gribs_entry", MODULE_FILES[0])
 gribs = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = gribs
 spec.loader.exec_module(gribs)

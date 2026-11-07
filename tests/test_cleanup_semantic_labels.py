@@ -17,12 +17,12 @@ _BODIES = sorted(ROOT.glob("GRIBS_v*.py"))
 if len(_BODIES) != 1:
     raise RuntimeError(f"expected exactly one GRIBS_v*.py, found {[b.name for b in _BODIES]}")
 MODULE_PATH = _BODIES[0]
-if "gribs" in sys.modules:
-    gribs = sys.modules["gribs"]
+if "gribs_entry" in sys.modules:
+    gribs = sys.modules["gribs_entry"]
 else:
-    spec = importlib.util.spec_from_file_location("gribs", MODULE_PATH)
+    spec = importlib.util.spec_from_file_location("gribs_entry", MODULE_PATH)
     gribs = importlib.util.module_from_spec(spec)
-    sys.modules["gribs"] = gribs
+    sys.modules["gribs_entry"] = gribs
     spec.loader.exec_module(gribs)
 
 SOURCE = MODULE_PATH.read_text(encoding="utf-8")
