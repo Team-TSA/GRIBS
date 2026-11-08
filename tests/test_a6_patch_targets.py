@@ -30,7 +30,6 @@ ALLOWLIST = {
     "NozzleTwoPhaseModel": 2,
     "PressureTableBackend": 1,
     "ReferenceConstantBackend": 1,
-    "_THERMO": 7,
     "_ThermoSwap": 1,
     "_cache_rename_noreplace": 2,
     "_cache_write_checkpoint": 15,
@@ -73,6 +72,11 @@ MODULE_UNIT = {
 }
 
 
+#: Module state that only its accessors may touch (ADR_A6_PACKAGE_SPLIT decision 2): name -> (reader, writer). Unit 3a
+#: puts the accessors in the entry; unit 3b moves the state, the accessors and every reader to gribs.thermo. T10.
+ACCESSOR_ONLY = {"_THERMO": ("_thermo_state", "_set_thermo")}
+
+
 def _entry():
     bodies = sorted(ROOT.glob("GRIBS_v*.py"))
     if len(bodies) != 1:
@@ -105,6 +109,8 @@ def _chain(node):
 REGISTRATIONS = {
     ("tests/_cache_v7_child.py", "'gribs_child'"): "entry",
     ("tests/_cache_v7_sync_child.py", "'gribs_sync_child'"): "entry",
+    ("tests/_a6_state_guard_cases.py", "'gribs_state_guard_cases'"): "entry",
+    ("tests/_a6_two_cases_child.py", "'gribs_two_cases'"): "entry",
     ("tests/reference/test_reference_constant_backend.py", "'gribs_a5_reference'"): "entry",
     ("tests/test_a5_1_g3b_falsification.py", "'gribs_entry'"): "entry",
     ("tests/test_a5_1_g4a_tool_throat_validity.py", "'a5_1_g4a_cea_comparison'"): "other",
@@ -474,6 +480,103 @@ def test_t8_package_modules_import_only_same_or_earlier_units():
                 elif unit > MODULE_UNIT[me]:
                     problems.append(f"{path}:{node.lineno}: {me} (unit {MODULE_UNIT[me]}) imports {target} (unit {unit})")
     assert not problems, "\n".join(problems)
+
+
+def _names_state(node, name):
+    """node mentions the state `name` as an attribute, an imported name or a string "<name>" / "<...>.<name>"."""
+    if isinstance(node, ast.Attribute) and node.attr == name:
+        return True
+    if isinstance(node, ast.alias) and name in (node.name, node.name.rsplit(".", 1)[-1]):
+        return True
+    s = _const_str(node)
+    return s is not None and (s == name or s.endswith("." + name))
+
+
+def _accessor_violations_in_tests(paths):
+    """Tests reach accessor-only state through the accessors only: no attribute, import or string of the name."""
+    out = []
+    for path in paths:
+        for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+            for name in ACCESSOR_ONLY:
+                if _names_state(node, name) or (isinstance(node, ast.Name) and node.id == name):
+                    out.append(f"{_rel(path) if path.is_relative_to(ROOT) else path.name}:{getattr(node, 'lineno', '?')}: {name}")
+    return out
+
+
+def _accessor_violations_in_source(path):
+    """In GRIBS code, the bare name is used only by its module-level definition and inside its two accessors; `global`
+    only in the writer; never as an attribute or a string (globals()["_THERMO"], module._THERMO)."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    out = []
+    allowed = set()
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            for t in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                if isinstance(t, ast.Name) and t.id in ACCESSOR_ONLY:
+                    allowed.add(id(t))
+        if isinstance(node, ast.FunctionDef):
+            for name, (reader, writer) in ACCESSOR_ONLY.items():
+                if node.name in (reader, writer):
+                    for x in ast.walk(node):
+                        if isinstance(x, ast.Name) and x.id == name:
+                            allowed.add(id(x))
+                        if isinstance(x, ast.Global) and name in x.names and node.name == writer:
+                            allowed.add(id(x))
+    for node in ast.walk(tree):
+        for name in ACCESSOR_ONLY:
+            bad = (isinstance(node, ast.Name) and node.id == name and id(node) not in allowed) \
+                or (isinstance(node, ast.Global) and name in node.names and id(node) not in allowed) \
+                or _names_state(node, name)
+            if bad:
+                out.append(f"{path.name}:{getattr(node, 'lineno', '?')}: {name}")
+    return out
+
+
+@pytest.mark.fast
+def test_t10_accessor_only_state():
+    """_THERMO is read and written only by _thermo_state() / _set_thermo() (ADR decision 2): in tests (red excluded) the
+    name never appears; in the entry and the package only the definition and the two accessors use it."""
+    problems = _accessor_violations_in_tests(_test_files())  # conftest.py and the helpers included
+    for path in [_entry()] + sorted(SRC.rglob("*.py")):
+        problems += _accessor_violations_in_source(path)
+    assert not problems, "\n".join(problems)
+    defined = {n.name for n in ast.parse(_entry().read_text()).body if isinstance(n, ast.FunctionDef)}
+    for path in sorted(SRC.rglob("*.py")):
+        defined |= {n.name for n in ast.parse(path.read_text()).body if isinstance(n, ast.FunctionDef)}
+    assert {a for pair in ACCESSOR_ONLY.values() for a in pair} <= defined
+
+
+_T10_TEST_CASES = [
+    ("x = gribs._THERMO", 1), ("gribs._THERMO = None", 1), ('monkeypatch.setattr(gribs, "_THERMO", None)', 1),
+    ('monkeypatch.setattr("gribs_entry._THERMO", None)', 1), ('getattr(gribs, "_THERMO")', 1),
+    ('vars(gribs)["_THERMO"] = None', 1), ("from gribs_entry import _THERMO", 1),
+    ("gribs._set_thermo(None)\nx = gribs._thermo_state()", 0), ('k = gribs._THERMO_ROOT_KEYS\nc = "E_OLD_THERMO_CACHE"', 0),
+]
+_T10_SOURCE_CASES = [
+    ("_THERMO = None\ndef _thermo_state():\n    return _THERMO\n"
+     "def _set_thermo(b):\n    global _THERMO\n    p = _THERMO\n    _THERMO = b\n    return p", 0),
+    ("_THERMO = None\ndef thermochemistry():\n    return _THERMO", 1),
+    ("_THERMO = None\ndef _thermo_state():\n    global _THERMO\n    return _THERMO", 1),
+    ('_THERMO = None\ndef f():\n    globals()["_THERMO"] = 1', 1),
+    ("import sys\n_THERMO = None\ndef f():\n    sys.modules[__name__]._THERMO = 1", 1),
+    ('"""``saved = _THERMO; _THERMO = x`` in a docstring is text."""\n_THERMO = None', 0),
+]
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("source, expected", _T10_TEST_CASES)
+def test_t10_classifier_tests(tmp_path, source, expected):
+    path = tmp_path / "test_case.py"
+    path.write_text(source + "\n")
+    assert len(_accessor_violations_in_tests([path])) == expected
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("source, expected", _T10_SOURCE_CASES)
+def test_t10_classifier_source(tmp_path, source, expected):
+    path = tmp_path / "module.py"
+    path.write_text(source + "\n")
+    assert len(_accessor_violations_in_source(path)) == expected
 
 
 # T0 classifier self-test (reports 115, 116): the form of every kind of site, including the forms of the review

@@ -2623,6 +2623,23 @@ class ReferenceConstantBackend(ThermochemistryBackend):
 _THERMO: Optional[ThermochemistryBackend] = None
 
 
+def _thermo_state() -> Optional[ThermochemistryBackend]:
+    """The installed backend, or None before initialization.
+
+    _thermo_state() and _set_thermo() are the only code that reads or writes _THERMO (ADR_A6_PACKAGE_SPLIT
+    decision 2, A-6 unit 3a); every other reader, the tests and the conftest state guard go through them.
+    """
+    return _THERMO
+
+
+def _set_thermo(backend: Optional[ThermochemistryBackend]) -> Optional[ThermochemistryBackend]:
+    """Install `backend` (None clears it) and return the backend that was installed before."""
+    global _THERMO
+    previous = _THERMO
+    _THERMO = backend
+    return previous
+
+
 class _ThermoSwap:
     """Context manager for temporarily replacing the global thermo backend.
 
@@ -2641,14 +2658,11 @@ class _ThermoSwap:
         self._saved: Optional[ThermochemistryBackend] = None
 
     def __enter__(self):
-        global _THERMO
-        self._saved = _THERMO
-        _THERMO = self._replacement
+        self._saved = _set_thermo(self._replacement)
         return self._replacement
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        global _THERMO
-        _THERMO = self._saved
+        _set_thermo(self._saved)
         return False  # do not suppress exceptions
 
 
@@ -3067,20 +3081,21 @@ def _cache_atomic_write_text(path, text: str):
 
 def initialize_thermochemistry(c: Config, default_cache_dir: Path) -> ThermochemistryBackend:
     """Build (or load from cache) the chamber-property backend and its density."""
-    global _THERMO
     require_finite_config(c)   # finiteness only; the range rules stay in validate()
     cache_root = Path(c.cea_cache_dir).expanduser() if c.cea_cache_dir else Path(default_cache_dir)
-    _THERMO = build_backend(c, c.reactants_spec_list, c.packing_fraction, cache_root)
+    backend = build_backend(c, c.reactants_spec_list, c.packing_fraction, cache_root)
+    _set_thermo(backend)
     # Additive-volume mixture density x packing fraction.  A CEA combustion-product
     # (gas) density is never used as the solid-propellant density.
-    c.rho_p = _THERMO.bulk_mixture_density
-    return _THERMO
+    c.rho_p = backend.bulk_mixture_density
+    return backend
 
 
 def thermochemistry() -> ThermochemistryBackend:
-    if _THERMO is None:
+    backend = _thermo_state()
+    if backend is None:
         raise RuntimeError("Thermochemistry has not been initialized.")
-    return _THERMO
+    return backend
 
 
 def gas_props(p0: float, c: Config) -> Tuple[float, float, float]:

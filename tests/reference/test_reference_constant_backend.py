@@ -175,8 +175,8 @@ def test_initialize_reference_backend_uses_normal_product_path(
     configuration = gribs.configuration_from_document(supplied)
     config = configuration.config
 
-    original_backend = gribs._THERMO
-    monkeypatch.setattr(gribs, "_THERMO", None)
+    original_backend = gribs._thermo_state()
+    gribs._set_thermo(None)
 
     backend = gribs.initialize_thermochemistry(config, tmp_path)
 
@@ -197,7 +197,7 @@ def test_initialize_reference_backend_uses_normal_product_path(
     assert backend.is_extrapolated(config.p_fit_min * 0.5) is True
     assert backend.is_extrapolated(config.p_fit_max * 2.0) is True
 
-    monkeypatch.setattr(gribs, "_THERMO", original_backend)
+    gribs._set_thermo(original_backend)
 
 
 @pytest.mark.integration
@@ -237,7 +237,7 @@ def test_level0_constant_property_blowdown_matches_analytic_solution(
     configuration = gribs.configuration_from_document(supplied)
     config = configuration.config
 
-    monkeypatch.setattr(gribs, "_THERMO", None)
+    gribs._set_thermo(None)
     backend = gribs.initialize_thermochemistry(config, tmp_path)
 
     result = gribs.run_model(config)
@@ -337,7 +337,7 @@ def test_level1_quasi_steady_pressure_tracks_equilibrium(
     configuration = gribs.configuration_from_document(supplied)
     config = configuration.config
 
-    monkeypatch.setattr(gribs, "_THERMO", None)
+    gribs._set_thermo(None)
     gribs.initialize_thermochemistry(config, tmp_path)
 
     result = gribs.run_model(config)
@@ -445,7 +445,7 @@ def test_level1_reference_case_file_runs_without_cea(
     assert config.blowdown is False
     assert config.rtol == pytest.approx(1.0e-10)
 
-    monkeypatch.setattr(gribs, "_THERMO", None)
+    gribs._set_thermo(None)
     backend = gribs.initialize_thermochemistry(config, tmp_path)
 
     assert isinstance(backend, gribs.ReferenceConstantBackend)

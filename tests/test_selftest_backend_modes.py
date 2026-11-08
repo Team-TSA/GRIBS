@@ -21,24 +21,40 @@ else:
 @pytest.mark.fast
 def test_thermoswap_restores_on_normal_exit_and_exception():
     sentinel_outer, inner = object(), object()
-    saved = gribs._THERMO
+    saved = gribs._thermo_state()
     try:
-        gribs._THERMO = sentinel_outer
+        gribs._set_thermo(sentinel_outer)
         with gribs._ThermoSwap(inner):
-            assert gribs._THERMO is inner
-        assert gribs._THERMO is sentinel_outer
+            assert gribs._thermo_state() is inner
+        assert gribs._thermo_state() is sentinel_outer
         with pytest.raises(RuntimeError):
             with gribs._ThermoSwap(inner):
-                assert gribs._THERMO is inner
+                assert gribs._thermo_state() is inner
                 raise RuntimeError("boom")
-        assert gribs._THERMO is sentinel_outer
+        assert gribs._thermo_state() is sentinel_outer
         with gribs._ThermoSwap(inner):             # nested
             with gribs._ThermoSwap(sentinel_outer):
-                assert gribs._THERMO is sentinel_outer
-            assert gribs._THERMO is inner
-        assert gribs._THERMO is sentinel_outer
+                assert gribs._thermo_state() is sentinel_outer
+            assert gribs._thermo_state() is inner
+        assert gribs._thermo_state() is sentinel_outer
     finally:
-        gribs._THERMO = saved
+        gribs._set_thermo(saved)
+
+
+@pytest.mark.fast
+def test_set_thermo_installs_and_returns_the_previous_backend():
+    """_set_thermo() installs its argument (None clears) and returns the backend installed before (report 118)."""
+    a, b = object(), object()
+    outer = gribs._set_thermo(a)
+    assert gribs._thermo_state() is a
+    assert gribs._set_thermo(b) is a
+    assert gribs._thermo_state() is b
+    assert gribs._set_thermo(None) is b
+    assert gribs._thermo_state() is None
+    with pytest.raises(RuntimeError, match="not been initialized"):
+        gribs.thermochemistry()
+    assert gribs._set_thermo(outer) is None
+    assert gribs._thermo_state() is outer
 
 
 @pytest.mark.integration
@@ -50,7 +66,7 @@ def test_selftest_backend_modes_independent_of_start_mode(start_mode, monkeypatc
     doc["thermochemistry"]["cea_python"]["cache_directory"] = str(tmp_path / "cache")
     c = gribs.configuration_from_document(doc).config
     gribs.initialize_thermochemistry(c, tmp_path / "cache")
-    outer = gribs._THERMO
+    outer = gribs._thermo_state()
     swaps, splits = set(), set()
     enter = gribs._ThermoSwap.__enter__
     def rec_enter(self):
@@ -64,7 +80,7 @@ def test_selftest_backend_modes_independent_of_start_mode(start_mode, monkeypatc
     monkeypatch.setattr(gribs._ThermoSwap, "__enter__", rec_enter)
     monkeypatch.setattr(gribs.NozzleTwoPhaseModel, "split", rec_split)
     assert gribs.self_tests(c, verbose=False)          # includes the name contract
-    assert gribs._THERMO is outer
+    assert gribs._thermo_state() is outer
     assert swaps == {
         ("_SyntheticTestBackend", gribs.TWO_PHASE_HOMOGENEOUS, 0.0),
         ("_SyntheticTestBackend", gribs.TWO_PHASE_HOMOGENEOUS, 0.3),
