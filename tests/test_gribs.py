@@ -1917,7 +1917,7 @@ def test_main_reports_old_cache_error_as_structured_stderr(
         migration_notes=[],
     )
     monkeypatch.setattr(gribs, "load_json_configuration", lambda _path: loaded)
-    monkeypatch.setattr(gribs, "validate", lambda _config: None)
+    monkeypatch.setattr("gribs.config.validate", lambda _config: None)
     error = gribs.ThermochemistryCacheError(
         "E_OLD_THERMO_CACHE: obsolete test cache",
         code="E_OLD_THERMO_CACHE",
@@ -2331,7 +2331,7 @@ def test_main_reports_thermochemistry_error_as_structured_stderr(
         migration_notes=[],
     )
     monkeypatch.setattr(gribs, "load_json_configuration", lambda _path: loaded)
-    monkeypatch.setattr(gribs, "validate", lambda _config: None)
+    monkeypatch.setattr("gribs.config.validate", lambda _config: None)
     error = error_class(f"{code}: test mismatch", context=context)
 
     def raise_thermochemistry_error(_config, _cache_dir):

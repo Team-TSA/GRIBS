@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULES = ("gribs.constants", "gribs.errors", "gribs.util")
+MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config")
 
 
 def _entry_path():
@@ -74,3 +74,11 @@ def test_entry_and_package_agree_on_representative_values():
         assert getattr(entry, name) == getattr(constants, name), name
         assert getattr(entry, name) is getattr(constants, name), name
     assert entry._report_value_text is util._report_value_text
+
+
+@pytest.mark.fast
+def test_entry_and_package_share_the_configuration_objects():
+    entry = _load_entry(); config = importlib.import_module("gribs.config")
+    for name in sorted(_top_level_names("gribs.config")):
+        assert getattr(entry, name) is getattr(config, name), name
+    assert entry.Config.__module__ == "gribs.config"

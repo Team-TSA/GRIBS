@@ -8,6 +8,7 @@ import ast
 import importlib
 from collections import Counter
 from pathlib import Path
+from typing import NamedTuple, Optional
 
 import pytest
 
@@ -15,8 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 TESTS = ROOT / "tests"
 
-# name -> (owner module fully qualified, kind); kind is "function_or_global" or "class"
+# name -> (owner module fully qualified, kind, exact number of patch sites on the owner in tests); kind is
+# "function_or_global" or "class". T0 fails when a site on the owner disappears or appears (report 116).
 MOVED = {
+    "validate": ("gribs.config", "function_or_global", 2),  # unit 2: test_gribs.py (2)
 }
 
 # names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111)
@@ -55,7 +58,6 @@ ALLOWLIST = {
     "summarize": 1,
     "summary_text": 1,
     "thermochemistry": 2,
-    "validate": 2,
     "write_csv": 1,
 }
 
@@ -67,6 +69,7 @@ MODULE_UNIT = {
     "gribs.constants": 1,
     "gribs.errors": 1,
     "gribs.util": 1,
+    "gribs.config": 2,
 }
 
 
@@ -96,46 +99,113 @@ def _chain(node):
     return None
 
 
-def _entry_aliases(tree):
-    """Names bound to a loaded entry: x = importlib.util.module_from_spec(...) or x = sys.modules[...]."""
-    out = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            v = node.value
-            src = (isinstance(v, ast.Call) and (_chain(v.func) or "").endswith("module_from_spec")) or \
-                  (isinstance(v, ast.Subscript) and _chain(v.value) == "sys.modules")
-            if src:
-                out |= {t.id for t in node.targets if isinstance(t, ast.Name)}
-    return out
+#: Every importlib registration in tests, keyed by (file, name argument as written) -> what the loaded file is:
+#: "entry" (GRIBS_v*.py) or "other" (a tool or harness, not GRIBS code). Default-deny: an unlisted registration fails
+#: T9, so a new registration name is classified before T0 relies on it (report 116).
+REGISTRATIONS = {
+    ("tests/_cache_v7_child.py", "'gribs_child'"): "entry",
+    ("tests/_cache_v7_sync_child.py", "'gribs_sync_child'"): "entry",
+    ("tests/reference/test_reference_constant_backend.py", "'gribs_a5_reference'"): "entry",
+    ("tests/test_a5_1_g3b_falsification.py", "'gribs_entry'"): "entry",
+    ("tests/test_a5_1_g4a_tool_throat_validity.py", "'a5_1_g4a_cea_comparison'"): "other",
+    ("tests/test_a5_1_g4a_tool_throat_validity.py", "name"): "other",
+    ("tests/test_a6_reexports.py", "'gribs_entry'"): "entry",
+    ("tests/test_cache_atomic_v7.py", "'gribs_cache_v7'"): "entry",
+    ("tests/test_cea_theoretical_diagnostics_output.py", "'gribs_entry'"): "entry",
+    ("tests/test_cleanup_p3_compat.py", "'gribs_entry'"): "entry",
+    ("tests/test_cleanup_semantic_labels.py", "'gribs_entry'"): "entry",
+    ("tests/test_cli_backend_override.py", "'gribs_cli_override'"): "entry",
+    ("tests/test_cli_backend_override_boundary.py", "'gribs_cli_override_boundary'"): "entry",
+    ("tests/test_cli_backend_override_edge.py", "'gribs_cli_override_edge'"): "entry",
+    ("tests/test_convergence_sweep.py", "module_name"): "other",
+    ("tests/test_gribs.py", "'gribs_entry'"): "entry",
+    ("tests/test_integration_boundary_restart.py", "'gribs_boundary_restart'"): "entry",
+    ("tests/test_legacy_psi_recursion_regression.py", "'gribs_entry'"): "entry",
+    ("tests/test_n6_homogeneous_equals_legacy_totals.py", "'gribs_entry'"): "entry",
+    ("tests/test_nonfinite_config_inputs.py", "'gribs_nonfinite_inputs'"): "entry",
+    ("tests/test_selftest_backend_modes.py", "'gribs_entry'"): "entry",
+}
+ENTRY_NAMES = frozenset(ast.literal_eval(k[1]) for k, v in REGISTRATIONS.items() if v == "entry")
+
+#: Default-deny remainder: sites whose target object T0 cannot resolve to the package or to the entry (objects made in
+#: the test, fixture parameters, other modules such as os). Key (file, root expression) -> exact number of sites.
+#: A new unresolved site fails T0 until it is classified here; a moved name at an unresolved site always fails.
+UNRESOLVED = {
+    ('tests/_cache_v7_child.py', 'os'): 1,
+    ('tests/_cache_v7_sync_child.py', 'os'): 1,
+    ('tests/test_a5_1_g4a_tool_throat_validity.py', 'fake'): 2,
+    ('tests/test_a5_1_g4a_tool_throat_validity.py', 'ns'): 2,
+    ('tests/test_cache_atomic_v7.py', 'os'): 34,
+    ('tests/test_cleanup_semantic_labels.py', 'backend'): 1,
+    ('tests/test_gribs.py', 'backend'): 49,
+    ('tests/test_gribs.py', 'c'): 2,
+    ('tests/test_gribs.py', 'config'): 2,
+    ('tests/test_gribs.py', 'legacy'): 1,
+    ('tests/test_gribs.py', 'result'): 12,
+    ('tests/test_integration_boundary_restart.py', 'p_at_6e6'): 1,
+    ('tests/test_integration_boundary_restart.py', 'p_down_6e6'): 2,
+    ('tests/test_nonfinite_config_inputs.py', 'config'): 6,
+}
 
 
-def _package_roots(tree):
-    """Names bound by `import gribs...` (the package), not by loading the entry -> the module they denote.
-    `import gribs.thermo` binds gribs -> "gribs"; `import gribs.thermo as th` binds th -> "gribs.thermo"."""
+def _rel(path):
+    return path.relative_to(ROOT).as_posix()
+
+
+def _const_str(node):
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _by_module_name(name):
+    """A module given by its import / sys.modules name -> ("package", dotted) | ("entry", name) | None."""
+    if name is None:
+        return None
+    if name == "gribs" or name.startswith("gribs."):
+        return ("package", name)
+    if name in ENTRY_NAMES:
+        return ("entry", name)
+    return None
+
+
+def _module_expr(node, bound):
+    """What a module-valued expression denotes: ("package", dotted) | ("entry", name) | None (unresolved)."""
+    if isinstance(node, ast.Name):
+        return bound.get(node.id)
+    if isinstance(node, ast.Subscript) and _chain(node.value) == "sys.modules":
+        return _by_module_name(_const_str(node.slice))
+    if isinstance(node, ast.Call):
+        last = (_chain(node.func) or "").split(".")[-1]
+        if last in ("import_module", "__import__") and node.args:
+            return _by_module_name(_const_str(node.args[0]))
+        if last == "module_from_spec":
+            return ("entry", None)  # any loaded file counts as the entry (conservative; tools included)
+    return None
+
+
+def _bindings(tree):
+    """Names bound anywhere in the file to a module: `import gribs...`, `from gribs[.x] import y`, and assignments from
+    sys.modules[...], importlib.import_module(...), __import__(...) or module_from_spec(...). The entry wins over the
+    package when one name is bound to both."""
     out = {}
+
+    def bind(name, what):
+        if what is not None and (out.get(name, ("",))[0] != "entry"):
+            out[name] = what
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
                 if a.name == "gribs" or a.name.startswith("gribs."):
-                    out[a.asname] = a.name if a.asname else None
-                    if not a.asname:
-                        out["gribs"] = "gribs"
+                    bind(a.asname or "gribs", ("package", a.name if a.asname else "gribs"))
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and \
                 (node.module == "gribs" or (node.module or "").startswith("gribs.")):
-            # from gribs import thermo as th -> th denotes "gribs.thermo"
             for a in node.names:
-                out[a.asname or a.name] = f"{node.module}.{a.name}"
-        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and node.value.args \
-                and (_chain(node.value.func) or "").split(".")[-1] == "import_module" \
-                and isinstance(node.value.args[0], ast.Constant) and isinstance(node.value.args[0].value, str) \
-                and (node.value.args[0].value == "gribs" or node.value.args[0].value.startswith("gribs.")):
-            # mod = importlib.import_module("gribs.thermo") -> mod denotes "gribs.thermo"
-            for t in node.targets:
+                bind(a.asname or a.name, ("package", f"{node.module}.{a.name}"))
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            what = _module_expr(node.value, {})
+            for t in (node.targets if isinstance(node, ast.Assign) else [node.target]):
                 if isinstance(t, ast.Name):
-                    out[t.id] = node.value.args[0].value
-    out.pop(None, None)
-    for alias in _entry_aliases(tree):
-        out.pop(alias, None)
+                    bind(t.id, what)
     return out
 
 
@@ -149,75 +219,162 @@ def _moved_target(dotted):
     return hit or (None, None)
 
 
-def _sites():
-    """Every patch / assignment site in tests: (path, line, symbol, form, owner_ok)."""
-    for path in _test_files():
+class Site(NamedTuple):
+    path: Path
+    line: int
+    sym: Optional[str]
+    form: str
+    owner_ok: bool
+    root: str
+
+
+def _split_root(node):
+    """expr.a.b -> (root expr, ["a", "b"])."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    return node, list(reversed(parts))
+
+
+def _classify(path, line, root, parts, bound, kind):
+    """One site: target object `root` reached through attribute names `parts` (the last one is the name that is set;
+    None when it is not a literal). kind is "object" (setattr / setitem) or "assign" (store / delete)."""
+    if isinstance(root, ast.Name) and root.id in ("self", "cls"):
+        return None  # attributes of instances / classes defined in the test itself
+    what = _module_expr(root, bound)
+    names = [p for p in parts if p is not None]
+    moved = [p for p in names if p in MOVED]
+    if what is not None and what[0] == "package":
+        dotted = ".".join([what[1]] + names)
+        sym, prefix = _moved_target(dotted)
+        if sym is not None:
+            return Site(path, line, sym, f"package-{kind}", kind == "object" and prefix == MOVED[sym][0], "")
+        return Site(path, line, names[-1] if names else "<dynamic>", f"package-{kind}-unclassified", False, "")
+    if what is not None and what[0] == "entry":
+        sym = moved[-1] if moved else (names[0] if names else "<dynamic>")
+        return Site(path, line, sym, f"entry-{kind}", False, "")
+    # default-deny: unresolved target
+    sym = moved[-1] if moved else None
+    return Site(path, line, sym, f"unresolved-{kind}", False, ast.unparse(root))
+
+
+def _sites(paths=None):
+    """Every patch / assignment site in tests (default-deny, report 116):
+    - every call whose name ends in setattr / delattr (monkeypatch.* or builtins), object form or string form;
+    - monkeypatch.setitem / delitem on X.__dict__ or vars(X);
+    - every attribute store / delete (Assign, AugAssign, AnnAssign, Delete; any depth), and item stores into
+      X.__dict__ / vars(X).
+    A target that resolves to the package or to the entry is classified; any other target is "unresolved" and is
+    counted per (file, root) in UNRESOLVED; self / cls are not sites."""
+    for path in (_test_files() if paths is None else paths):
         tree = ast.parse(path.read_text(), filename=str(path))
-        aliases, pkgroots = _entry_aliases(tree), _package_roots(tree)
+        bound = _bindings(tree)
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                name = _chain(node.func) or ""
-                if name.split(".")[-1] != "setattr" or not node.args:
-                    continue
+            if isinstance(node, ast.Call) and node.args:
+                last = (_chain(node.func) or "").split(".")[-1]
                 first = node.args[0]
-                second = node.args[1] if len(node.args) > 1 else None
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    sym, prefix = _moved_target(first.value)
-                    if sym is not None:
-                        yield path, node.lineno, sym, "string", prefix == MOVED[sym][0]
-                    elif first.value == "gribs" or first.value.startswith("gribs."):
-                        # a gribs target that names no moved name: counted, so T0 needs it in ALLOWLIST
-                        yield path, node.lineno, first.value.split(".")[-1], "string-unclassified", False
-                    continue
-                chain = _chain(first)
-                if chain is None or not isinstance(second, ast.Constant) or not isinstance(second.value, str):
-                    continue
-                root = chain.split(".")[0]
-                if root in aliases:
-                    # candidates: the last attribute of the chain (class attribute patches) and the name argument;
-                    # the one that is a moved name wins, otherwise the chain attribute (or the argument)
-                    parts = chain.split(".")
-                    candidates = ([parts[-1]] if len(parts) > 1 else []) + [second.value]
-                    sym = next((c for c in candidates if c in MOVED), candidates[0])
-                    yield path, node.lineno, sym, "entry-object", False
-                elif root in pkgroots:
-                    parts = pkgroots[root].split(".") + chain.split(".")[1:] + [second.value]
-                    sym, prefix = _moved_target(".".join(parts))
-                    if sym is not None:
-                        yield path, node.lineno, sym, "package-object", prefix == MOVED[sym][0]
-                    else:
-                        yield path, node.lineno, parts[-1], "package-object-unclassified", False
-            elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-                for t in (node.targets if isinstance(node, ast.Assign) else [node.target]):
-                    if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name):
-                        if t.value.id in aliases:
-                            yield path, node.lineno, t.attr, "entry-assign", False
-                        elif t.value.id in pkgroots:
-                            sym, _prefix = _moved_target(f"{pkgroots[t.value.id]}.{t.attr}")
-                            yield path, node.lineno, sym if sym is not None else t.attr, \
-                                "package-assign" if sym is not None else "package-assign-unclassified", False
+                if last in ("setattr", "delattr"):
+                    string_form = (last == "setattr" and len(node.args) == 2) or (last == "delattr" and len(node.args) == 1
+                                                                                  and isinstance(node.func, ast.Attribute))
+                    if string_form:
+                        target = _const_str(first)
+                        if target is None:
+                            yield Site(path, node.lineno, None, "unresolved-string", False, ast.unparse(first))
+                            continue
+                        head, *rest = target.split(".")
+                        what = _by_module_name(head)
+                        sym, prefix = _moved_target(target)
+                        if what and what[0] == "package":
+                            if sym is not None:
+                                yield Site(path, node.lineno, sym, "string", prefix == MOVED[sym][0], "")
+                            else:
+                                yield Site(path, node.lineno, target.split(".")[-1], "string-unclassified", False, "")
+                        elif what and what[0] == "entry":
+                            yield Site(path, node.lineno, sym or (rest[0] if rest else "<dynamic>"), "string-entry", False, "")
+                        else:
+                            yield Site(path, node.lineno, sym, "unresolved-string", False, repr(head))
+                        continue
+                    name = _const_str(node.args[1]) if len(node.args) > 1 else None
+                    root, parts = _split_root(first)
+                    site = _classify(path, node.lineno, root, parts + [name], bound, "object")
+                    if site:
+                        yield site
+                elif last in ("setitem", "delitem") and isinstance(node.func, ast.Attribute) and len(node.args) > 1:
+                    obj = _namespace_of(first)
+                    if obj is not None:
+                        root, parts = _split_root(obj)
+                        site = _classify(path, node.lineno, root, parts + [_const_str(node.args[1])], bound, "object")
+                        if site:
+                            yield site
+            elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
+                targets = node.targets if isinstance(node, (ast.Assign, ast.Delete)) else [node.target]
+                for t in targets:
+                    for x in ast.walk(t):
+                        if isinstance(x, ast.Attribute) and isinstance(x.ctx, (ast.Store, ast.Del)):
+                            root, parts = _split_root(x)
+                        elif isinstance(x, ast.Subscript) and isinstance(x.ctx, (ast.Store, ast.Del)) \
+                                and _namespace_of(x.value) is not None:
+                            root, parts = _split_root(_namespace_of(x.value))
+                            parts = parts + [_const_str(x.slice)]
+                        else:
+                            continue
+                        site = _classify(path, node.lineno, root, parts, bound, "assign")
+                        if site:
+                            yield site
+
+
+def _namespace_of(node):
+    """X for X.__dict__ or vars(X); otherwise None."""
+    if isinstance(node, ast.Attribute) and node.attr == "__dict__":
+        return node.value
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "vars" and node.args:
+        return node.args[0]
+    return None
 
 
 @pytest.mark.fast
 def test_t0_every_patch_site_is_classified():
-    """Each site is a moved name patched on its owner, or a not-yet-moved name counted exactly in ALLOWLIST."""
+    """Default-deny completeness: each site is a moved name patched on its owner (exactly MOVED's count), a not-yet-
+    moved name counted exactly in ALLOWLIST, or an unresolved target counted exactly in UNRESOLVED."""
     assert not set(MOVED) & set(ALLOWLIST), sorted(set(MOVED) & set(ALLOWLIST))
-    pending = Counter()
+    pending, on_owner, unresolved = Counter(), Counter(), Counter()
     problems = []
-    for path, line, sym, form, owner_ok in _sites():
-        if sym in MOVED:
-            if not owner_ok:
-                problems.append(f"{path}:{line}: moved name {sym} patched as {form}, not on {MOVED[sym][0]}")
+    for s in _sites():
+        if s.sym in MOVED:
+            if s.owner_ok:
+                on_owner[s.sym] += 1
+            else:
+                problems.append(f"{s.path}:{s.line}: moved name {s.sym} patched as {s.form}, not on {MOVED[s.sym][0]}")
+        elif s.form.startswith("unresolved"):
+            unresolved[(_rel(s.path), s.root)] += 1
         else:
-            pending[sym] += 1
+            pending[s.sym] += 1
     assert not problems, "\n".join(problems)
+    expected = {name: count for name, (_owner, _kind, count) in MOVED.items()}
+    assert dict(on_owner) == expected, {"moved_sites_found": dict(on_owner), "expected": expected}
     assert dict(pending) == ALLOWLIST, {"unexpected_or_changed": {k: v for k, v in pending.items() if ALLOWLIST.get(k) != v},
                                         "missing": {k: v for k, v in ALLOWLIST.items() if pending.get(k) != v}}
+    assert dict(unresolved) == UNRESOLVED, {"unresolved_new_or_changed": {k: v for k, v in unresolved.items() if UNRESOLVED.get(k) != v},
+                                            "missing": {k: v for k, v in UNRESOLVED.items() if unresolved.get(k) != v}}
+
+
+@pytest.mark.fast
+def test_t9_every_registration_is_classified():
+    """Every importlib.util.spec_from_file_location in tests is listed in REGISTRATIONS (default-deny)."""
+    found = set()
+    for path in _test_files():
+        for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+            if isinstance(node, ast.Call) and (_chain(node.func) or "").split(".")[-1] == "spec_from_file_location" \
+                    and node.args:
+                found.add((_rel(path), ast.unparse(node.args[0])))
+    assert found == set(REGISTRATIONS), {"unlisted": sorted(found - set(REGISTRATIONS)),
+                                         "stale": sorted(set(REGISTRATIONS) - found)}
 
 
 @pytest.mark.fast
 def test_t1_owner_module_defines_each_moved_name():
-    for name, (owner, _kind) in MOVED.items():
+    for name, (owner, _kind, _count) in MOVED.items():
         assert hasattr(importlib.import_module(owner), name), (name, owner)
 
 
@@ -225,7 +382,7 @@ def test_t1_owner_module_defines_each_moved_name():
 def test_t2_moved_names_are_patched_only_on_their_owner():
     """Whitelist: a moved name may be patched only as monkeypatch.setattr("<owner>.<name>[.attr]", value) or with a
     first argument that is the owner module bound by `import gribs...` in that file. The entry (any alias) never."""
-    problems = [f"{p}:{l}: {s} ({f})" for p, l, s, f, ok in _sites() if s in MOVED and not ok]
+    problems = [f"{s.path}:{s.line}: {s.sym} ({s.form})" for s in _sites() if s.sym in MOVED and not s.owner_ok]
     assert not problems, "\n".join(problems)
 
 
@@ -317,3 +474,49 @@ def test_t8_package_modules_import_only_same_or_earlier_units():
                 elif unit > MODULE_UNIT[me]:
                     problems.append(f"{path}:{node.lineno}: {me} (unit {MODULE_UNIT[me]}) imports {target} (unit {unit})")
     assert not problems, "\n".join(problems)
+
+
+# T0 classifier self-test (reports 115, 116): the form of every kind of site, including the forms of the review
+# (S17c-S17g: the entry reached through sys.modules, importlib.import_module or an alias of it)
+_E = 'import importlib, sys\n'
+_CLASSIFIER_CASES = [
+    ('monkeypatch.setattr("gribs.config.validate", f)', [("validate", "string", True)]),
+    ('monkeypatch.setattr("gribs.constants.G0", 1)', [("G0", "string-unclassified", False)]),
+    ('import gribs.constants as gc\nmonkeypatch.setattr(gc, "G0", 1)', [("G0", "package-object-unclassified", False)]),
+    ("import gribs.constants as gc\ngc.G0 = 1", [("G0", "package-assign-unclassified", False)]),
+    ('from gribs import config\nmonkeypatch.setattr(config, "validate", f)', [("validate", "package-object", True)]),
+    (_E + 'm = importlib.import_module("gribs.config")\nm.validate = f', [("validate", "package-assign", False)]),
+    ('monkeypatch.setattr("gribs_entry.G0", 1)', [("G0", "string-entry", False)]),
+    ('monkeypatch.setattr("gribs_cli_override.validate", f)', [("validate", "string-entry", False)]),
+    ('import importlib.util\ng = importlib.util.module_from_spec(spec)\nmonkeypatch.setattr(g, "validate", f)',
+     [("validate", "entry-object", False)]),
+    # S17c-S17g
+    (_E + 'setattr(sys.modules["gribs_entry"], "validate", f)', [("validate", "entry-object", False)]),
+    (_E + 'setattr(importlib.import_module("gribs_entry"), "validate", f)', [("validate", "entry-object", False)]),
+    (_E + 'm = importlib.import_module("gribs_entry")\nmonkeypatch.setattr(m, "validate", f)',
+     [("validate", "entry-object", False)]),
+    (_E + 'm = importlib.import_module("gribs_entry")\nm.validate = f', [("validate", "entry-assign", False)]),
+    (_E + 'sys.modules["gribs_entry"].validate = f', [("validate", "entry-assign", False)]),
+    # namespaces, deletes, dynamic names, unresolved targets
+    (_E + 'monkeypatch.setitem(vars(sys.modules["gribs_entry"]), "validate", f)', [("validate", "entry-object", False)]),
+    (_E + 'sys.modules["gribs_entry"].__dict__["G0"] = 1', [("G0", "entry-assign", False)]),
+    (_E + 'del sys.modules["gribs_entry"].G0', [("G0", "entry-assign", False)]),
+    ('monkeypatch.delattr("gribs_entry.G0")', [("G0", "string-entry", False)]),
+    ('import importlib.util\ng = importlib.util.module_from_spec(spec)\nsetattr(g, name, 1)',
+     [("<dynamic>", "entry-object", False)]),
+    ("def test_x(mod):\n    mod.validate = f", [("validate", "unresolved-assign", False)]),
+    ("def test_x(mod):\n    mod.G0 = 1", [(None, "unresolved-assign", False)]),
+    ('import os\nmonkeypatch.setattr(os, "sep", "/")', [(None, "unresolved-object", False)]),
+    ('monkeypatch.setattr("os.sep", "/")\nmonkeypatch.setattr("gribs_a3_convergence_harness_test.x", 1)',
+     [(None, "unresolved-string", False), (None, "unresolved-string", False)]),
+    ("monkeypatch.setattr(target, 1)", [(None, "unresolved-string", False)]),
+    ("class A:\n    def f(self):\n        self.validate = 1", []),
+]
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("source, expected", _CLASSIFIER_CASES)
+def test_t0_classifier_counts_each_form(tmp_path, source, expected):
+    path = tmp_path / "test_case.py"
+    path.write_text(source + "\n")
+    assert [(x.sym, x.form, x.owner_ok) for x in _sites([path])] == expected

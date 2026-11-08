@@ -130,6 +130,24 @@ def test_tool_records_the_body_it_executed():
 
 
 @pytest.mark.fast
+def test_package_tree_digest_and_body_sha256_known_answer(tmp_path):
+    """Known answer, computed outside Python (printf | sha256sum, report 115 / run r488): the stream is
+    gribs/Z.py\\0 2\\0 z\\n\\0  gribs/__init__.py\\0 2\\0 A\\n\\0  gribs/b.py\\0 0\\0 \\0  gribs/sub/c.py\\0 4\\0 c=1\\n\\0
+    (UTF-8 byte order puts "Z" before "_" before "b"); excluded: __pycache__, *.egg-info, names starting with ".",
+    files that are not *.py, and anything outside the package directory."""
+    pkg = tmp_path / "gribs"
+    files = {"Z.py": b"z\n", "__init__.py": b"A\n", "b.py": b"", "sub/c.py": b"c=1\n",
+             "__pycache__/x.py": b"x", "e.egg-info/f.py": b"f", ".hidden/y.py": b"y", ".z.py": b"z", "data.txt": b"t"}
+    for rel, data in files.items():
+        (pkg / rel).parent.mkdir(parents=True, exist_ok=True)
+        (pkg / rel).write_bytes(data)
+    (tmp_path / "outside.py").write_bytes(b"o")
+    tree = "73df6a0a96d077efef921e99e29b32894fc2324c6c9eb881042d0593e56b0152"
+    assert tool.package_tree_digest(pkg) == tree
+    assert tool.body_sha256(b"E\n", tree) == "637415a6f6f900b34d310cb4377534cbc5784a35e8da1081d6387f33c86d629a"
+
+
+@pytest.mark.fast
 def test_check_package_root_rejects_none():
     with pytest.raises(RuntimeError, match="did not import"):
         tool._check_package_root(None, ROOT / "src" / "gribs")
