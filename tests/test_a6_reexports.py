@@ -13,7 +13,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config", "gribs.thermo",
            "gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium", "gribs.simulation.integrator",
-           "gribs.simulation.postprocess", "gribs.plotting", "gribs.reporting", "gribs.selftest")
+           "gribs.simulation.postprocess", "gribs.plotting", "gribs.reporting", "gribs.selftest", "gribs.config.loader",
+           "gribs.cli")
 
 
 def _entry_path():
@@ -23,8 +24,14 @@ def _entry_path():
     return bodies[0]
 
 
+def _module_file(module):
+    """Source file of a package module: <name>.py, or <name>/__init__.py for a package (gribs.config since unit 9)."""
+    base = ROOT / "src" / Path(*module.split("."))
+    return base / "__init__.py" if base.is_dir() else base.with_suffix(".py")
+
+
 def _top_level_names(module):
-    tree = ast.parse((ROOT / "src" / Path(*module.split("."))).with_suffix(".py").read_text())
+    tree = ast.parse(_module_file(module).read_text())
     out = set()
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
@@ -40,7 +47,7 @@ def _top_level_names(module):
 def _state_names(module):
     """Module state: names the module rebinds with `global`. They are never re-exported (a from-import would copy the
     value once and go stale) and are reached through their accessors only (ADR decision 2, guard T10)."""
-    tree = ast.parse((ROOT / "src" / Path(*module.split("."))).with_suffix(".py").read_text())
+    tree = ast.parse(_module_file(module).read_text())
     return {name for node in ast.walk(tree) if isinstance(node, ast.Global) for name in node.names}
 
 
@@ -205,6 +212,34 @@ def test_entry_and_package_share_the_selftest_objects():
     for name, owner in (("IP", integrator), ("make_rhs", integrator), ("theta_and_deriv", thermo),
                         ("post_run_consistency_report", postprocess)):
         assert getattr(selftest, name) is getattr(owner, name), name
+
+
+@pytest.mark.fast
+def test_entry_and_package_share_the_configuration_loader_and_cli_objects():
+    """Unit 9: the entry re-exports the objects of gribs.config.loader and gribs.cli; the CLI reads the patched
+    load_json_configuration through its owner (ADR decision 1), so it does not hold a copy of it."""
+    entry = _load_entry()
+    loader = importlib.import_module("gribs.config.loader"); cli = importlib.import_module("gribs.cli")
+    for module, patched in ((loader, {"load_json_configuration"}),
+                            (cli, {"_print_backend_banner", "environment_info", "_cea_theoretical_diagnostics"})):
+        names = sorted(_top_level_names(module.__name__))
+        assert patched <= set(names), names
+        for name in names:
+            assert getattr(entry, name) is getattr(module, name), name
+    assert not hasattr(cli, "load_json_configuration")
+    assert entry.main.__module__ == "gribs.cli" and entry.Configuration.__module__ == "gribs.config.loader"
+    assert importlib.import_module("gribs.config").validate is entry.validate  # gribs.config is a package now
+
+
+@pytest.mark.fast
+def test_configuration_paths_are_resolved_next_to_the_entry():
+    """The two non-verbatim path lines of unit 9: a relative configuration path and the default --config are taken in
+    the entry's directory, as before the move (where they read the entry's own __file__)."""
+    loader = importlib.import_module("gribs.config.loader"); cli = importlib.import_module("gribs.cli")
+    here = _entry_path().resolve().parent
+    assert loader._resolve_from_script("results") == here / "results"
+    assert cli.build_parser().get_default("config") == here / "gribs_config.json"
+    assert cli.build_parser().parse_args([]).config == here / "gribs_config.json"
 
 
 @pytest.mark.fast

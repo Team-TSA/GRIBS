@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import subprocess
 import sys
@@ -8,6 +9,7 @@ from dataclasses import asdict
 from types import SimpleNamespace
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 
@@ -243,9 +245,9 @@ def test_run_model_rejects_unimplemented_shock_transition_policy():
 @pytest.mark.fast
 def test_masked_trapezoid_does_not_bridge_disjoint_regions():
     """Masked integration must not invent area across gaps."""
-    t = gribs.np.array([0.0, 1.0, 2.0, 3.0, 4.0])
-    y = gribs.np.ones_like(t)
-    mask = gribs.np.array([True, True, False, True, True])
+    t = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    y = np.ones_like(t)
+    mask = np.array([True, True, False, True, True])
 
     integral = gribs._masked_trapezoid(y, t, mask)
 
@@ -260,12 +262,12 @@ def test_nozzle_transition_diagnostics_reports_contiguous_band_cost():
         transition_policy="jump",
         use_separation=True,
     )
-    t = gribs.np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+    t = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     h = {
         "t": t,
-        "p0": gribs.np.array([2.0, 3.0, 10.0, 3.0, 2.0]),
-        "At": gribs.np.ones_like(t),
-        "F": gribs.np.ones_like(t),
+        "p0": np.array([2.0, 3.0, 10.0, 3.0, 2.0]),
+        "At": np.ones_like(t),
+        "F": np.ones_like(t),
     }
 
     diagnostic = gribs.nozzle_transition_diagnostics(
@@ -382,34 +384,34 @@ def test_mass_energy_ledger_separates_igniter_from_propellant():
         - final_chamber
     )
 
-    t = gribs.np.array([0.0, 0.05, 0.1])
+    t = np.array([0.0, 0.05, 0.1])
     xw = gribs.web_thickness(c)
     h = {
         "t": t,
-        "phase": gribs.np.array(
+        "phase": np.array(
             ["burn", "burn", "blowdown"],
             dtype=object,
         ),
-        "x": gribs.np.array([0.0, 0.5 * xw, xw]),
-        "m_gen": gribs.np.array(
+        "x": np.array([0.0, 0.5 * xw, xw]),
+        "m_gen": np.array(
             [0.0, 0.5 * generated_total, generated_total]
         ),
-        "m_igniter": gribs.np.array(
+        "m_igniter": np.array(
             [0.0, 0.5 * igniter_injected, igniter_injected]
         ),
-        "m_out": gribs.np.array(
+        "m_out": np.array(
             [0.0, 0.5 * discharged_total, discharged_total]
         ),
-        "m_total_eos": gribs.np.array(
+        "m_total_eos": np.array(
             [initial_chamber, 0.03, final_chamber]
         ),
-        "mdot_out_total": gribs.np.array(
+        "mdot_out_total": np.array(
             [discharged_total / 0.1] * 3
         ),
-        "mdot_out_gas": gribs.np.array(
+        "mdot_out_gas": np.array(
             [0.75 * discharged_total / 0.1] * 3
         ),
-        "mdot_out_condensed": gribs.np.array(
+        "mdot_out_condensed": np.array(
             [0.25 * discharged_total / 0.1] * 3
         ),
     }
@@ -506,24 +508,24 @@ def test_mass_energy_ledger_records_failed_acceptance_without_hiding_residual():
     propellant_residual = 2.0e-8 * initial_propellant
 
     h = {
-        "t": gribs.np.array([0.0, 1.0]),
-        "phase": gribs.np.array(["burn", "burn"], dtype=object),
-        "x": gribs.np.array([0.0, 0.0]),
-        "m_gen": gribs.np.array(
+        "t": np.array([0.0, 1.0]),
+        "phase": np.array(["burn", "burn"], dtype=object),
+        "x": np.array([0.0, 0.0]),
+        "m_gen": np.array(
             [0.0, initial_propellant + propellant_residual]
         ),
-        "m_igniter": gribs.np.array([0.0, 0.0]),
-        "m_out": gribs.np.array(
+        "m_igniter": np.array([0.0, 0.0]),
+        "m_out": np.array(
             [0.0, initial_propellant - total_residual]
         ),
-        "m_total_eos": gribs.np.array([0.0, 0.0]),
-        "mdot_out_total": gribs.np.array(
+        "m_total_eos": np.array([0.0, 0.0]),
+        "mdot_out_total": np.array(
             [initial_propellant - total_residual] * 2
         ),
-        "mdot_out_gas": gribs.np.array(
+        "mdot_out_gas": np.array(
             [initial_propellant - total_residual] * 2
         ),
-        "mdot_out_condensed": gribs.np.array([0.0, 0.0]),
+        "mdot_out_condensed": np.array([0.0, 0.0]),
     }
     res = {
         "m_total0": 0.0,
@@ -549,11 +551,11 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown(monkeypatch):
     """Sampled mdot_gen_total must use the same igniter rule as the ODE."""
     class SyntheticSolution:
         def __init__(self, t0, t1, state):
-            self.t = gribs.np.array([t0, t1], dtype=float)
-            self._state = gribs.np.asarray(state, dtype=float)
+            self.t = np.array([t0, t1], dtype=float)
+            self._state = np.asarray(state, dtype=float)
 
         def sol(self, times):
-            return gribs.np.repeat(
+            return np.repeat(
                 self._state[:, None],
                 len(times),
                 axis=1,
@@ -573,7 +575,7 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown(monkeypatch):
         ign_time=1.0,
     )
     xw = gribs.web_thickness(c)
-    state = gribs.np.array(
+    state = np.array(
         [
             c.p0_init,
             xw,
@@ -587,7 +589,7 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown(monkeypatch):
     )
     solution = SyntheticSolution(0.2, 0.3, state)
     result = {
-        "Ae": c.eps_nozzle * gribs.math.pi * c.R_t0**2,
+        "Ae": c.eps_nozzle * math.pi * c.R_t0**2,
         "m_total0": 0.0,
         "sol_burn": solution,
         "sol_blow": solution,
@@ -613,7 +615,7 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown(monkeypatch):
     history = gribs.sample(result, c)
 
     blowdown = history["phase"] == "blowdown"
-    assert gribs.np.any(blowdown)
+    assert np.any(blowdown)
     assert history["mdot_gen_total"][blowdown] == pytest.approx(
         c.ign_mdot
     )
@@ -685,25 +687,25 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
     )
 
     m_prop = gribs.propellant_mass(c)
-    t = gribs.np.array([0.0, 1.0])
-    At0 = gribs.math.pi * c.R_t0**2
+    t = np.array([0.0, 1.0])
+    At0 = math.pi * c.R_t0**2
     history = {
         "t": t,
-        "phase": gribs.np.array(["burn", "burn"], dtype=object),
-        "p0": gribs.np.array([2.0e5, 3.0e5]),
-        "F": gribs.np.array([0.0, 1.0]),
-        "impulse": gribs.np.array([0.0, 1.0]),
-        "m_out": gribs.np.array([0.0, m_prop]),
-        "m_gen": gribs.np.array([0.0, m_prop]),
-        "At": gribs.np.array([At0, At0]),
-        "Kn": gribs.np.array([1.0, 1.0]),
-        "Rt": gribs.np.array([c.R_t0, c.R_t0]),
-        "m_total_eos": gribs.np.array([1.0, 1.0]),
-        "m_total_balance": gribs.np.array([1.0, 1.0]),
-        "Y_gas": gribs.np.array([1.0, 1.0]),
-        "Y_condensed": gribs.np.array([0.0, 0.0]),
-        "extrap": gribs.np.array([False, False]),
-        "regime": gribs.np.array(
+        "phase": np.array(["burn", "burn"], dtype=object),
+        "p0": np.array([2.0e5, 3.0e5]),
+        "F": np.array([0.0, 1.0]),
+        "impulse": np.array([0.0, 1.0]),
+        "m_out": np.array([0.0, m_prop]),
+        "m_gen": np.array([0.0, m_prop]),
+        "At": np.array([At0, At0]),
+        "Kn": np.array([1.0, 1.0]),
+        "Rt": np.array([c.R_t0, c.R_t0]),
+        "m_total_eos": np.array([1.0, 1.0]),
+        "m_total_balance": np.array([1.0, 1.0]),
+        "Y_gas": np.array([1.0, 1.0]),
+        "Y_condensed": np.array([0.0, 0.0]),
+        "extrap": np.array([False, False]),
+        "regime": np.array(
             ["subsonic", "subsonic"],
             dtype=object,
         ),
@@ -922,7 +924,7 @@ def test_rhs_exposes_integrated_igniter_mass_as_appended_state(monkeypatch):
         ign_mdot=0.02,
         ign_time=0.1,
     )
-    Ae = c.eps_nozzle * gribs.math.pi * c.R_t0**2
+    Ae = c.eps_nozzle * math.pi * c.R_t0**2
 
     monkeypatch.setattr(
         "gribs.nozzle.nozzle_state",
@@ -941,7 +943,7 @@ def test_rhs_exposes_integrated_igniter_mass_as_appended_state(monkeypatch):
     )
 
     rhs = gribs.make_rhs(c, Ae, burning=True)
-    y = gribs.np.array(
+    y = np.array(
         [
             c.p0_init,
             0.0,
@@ -985,20 +987,20 @@ def test_mass_energy_ledger_uses_integrated_igniter_state():
     generated_total = initial_propellant + integrated_igniter
 
     h = {
-        "t": gribs.np.array([0.0, 0.1]),
-        "phase": gribs.np.array(["burn", "burn"], dtype=object),
-        "x": gribs.np.array([0.0, gribs.web_thickness(c)]),
-        "m_gen": gribs.np.array([0.0, generated_total]),
-        "m_igniter": gribs.np.array([0.0, integrated_igniter]),
-        "m_out": gribs.np.array([0.0, generated_total]),
-        "m_total_eos": gribs.np.array([0.0, 0.0]),
-        "mdot_out_total": gribs.np.array(
+        "t": np.array([0.0, 0.1]),
+        "phase": np.array(["burn", "burn"], dtype=object),
+        "x": np.array([0.0, gribs.web_thickness(c)]),
+        "m_gen": np.array([0.0, generated_total]),
+        "m_igniter": np.array([0.0, integrated_igniter]),
+        "m_out": np.array([0.0, generated_total]),
+        "m_total_eos": np.array([0.0, 0.0]),
+        "mdot_out_total": np.array(
             [generated_total / 0.1, generated_total / 0.1]
         ),
-        "mdot_out_gas": gribs.np.array(
+        "mdot_out_gas": np.array(
             [generated_total / 0.1, generated_total / 0.1]
         ),
-        "mdot_out_condensed": gribs.np.array([0.0, 0.0]),
+        "mdot_out_condensed": np.array([0.0, 0.0]),
     }
     res = {"m_total0": 0.0}
 
@@ -1056,10 +1058,10 @@ def test_post_run_consistency_uses_time_invariant_reference_mass():
         "m_total0": 1.0,
     }
     history = {
-        "m_gen": gribs.np.array([0.0, 0.0]),
-        "m_out": gribs.np.array([0.0, 0.9989995]),
-        "m_total_eos": gribs.np.array([1.0, 0.001]),
-        "m_total_balance": gribs.np.array([1.0, 0.0010005]),
+        "m_gen": np.array([0.0, 0.0]),
+        "m_out": np.array([0.0, 0.9989995]),
+        "m_total_eos": np.array([1.0, 0.001]),
+        "m_total_balance": np.array([1.0, 0.0010005]),
     }
 
     report = gribs.post_run_consistency_report(result, history)
@@ -1083,10 +1085,10 @@ def test_post_run_consistency_rejects_mismatched_history_shapes():
         "m_total0": 1.0,
     }
     history = {
-        "m_gen": gribs.np.array([0.0, 0.0]),
-        "m_out": gribs.np.array([0.0, 0.0]),
-        "m_total_eos": gribs.np.array([1.0, 1.0]),
-        "m_total_balance": gribs.np.array([1.0]),
+        "m_gen": np.array([0.0, 0.0]),
+        "m_out": np.array([0.0, 0.0]),
+        "m_total_eos": np.array([1.0, 1.0]),
+        "m_total_balance": np.array([1.0]),
     }
 
     with pytest.raises(
@@ -1254,7 +1256,7 @@ def test_main_writes_diagnostics_before_ledger_exit(
     monkeypatch.setattr(
         "gribs.thermo.initialize_thermochemistry", lambda *_args: backend
     )
-    monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
+    monkeypatch.setattr("gribs.cli._print_backend_banner", lambda *_args: None)
     monkeypatch.setattr("gribs.simulation.postprocess.model_applicability_error", lambda *_args: None)
     monkeypatch.setattr("gribs.simulation.integrator.run_model", lambda _config: object())
     monkeypatch.setattr("gribs.simulation.postprocess.sample", lambda *_args: {})
@@ -1262,10 +1264,9 @@ def test_main_writes_diagnostics_before_ledger_exit(
         "gribs.simulation.postprocess.summarize",
         lambda *_args, **_kwargs: summary,
     )
-    monkeypatch.setattr(gribs, "environment_info", lambda: {})
+    monkeypatch.setattr("gribs.cli.environment_info", lambda: {})
     monkeypatch.setattr(
-        gribs,
-        "_cea_theoretical_diagnostics",
+        "gribs.cli._cea_theoretical_diagnostics",
         lambda *_args: None,
     )
     monkeypatch.setattr(
@@ -1414,7 +1415,7 @@ def test_main_fails_fast_for_out_of_scope_two_phase_table(
         "gribs.thermo.initialize_thermochemistry",
         lambda _config, _cache_dir: backend,
     )
-    monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
+    monkeypatch.setattr("gribs.cli._print_backend_banner", lambda *_args: None)
     monkeypatch.setattr(
         "gribs.simulation.integrator.run_model",
         lambda *_args: pytest.fail("out-of-scope run reached the solver"),
@@ -1895,7 +1896,7 @@ def test_main_reports_old_cache_error_as_structured_stderr(
         document={},
         migration_notes=[],
     )
-    monkeypatch.setattr(gribs, "load_json_configuration", lambda _path: loaded)
+    monkeypatch.setattr("gribs.config.loader.load_json_configuration", lambda _path: loaded)
     monkeypatch.setattr("gribs.config.validate", lambda _config: None)
     error = gribs.ThermochemistryCacheError(
         "E_OLD_THERMO_CACHE: obsolete test cache",
@@ -2226,7 +2227,7 @@ def test_cea_builder_raises_gamma_error_at_first_invalid_grid_point(monkeypatch)
         None,
         solver,
         solution,
-        gribs.np.array([1.0]),
+        np.array([1.0]),
         0.0,
     )
     monkeypatch.setattr(
@@ -2308,7 +2309,7 @@ def test_main_reports_thermochemistry_error_as_structured_stderr(
         document={},
         migration_notes=[],
     )
-    monkeypatch.setattr(gribs, "load_json_configuration", lambda _path: loaded)
+    monkeypatch.setattr("gribs.config.loader.load_json_configuration", lambda _path: loaded)
     monkeypatch.setattr("gribs.config.validate", lambda _config: None)
     error = error_class(f"{code}: test mismatch", context=context)
 
@@ -2508,7 +2509,7 @@ def test_main_reports_invalid_phase_fraction_validation_before_the_solver(
 
     backend = _phase_probe_backend({"passed": True})
     monkeypatch.setattr("gribs.thermo.initialize_thermochemistry", lambda _config, _cache_dir: backend)
-    monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
+    monkeypatch.setattr("gribs.cli._print_backend_banner", lambda *_args: None)
     monkeypatch.setattr(
         "gribs.simulation.integrator.run_model",
         lambda *_args: pytest.fail("run with unusable phase-fraction validation reached the solver"),
@@ -2557,25 +2558,25 @@ def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, sup
                                 "passed": True},
     )
     m_prop = gribs.propellant_mass(c)
-    t = gribs.np.array([0.0, 1.0])
-    At0 = gribs.math.pi * c.R_t0**2
+    t = np.array([0.0, 1.0])
+    At0 = math.pi * c.R_t0**2
     history = {
         "t": t,
-        "phase": gribs.np.array(["burn", "burn"], dtype=object),
-        "p0": gribs.np.array([2.0e5, 3.0e5]),
-        "F": gribs.np.array([0.0, 1.0]),
-        "impulse": gribs.np.array([0.0, 1.0]),
-        "m_out": gribs.np.array([0.0, m_prop]),
-        "m_gen": gribs.np.array([0.0, m_prop]),
-        "At": gribs.np.array([At0, At0]),
-        "Kn": gribs.np.array([1.0, 1.0]),
-        "Rt": gribs.np.array([c.R_t0, c.R_t0]),
-        "m_total_eos": gribs.np.array([1.0, 1.0]),
-        "m_total_balance": gribs.np.array([1.0, 1.0]),
-        "Y_gas": gribs.np.array([1.0, 1.0]),
-        "Y_condensed": gribs.np.array([0.0, 0.0]),
-        "extrap": gribs.np.array([False, False]),
-        "regime": gribs.np.array(["subsonic", "subsonic"], dtype=object),
+        "phase": np.array(["burn", "burn"], dtype=object),
+        "p0": np.array([2.0e5, 3.0e5]),
+        "F": np.array([0.0, 1.0]),
+        "impulse": np.array([0.0, 1.0]),
+        "m_out": np.array([0.0, m_prop]),
+        "m_gen": np.array([0.0, m_prop]),
+        "At": np.array([At0, At0]),
+        "Kn": np.array([1.0, 1.0]),
+        "Rt": np.array([c.R_t0, c.R_t0]),
+        "m_total_eos": np.array([1.0, 1.0]),
+        "m_total_balance": np.array([1.0, 1.0]),
+        "Y_gas": np.array([1.0, 1.0]),
+        "Y_condensed": np.array([0.0, 0.0]),
+        "extrap": np.array([False, False]),
+        "regime": np.array(["subsonic", "subsonic"], dtype=object),
     }
     result = {
         "m_total0": 1.0, "At0": At0, "Ae": At0, "stop_burn": "time-limit",

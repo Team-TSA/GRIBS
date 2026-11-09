@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 
@@ -248,7 +250,7 @@ def test_level0_constant_property_blowdown_matches_analytic_solution(
     assert result["sol_blow"] is None
     assert result["init_regime"] == "choked"
 
-    throat_area = gribs.math.pi * config.R_t0**2
+    throat_area = math.pi * config.R_t0**2
     gas_constant, temperature, gamma = backend.props(config.p0_init)
     psi, dpsi_dp = backend.psi_and_derivative(config.p0_init)
 
@@ -260,7 +262,7 @@ def test_level0_constant_property_blowdown_matches_analytic_solution(
     flow_coefficient = (
         config.Cd
         * throat_area
-        * gribs.math.sqrt(gamma / (gas_constant * temperature))
+        * math.sqrt(gamma / (gas_constant * temperature))
         * critical_factor
     )
     time_constant = config.V_g0 / (psi * flow_coefficient)
@@ -284,16 +286,16 @@ def test_level0_constant_property_blowdown_matches_analytic_solution(
     numerical_pressure = solution.y[gribs.IP]
     choked_segment = numerical_pressure > 1.05 * choking_pressure
 
-    assert gribs.np.count_nonzero(choked_segment) >= 10
+    assert np.count_nonzero(choked_segment) >= 10
 
     analytic_pressure = (
         asymptotic_pressure
         + (config.p0_init - asymptotic_pressure)
-        * gribs.np.exp(-time[choked_segment] / time_constant)
+        * np.exp(-time[choked_segment] / time_constant)
     )
     maximum_relative_error = float(
-        gribs.np.max(
-            gribs.np.abs(
+        np.max(
+            np.abs(
                 numerical_pressure[choked_segment] / analytic_pressure - 1.0
             )
         )
@@ -350,8 +352,8 @@ def test_level1_quasi_steady_pressure_tracks_equilibrium(
 
     index_start = max(1, solution.t.size // 4)
     index_stop = max(index_start + 1, 3 * solution.t.size // 4)
-    indices = gribs.np.unique(
-        gribs.np.linspace(
+    indices = np.unique(
+        np.linspace(
             index_start,
             index_stop - 1,
             min(60, index_stop - index_start),
@@ -369,7 +371,7 @@ def test_level1_quasi_steady_pressure_tracks_equilibrium(
         bore_radius, unused_length, burning_area, unused_volume = (
             gribs.geometry(burn_depth, config)
         )
-        throat_area = gribs.math.pi * throat_radius**2
+        throat_area = math.pi * throat_radius**2
 
         equilibrium = gribs.equilibrium_pressure(
             burning_area,
@@ -378,7 +380,7 @@ def test_level1_quasi_steady_pressure_tracks_equilibrium(
             result["Ae"],
             config,
         )
-        if equilibrium is None or not gribs.np.isfinite(equilibrium):
+        if equilibrium is None or not np.isfinite(equilibrium):
             continue
 
         equilibrium_pressures.append(float(equilibrium))
@@ -388,20 +390,20 @@ def test_level1_quasi_steady_pressure_tracks_equilibrium(
 
     assert len(relative_errors) >= 10
 
-    equilibrium_pressures = gribs.np.asarray(
+    equilibrium_pressures = np.asarray(
         equilibrium_pressures,
         dtype=float,
     )
-    relative_errors = gribs.np.asarray(relative_errors, dtype=float)
+    relative_errors = np.asarray(relative_errors, dtype=float)
 
-    assert gribs.np.all(
+    assert np.all(
         equilibrium_pressures >= config.p_fit_min
     )
-    assert gribs.np.all(
+    assert np.all(
         equilibrium_pressures <= config.p_fit_max
     )
 
-    maximum_relative_error = float(gribs.np.max(relative_errors))
+    maximum_relative_error = float(np.max(relative_errors))
     assert (
         maximum_relative_error
         <= QUASI_STEADY_MAXIMUM_RELATIVE_ERROR
@@ -468,7 +470,7 @@ def test_level1_reference_case_file_runs_without_cea(
     bore_radius, unused_length, burning_area, unused_volume = (
         gribs.geometry(burn_depth, config)
     )
-    throat_area = gribs.math.pi * throat_radius**2
+    throat_area = math.pi * throat_radius**2
     equilibrium = gribs.equilibrium_pressure(
         burning_area,
         bore_radius,
@@ -478,7 +480,7 @@ def test_level1_reference_case_file_runs_without_cea(
     )
 
     assert equilibrium is not None
-    assert gribs.np.isfinite(equilibrium)
+    assert np.isfinite(equilibrium)
     assert config.p_fit_min <= equilibrium <= config.p_fit_max
     assert (
         abs(pressure / float(equilibrium) - 1.0)

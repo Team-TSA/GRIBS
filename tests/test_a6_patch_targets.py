@@ -58,15 +58,16 @@ MOVED = {
     "write_csv": ("gribs.reporting", "function_or_global", 1),
     # unit 8
     "self_tests_post_run": ("gribs.selftest", "function_or_global", 1),
+    # unit 9
+    "load_json_configuration": ("gribs.config.loader", "function_or_global", 2),
+    "_cea_theoretical_diagnostics": ("gribs.cli", "function_or_global", 1),
+    "_print_backend_banner": ("gribs.cli", "function_or_global", 3),
+    "environment_info": ("gribs.cli", "function_or_global", 1),
 }
 
-# names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111)
-ALLOWLIST = {
-    "_cea_theoretical_diagnostics": 1,
-    "_print_backend_banner": 3,
-    "environment_info": 1,
-    "load_json_configuration": 2,
-}
+# names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111). Empty since
+# unit 9: every patched name is in MOVED, so any patch of a GRIBS name on the entry fails T0.
+ALLOWLIST = {}
 
 
 # package module -> unit that introduced it (ADR_A6_PACKAGE_SPLIT; report 112 order). A module may import only
@@ -89,6 +90,8 @@ MODULE_UNIT = {
     "gribs.plotting": 7,
     "gribs.reporting": 7,
     "gribs.selftest": 8,
+    "gribs.config.loader": 9,
+    "gribs.cli": 9,
 }
 
 
