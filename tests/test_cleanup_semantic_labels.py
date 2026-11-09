@@ -25,7 +25,14 @@ else:
     sys.modules["gribs_entry"] = gribs
     spec.loader.exec_module(gribs)
 
-SOURCE = MODULE_PATH.read_text(encoding="utf-8")
+
+def _program_source():
+    """The program source text: the entry and every module of the package (A-6: code moves into src/gribs)."""
+    files = [MODULE_PATH] + sorted((ROOT / "src" / "gribs").rglob("*.py"))
+    return "\n".join(f.read_text(encoding="utf-8") for f in files)
+
+
+SOURCE = _program_source()
 
 
 @pytest.mark.fast

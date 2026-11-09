@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config")
+MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config", "gribs.thermo")
 
 
 def _entry_path():
@@ -32,6 +32,13 @@ def _top_level_names(module):
     return out
 
 
+def _state_names(module):
+    """Module state: names the module rebinds with `global`. They are never re-exported (a from-import would copy the
+    value once and go stale) and are reached through their accessors only (ADR decision 2, guard T10)."""
+    tree = ast.parse((ROOT / "src" / Path(*module.split("."))).with_suffix(".py").read_text())
+    return {name for node in ast.walk(tree) if isinstance(node, ast.Global) for name in node.names}
+
+
 def _entry_imports():
     out = {}
     for node in ast.parse(_entry_path().read_text()).body:
@@ -52,8 +59,11 @@ def _load_entry():
 @pytest.mark.fast
 def test_entry_reexports_every_top_level_name():
     imports = _entry_imports()
-    missing = {m: sorted(_top_level_names(m) - imports.get(m, set())) for m in MODULES}
+    missing = {m: sorted(_top_level_names(m) - _state_names(m) - imports.get(m, set())) for m in MODULES}
     assert not any(missing.values()), missing
+    assert _state_names("gribs.thermo"), "gribs.thermo keeps the backend state"
+    extra = {m: sorted(imports.get(m, set()) & _state_names(m)) for m in MODULES}
+    assert not any(extra.values()), extra
 
 
 @pytest.mark.fast
@@ -82,3 +92,25 @@ def test_entry_and_package_share_the_configuration_objects():
     for name in sorted(_top_level_names("gribs.config")):
         assert getattr(entry, name) is getattr(config, name), name
     assert entry.Config.__module__ == "gribs.config"
+
+
+@pytest.mark.fast
+def test_entry_and_package_share_the_thermochemistry_objects_and_state():
+    """Unit 3b: the entry re-exports the objects of gribs.thermo; the backend state exists once, in gribs.thermo."""
+    entry = _load_entry(); thermo = importlib.import_module("gribs.thermo")
+    for name in sorted(_top_level_names("gribs.thermo") - _state_names("gribs.thermo")):
+        assert getattr(entry, name) is getattr(thermo, name), name
+    for name in _state_names("gribs.thermo"):
+        assert not hasattr(entry, name), name  # one state, in the package
+    assert entry.PressureTableBackend.__module__ == "gribs.thermo"
+    marker = object()
+    entry._set_thermo(marker)  # restored by the conftest state guard
+    assert thermo._thermo_state() is marker and entry.thermochemistry() is marker
+
+
+@pytest.mark.fast
+def test_program_directory_of_the_moved_backend_is_the_entry_directory():
+    """The relative fcea2 executable path is still looked up next to the entry (report 119, the one non-verbatim line)."""
+    thermo = importlib.import_module("gribs.thermo")
+    assert thermo._PROGRAM_DIR == _entry_path().resolve().parent
+    assert Path(thermo.__file__).resolve() == _entry_path().resolve().parent / "src" / "gribs" / "thermo.py"

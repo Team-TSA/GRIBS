@@ -99,7 +99,7 @@ def _inject_m1(monkeypatch):
         psi, dpsi = original(self, p)
         yg, _ = self.phase_fractions(p)
         return yg * psi, yg * dpsi
-    monkeypatch.setattr(gribs.PressureTableBackend, "psi_and_derivative", psi_double_yg)
+    monkeypatch.setattr("gribs.thermo.PressureTableBackend.psi_and_derivative", psi_double_yg)
 
 
 def _inject_m2(monkeypatch):

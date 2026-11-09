@@ -20,6 +20,18 @@ TESTS = ROOT / "tests"
 # "function_or_global" or "class". T0 fails when a site on the owner disappears or appears (report 116).
 MOVED = {
     "validate": ("gribs.config", "function_or_global", 2),  # unit 2: test_gribs.py (2)
+    # unit 3b (36 sites before the move; the 4 restoring assignments of test_gribs.py became monkeypatch, so 32)
+    "_cache_rename_noreplace": ("gribs.thermo", "function_or_global", 2),  # _cache_v7_child.py, test_cache_atomic_v7.py
+    "_cache_write_checkpoint": ("gribs.thermo", "function_or_global", 15),  # the two children (2), test_cache_atomic_v7.py (13)
+    "gas_props": ("gribs.thermo", "function_or_global", 1),
+    "initialize_thermochemistry": ("gribs.thermo", "function_or_global", 5),
+    "is_extrapolated": ("gribs.thermo", "function_or_global", 1),
+    "phase_fractions": ("gribs.thermo", "function_or_global", 1),
+    "psi_and_deriv": ("gribs.thermo", "function_or_global", 2),
+    "thermochemistry": ("gribs.thermo", "function_or_global", 2),
+    "PressureTableBackend": ("gribs.thermo", "class", 1),
+    "ReferenceConstantBackend": ("gribs.thermo", "class", 1),
+    "_ThermoSwap": ("gribs.thermo", "class", 1),
 }
 
 # names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111)
@@ -28,11 +40,6 @@ ALLOWLIST = {
     "INTEGRATION_MAX_TABLE_RESTARTS": 1,
     "INTEGRATION_MAX_WALL_S": 1,
     "NozzleTwoPhaseModel": 2,
-    "PressureTableBackend": 1,
-    "ReferenceConstantBackend": 1,
-    "_ThermoSwap": 1,
-    "_cache_rename_noreplace": 2,
-    "_cache_write_checkpoint": 15,
     "_cea_theoretical_diagnostics": 1,
     "_phase_grid": 2,
     "_print_backend_banner": 3,
@@ -40,23 +47,17 @@ ALLOWLIST = {
     "choke_limit_pressure": 2,
     "environment_info": 1,
     "equilibrium_pressure": 2,
-    "gas_props": 2,
-    "initialize_thermochemistry": 5,
-    "is_extrapolated": 2,
     "load_json_configuration": 2,
     "make_figure": 1,
     "mass_energy_ledger": 2,
     "model_applicability_error": 1,
     "nozzle_state": 5,
     "nozzle_transition_diagnostics": 2,
-    "phase_fractions": 2,
-    "psi_and_deriv": 3,
     "run_model": 3,
     "sample": 1,
     "self_tests_post_run": 1,
     "summarize": 1,
     "summary_text": 1,
-    "thermochemistry": 2,
     "write_csv": 1,
 }
 
@@ -69,12 +70,16 @@ MODULE_UNIT = {
     "gribs.errors": 1,
     "gribs.util": 1,
     "gribs.config": 2,
+    "gribs.thermo": 3,
 }
 
 
 #: Module state that only its accessors may touch (ADR_A6_PACKAGE_SPLIT decision 2): name -> (reader, writer). Unit 3a
-#: puts the accessors in the entry; unit 3b moves the state, the accessors and every reader to gribs.thermo. T10.
+#: put the accessors in the entry; unit 3b moved the state, the accessors and every reader to gribs.thermo. T10.
 ACCESSOR_ONLY = {"_THERMO": ("_thermo_state", "_set_thermo")}
+#: The one module that defines the state and its accessors (unit 3b). T10 fails if the entry or another package module
+#: defines them, so that there is never a second copy of the state.
+ACCESSOR_OWNER = {"_THERMO": "gribs.thermo"}
 
 
 def _entry():
@@ -110,6 +115,7 @@ REGISTRATIONS = {
     ("tests/_cache_v7_child.py", "'gribs_child'"): "entry",
     ("tests/_cache_v7_sync_child.py", "'gribs_sync_child'"): "entry",
     ("tests/_a6_state_guard_cases.py", "'gribs_state_guard_cases'"): "entry",
+    ("tests/_a6_state_guard_late_import_cases.py", "'gribs_state_guard_late'"): "entry",
     ("tests/_a6_two_cases_child.py", "'gribs_two_cases'"): "entry",
     ("tests/reference/test_reference_constant_backend.py", "'gribs_a5_reference'"): "entry",
     ("tests/test_a5_1_g3b_falsification.py", "'gribs_entry'"): "entry",
@@ -141,6 +147,7 @@ UNRESOLVED = {
     ('tests/_cache_v7_sync_child.py', 'os'): 1,
     ('tests/test_a5_1_g4a_tool_throat_validity.py', 'fake'): 2,
     ('tests/test_a5_1_g4a_tool_throat_validity.py', 'ns'): 2,
+    ('tests/test_a6_thermo_resolve_executable.py', 'backend'): 1,
     ('tests/test_cache_atomic_v7.py', 'os'): 34,
     ('tests/test_cleanup_semantic_labels.py', 'backend'): 1,
     ('tests/test_gribs.py', 'backend'): 49,
@@ -540,10 +547,19 @@ def test_t10_accessor_only_state():
     for path in [_entry()] + sorted(SRC.rglob("*.py")):
         problems += _accessor_violations_in_source(path)
     assert not problems, "\n".join(problems)
-    defined = {n.name for n in ast.parse(_entry().read_text()).body if isinstance(n, ast.FunctionDef)}
-    for path in sorted(SRC.rglob("*.py")):
-        defined |= {n.name for n in ast.parse(path.read_text()).body if isinstance(n, ast.FunctionDef)}
-    assert {a for pair in ACCESSOR_ONLY.values() for a in pair} <= defined
+    for name, (reader, writer) in ACCESSOR_ONLY.items():
+        definers = {}
+        for path in [_entry()] + sorted(SRC.rglob("*.py")):
+            where = "entry" if path == _entry() else _module_name(path)
+            for n in ast.parse(path.read_text()).body:
+                targets = [n.name] if isinstance(n, (ast.FunctionDef, ast.ClassDef)) else \
+                    [t.id for t in (n.targets if isinstance(n, ast.Assign) else [n.target] if isinstance(n, ast.AnnAssign) else [])
+                     if isinstance(t, ast.Name)]
+                for d in targets:
+                    if d in (name, reader, writer):
+                        definers.setdefault(d, set()).add(where)
+        owner = ACCESSOR_OWNER[name]
+        assert definers == {name: {owner}, reader: {owner}, writer: {owner}}, definers
 
 
 _T10_TEST_CASES = [

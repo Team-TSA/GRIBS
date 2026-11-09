@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import re
@@ -20,6 +21,14 @@ if len(MODULE_FILES) != 1:
     )
 
 MODULE_PATH = MODULE_FILES[0]
+
+
+def _program_source():
+    """The program source text: the entry and every module of the package (A-6: code moves into src/gribs)."""
+    files = [MODULE_PATH] + sorted((ROOT / "src" / "gribs").rglob("*.py"))
+    return "\n".join(f.read_text(encoding="utf-8") for f in files)
+
+
 spec = importlib.util.spec_from_file_location("gribs_entry", MODULE_PATH)
 
 if spec is None or spec.loader is None:
@@ -536,7 +545,7 @@ def test_mass_energy_ledger_records_failed_acceptance_without_hiding_residual():
 
 
 @pytest.mark.fast
-def test_sampled_generation_rate_includes_igniter_during_blowdown():
+def test_sampled_generation_rate_includes_igniter_during_blowdown(monkeypatch):
     """Sampled mdot_gen_total must use the same igniter rule as the ODE."""
     class SyntheticSolution:
         def __init__(self, t0, t1, state):
@@ -585,18 +594,14 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown():
     }
 
     original_phase_grid = gribs._phase_grid
-    original_gas_props = gribs.gas_props
-    original_phase_fractions = gribs.phase_fractions
-    original_psi_and_deriv = gribs.psi_and_deriv
     original_nozzle_state = gribs.nozzle_state
-    original_is_extrapolated = gribs.is_extrapolated
     original_equilibrium_pressure = gribs.equilibrium_pressure
 
     try:
         gribs._phase_grid = lambda sol, n_lin, log_head: sol.t
-        gribs.gas_props = lambda p, config: (300.0, 1000.0, 1.2)
-        gribs.phase_fractions = lambda p, config: (1.0, 0.0)
-        gribs.psi_and_deriv = lambda p, config: (300000.0, 0.0)
+        monkeypatch.setattr("gribs.thermo.gas_props", lambda p, config: (300.0, 1000.0, 1.2))
+        monkeypatch.setattr("gribs.thermo.phase_fractions", lambda p, config: (1.0, 0.0))
+        monkeypatch.setattr("gribs.thermo.psi_and_deriv", lambda p, config: (300000.0, 0.0))
         gribs.nozzle_state = lambda p, At, Ae, config: {
             "mdot_total": 0.0,
             "mdot_gas": 0.0,
@@ -607,17 +612,13 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown():
             "ve": 0.0,
             "regime": "subsonic",
         }
-        gribs.is_extrapolated = lambda p, config: False
+        monkeypatch.setattr("gribs.thermo.is_extrapolated", lambda p, config: False)
         gribs.equilibrium_pressure = lambda Ab, Ri, At, Ae, config: None
 
         history = gribs.sample(result, c)
     finally:
         gribs._phase_grid = original_phase_grid
-        gribs.gas_props = original_gas_props
-        gribs.phase_fractions = original_phase_fractions
-        gribs.psi_and_deriv = original_psi_and_deriv
         gribs.nozzle_state = original_nozzle_state
-        gribs.is_extrapolated = original_is_extrapolated
         gribs.equilibrium_pressure = original_equilibrium_pressure
 
     blowdown = history["phase"] == "blowdown"
@@ -667,7 +668,7 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
         cache_schema = 4
         mass_basis_semantics_version = 1
 
-    monkeypatch.setattr(gribs, "thermochemistry", lambda: Backend())
+    monkeypatch.setattr("gribs.thermo.thermochemistry", lambda: Backend())
     monkeypatch.setattr(
         gribs,
         "choke_limit_pressure",
@@ -945,8 +946,7 @@ def test_rhs_exposes_integrated_igniter_mass_as_appended_state(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        gribs,
-        "psi_and_deriv",
+        "gribs.thermo.psi_and_deriv",
         lambda p0, config: (1.0, 0.0),
     )
     monkeypatch.setattr(
@@ -1267,7 +1267,7 @@ def test_main_writes_diagnostics_before_ledger_exit(
     }
 
     monkeypatch.setattr(
-        gribs, "initialize_thermochemistry", lambda *_args: backend
+        "gribs.thermo.initialize_thermochemistry", lambda *_args: backend
     )
     monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
     monkeypatch.setattr(gribs, "model_applicability_error", lambda *_args: None)
@@ -1430,8 +1430,7 @@ def test_main_fails_fast_for_out_of_scope_two_phase_table(
     backend.pmin = 1.0e5
     backend.pmax = 8.0e6
     monkeypatch.setattr(
-        gribs,
-        "initialize_thermochemistry",
+        "gribs.thermo.initialize_thermochemistry",
         lambda _config, _cache_dir: backend,
     )
     monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
@@ -1875,7 +1874,7 @@ def test_matching_legacy_schema3_cache_raises_structured_error(tmp_path):
         ),
         "options": {},
     }
-    expected_legacy_key = gribs.hashlib.sha256(
+    expected_legacy_key = hashlib.sha256(
         json.dumps(schema3_payload, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()[:24]
     assert legacy_key == expected_legacy_key
@@ -1932,8 +1931,7 @@ def test_main_reports_old_cache_error_as_structured_stderr(
         raise error
 
     monkeypatch.setattr(
-        gribs,
-        "initialize_thermochemistry",
+        "gribs.thermo.initialize_thermochemistry",
         raise_old_cache_error,
     )
 
@@ -2338,8 +2336,7 @@ def test_main_reports_thermochemistry_error_as_structured_stderr(
         raise error
 
     monkeypatch.setattr(
-        gribs,
-        "initialize_thermochemistry",
+        "gribs.thermo.initialize_thermochemistry",
         raise_thermochemistry_error,
     )
 
@@ -2384,7 +2381,7 @@ def test_corrected_mass_basis_metadata_contract():
     assert "no additional Yg factor" in definition
     assert "gas-phase M" not in definition
 
-    source = MODULE_PATH.read_text(encoding="utf-8")
+    source = _program_source()
     assert "R_eff(p) = Ru / M_CEA(p) = Yg(p) * R_gas(p)" in source
     assert "no additional Yg factor" in source
     assert "p/(rho*T) = R_eff" in source
@@ -2401,7 +2398,7 @@ def test_migration_model_change_warning_code_in_source():
     """The W_MIGRATION_MODEL_CHANGE warning code must be emitted when a
     v0.4.3-alpha configuration is migrated to homogeneous_equilibrium mode.
     This test verifies the code string is present and wired into main()."""
-    source = MODULE_PATH.read_text(encoding="utf-8")
+    source = _program_source()
     assert "W_MIGRATION_MODEL_CHANGE" in source
     # The warning must be appended to the summary warnings list, not just
     # printed to stderr.
@@ -2530,7 +2527,7 @@ def test_main_reports_invalid_phase_fraction_validation_before_the_solver(
     config_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
     backend = _phase_probe_backend({"passed": True})
-    monkeypatch.setattr(gribs, "initialize_thermochemistry", lambda _config, _cache_dir: backend)
+    monkeypatch.setattr("gribs.thermo.initialize_thermochemistry", lambda _config, _cache_dir: backend)
     monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
     monkeypatch.setattr(
         gribs, "run_model",
@@ -2562,7 +2559,7 @@ def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, sup
     backend.mass_basis_semantics_version = 1
     if table is not None:
         backend.table = table
-    monkeypatch.setattr(gribs, "thermochemistry", lambda: backend)
+    monkeypatch.setattr("gribs.thermo.thermochemistry", lambda: backend)
     monkeypatch.setattr(gribs, "choke_limit_pressure", lambda config, At0, Ae: None)
     monkeypatch.setattr(
         gribs, "nozzle_transition_diagnostics",

@@ -143,7 +143,7 @@ def _run(tmp_path, monkeypatch, name):
             raise behaviour
         return copy.deepcopy(behaviour)
 
-    monkeypatch.setattr(gribs.ReferenceConstantBackend, "theoretical_rocket_performance",
+    monkeypatch.setattr("gribs.thermo.ReferenceConstantBackend.theoretical_rocket_performance",
                         fake, raising=False)
     rc = gribs.main(["--config", str(cfg_path)])
     summary = json.loads((out_dir / "summary.json").read_text())

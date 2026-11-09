@@ -7,13 +7,14 @@ from pathlib import Path
 body, cache, um, sync, name, textf, hold = sys.argv[1:8]; flags = set(sys.argv[8:])
 spec = importlib.util.spec_from_file_location("gribs_sync_child", body); m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m; spec.loader.exec_module(m)
+import gribs.thermo  # noqa: E402 - importable once the entry has put src/ on sys.path
 os.umask(int(um, 8)); S = Path(sync)
 def cp(stage, dfd, tmp):
     if stage == hold:
         (S / f"{name}.held").touch()
         while not (S / f"{name}.go").exists():
             time.sleep(0.01)
-m._cache_write_checkpoint = cp
+setattr(gribs.thermo, "_cache_write_checkpoint", cp)
 if "nolink" in flags:
     def _nolink(*a, **k):
         raise OSError(errno.EPERM, "simulated: hard links not supported")

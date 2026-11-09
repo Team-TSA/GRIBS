@@ -87,7 +87,7 @@ def checkpoint(monkeypatch):
         fn = calls.get(stage)
         if fn:
             fn(Path(os.readlink(f"/proc/self/fd/{dfd}")) / tmp)
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     return calls
 
 
@@ -517,7 +517,7 @@ def test_two_writers_rename_between_rename_and_verify_same_bytes(tmp_path, monke
     def cp(stage, dfd, tmp):
         if threading.current_thread().name == "A" and stage == "after_replace":
             a_renamed.set(); assert b_done.wait(30)
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
 
     def target(n):
         if n == "B":
@@ -543,7 +543,7 @@ def test_four_writers_synchronised(tmp_path, monkeypatch, hold):
     def cp(stage, dfd, tmp):
         if stage == hold:
             barrier.wait()
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     res = _run_threads([f"W{i}" for i in range(4)], lambda n: write(f, CONTENT))
     assert all(v == ("ok", None) for v in res.values()), res
     assert f.read_text() == CONTENT and stat.S_IMODE(f.stat().st_mode) == 0o640
@@ -559,7 +559,7 @@ def test_four_writers_one_held_after_rename_others_finish(tmp_path, monkeypatch)
     def cp(stage, dfd, tmp):
         if threading.current_thread().name == "W0" and stage == "after_replace":
             w0_renamed.set(); assert others_done.wait(30)
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
 
     def target(n):
         if n != "W0":
@@ -584,7 +584,7 @@ def test_concurrent_writer_with_different_bytes_is_not_success(tmp_path, monkeyp
     def cp(stage, dfd, tmp):
         if threading.current_thread().name == "A" and stage == "after_replace":
             a_renamed.set(); assert b_done.wait(30)
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
 
     def target(n):
         if n == "B":
@@ -655,7 +655,7 @@ def test_keyboard_interrupt_after_rename_closes_directory_fd(tmp_path, monkeypat
     def cp(stage, dfd, tmp):
         if stage == "after_replace":
             raise KeyboardInterrupt
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     with pytest.raises(KeyboardInterrupt) as e:
         write(f)
     assert any("already holds the new file" in n for n in getattr(e.value, "__notes__", []))
@@ -675,7 +675,7 @@ def test_close_failure_does_not_hide_primary_keyboard_interrupt(tmp_path, monkey
         REAL_CLOSE(fd)
         if is_dir:
             raise OSError(errno.EIO, "close failed")
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     monkeypatch.setattr(os, "close", cl)
     with pytest.raises(KeyboardInterrupt):
         write(f)
@@ -691,7 +691,7 @@ def test_no_descriptor_leak_on_any_interruption(tmp_path, monkeypatch, stage, ex
     def cp(s, dfd, tmp):
         if s == stage:
             raise exc
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     before = set(os.listdir("/proc/self/fd"))
     with pytest.raises((g._CacheWriteError, KeyboardInterrupt)):
         write(f)
@@ -793,7 +793,7 @@ def test_new_cache_threads_released_together(tmp_path, monkeypatch):
     def cp(stage, dfd, tmp):
         if stage == "before_replace":
             barrier.wait()
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     res = _run_threads([f"W{i}" for i in range(4)], lambda n: write(f, CONTENT))
     assert all(v == ("ok", None) for v in res.values()), res
     assert f.read_text() == CONTENT and sorted(p.name for p in d.iterdir()) == ["x.json"] and _fds_to(d) == []
@@ -937,7 +937,7 @@ def _adoption_race(tmp_path, monkeypatch, b_extra=None):
             a_pub.set(); assert b_done.wait(30)
         if n == "B" and stage == "before_replace":
             b_inspected.set(); assert a_pub.wait(30)
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
 
     def target(n):
         try:
@@ -1058,7 +1058,7 @@ def test_no_link_and_no_noreplace_fails_explicitly(tmp_path, monkeypatch, eno):
     def nonr(*a, **k):
         raise OSError(eno, "simulated renameat2 failure")
     monkeypatch.setattr(os, "link", nolink)
-    monkeypatch.setattr(g, "_cache_rename_noreplace", nonr)
+    monkeypatch.setattr("gribs.thermo._cache_rename_noreplace", nonr)
     monkeypatch.setattr(os, "rename", lambda *a, **k: pytest.fail("clobbering rename used"))
     with pytest.raises(g._CacheWriteError) as e:
         write(f, CONTENT)
@@ -1100,7 +1100,7 @@ def test_error_right_after_link_removes_temp_name(tmp_path, monkeypatch, exc):
     def cp(stage, dfd, tmp):
         if stage == "after_replace":
             raise exc
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     if isinstance(exc, OSError):
         with pytest.raises(g._CacheWriteError) as e:
             write(f, CONTENT)
@@ -1127,7 +1127,7 @@ def test_error_after_link_temp_removal_failure_reported(tmp_path, monkeypatch):
         if str(path).endswith(".tmp"):
             raise PermissionError(errno.EACCES, "cannot remove")
         return REAL_UNLINK(path, *a, **k)
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     monkeypatch.setattr(os, "unlink", ul)
     with pytest.raises(g._CacheWriteError) as e:
         write(f, CONTENT)
@@ -1160,7 +1160,7 @@ def test_rename_publication_reports_not_applicable(tmp_path, monkeypatch):
     def cp(stage, dfd, tmp):
         if stage == "after_replace":
             raise OSError(errno.EIO, "injected")
-    monkeypatch.setattr(g, "_cache_write_checkpoint", cp)
+    monkeypatch.setattr("gribs.thermo._cache_write_checkpoint", cp)
     with pytest.raises(g._CacheWriteError) as e:
         write(f, CONTENT)
     assert e.value.cleanup["status"] == "not_applicable" and f.read_text() == CONTENT

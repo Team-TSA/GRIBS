@@ -8,13 +8,14 @@ from pathlib import Path
 body, cache, um, sync, name, textf = sys.argv[1:7]; flags = set(sys.argv[7:])
 spec = importlib.util.spec_from_file_location("gribs_child", body); m = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = m; spec.loader.exec_module(m)
+import gribs.thermo  # noqa: E402 - importable once the entry has put src/ on sys.path
 os.umask(int(um, 8)); S = Path(sync)
 def cp(stage, dfd, tmp):
     if stage == "before_replace":
         (S / f"{name}.ready").touch()
         while not (S / f"{name}.go").exists():
             time.sleep(0.01)
-m._cache_write_checkpoint = cp
+setattr(gribs.thermo, "_cache_write_checkpoint", cp)
 import errno
 if "nolink" in flags:
     def _nolink(*a, **k):
@@ -23,7 +24,7 @@ if "nolink" in flags:
 if "noreplace_unavailable" in flags:
     def _nonr(*a, **k):
         raise OSError(errno.ENOSYS, "simulated: renameat2 not available")
-    m._cache_rename_noreplace = _nonr
+    setattr(gribs.thermo, "_cache_rename_noreplace", _nonr)
 try:
     m._cache_atomic_write_text(Path(cache), Path(textf).read_text()); print(json.dumps({"result": "ok"}))
 except m._CacheWriteError as e:
