@@ -3,6 +3,8 @@ package hold the same objects (ADR_A6_PACKAGE_SPLIT, unit 1)."""
 import ast
 import importlib
 import importlib.util
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,7 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config", "gribs.thermo",
            "gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium", "gribs.simulation.integrator",
-           "gribs.simulation.postprocess")
+           "gribs.simulation.postprocess", "gribs.plotting", "gribs.reporting")
 
 
 def _entry_path():
@@ -157,6 +159,34 @@ def test_entry_and_package_share_the_postprocess_objects():
     for name in ("IP", "IX", "IRT", "IMO", "IIMP", "IMG", "IMIGN", "igniter_mdot"):
         assert getattr(postprocess, name) is getattr(integrator, name), name
     assert entry.PhaseFractionValidationError.__module__ == "gribs.simulation.postprocess"
+
+
+@pytest.mark.fast
+def test_entry_and_package_share_the_plotting_and_reporting_objects():
+    """Unit 7: the entry re-exports the objects of gribs.plotting and gribs.reporting; the figure reads the CEA
+    diagnostics status of gribs.reporting (U-35 placement), so there is one definition of each."""
+    entry = _load_entry()
+    plotting = importlib.import_module("gribs.plotting"); reporting = importlib.import_module("gribs.reporting")
+    for module, patched in ((plotting, {"make_figure"}), (reporting, {"summary_text", "write_csv"})):
+        names = sorted(_top_level_names(module.__name__))
+        assert patched <= set(names), names
+        for name in names:
+            assert getattr(entry, name) is getattr(module, name), name
+    assert plotting.cea_diagnostics_status is reporting.cea_diagnostics_status
+    assert entry.make_figure.__module__ == "gribs.plotting"
+    assert entry.cea_diagnostics_status.__module__ == "gribs.reporting"
+
+
+def test_plotting_sets_the_agg_backend_when_imported_alone():
+    """gribs.plotting sets the Agg backend before pyplot, as the entry does, so the figure does not depend on whether
+    the entry or the package imports pyplot first (report 127). MPLBACKEND asks for another backend, so the test
+    fails if the module leaves the choice to matplotlib (which picks Agg by itself on a machine without a display)."""
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); import gribs.plotting, matplotlib; "
+            "print(matplotlib.get_backend().lower())")
+    env = dict(os.environ, MPLBACKEND="svg")
+    out = subprocess.run([sys.executable, "-c", code, str(ROOT / "src")], capture_output=True, text=True, env=env,
+                         check=True).stdout.split()
+    assert out[-1] == "agg", out
 
 
 @pytest.mark.fast

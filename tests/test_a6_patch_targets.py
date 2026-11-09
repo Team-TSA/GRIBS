@@ -52,6 +52,10 @@ MOVED = {
     "nozzle_transition_diagnostics": ("gribs.simulation.postprocess", "function_or_global", 2),
     "sample": ("gribs.simulation.postprocess", "function_or_global", 1),
     "summarize": ("gribs.simulation.postprocess", "function_or_global", 1),
+    # unit 7
+    "make_figure": ("gribs.plotting", "function_or_global", 1),
+    "summary_text": ("gribs.reporting", "function_or_global", 1),
+    "write_csv": ("gribs.reporting", "function_or_global", 1),
 }
 
 # names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111)
@@ -60,10 +64,7 @@ ALLOWLIST = {
     "_print_backend_banner": 3,
     "environment_info": 1,
     "load_json_configuration": 2,
-    "make_figure": 1,
     "self_tests_post_run": 1,
-    "summary_text": 1,
-    "write_csv": 1,
 }
 
 
@@ -84,6 +85,8 @@ MODULE_UNIT = {
     "gribs.simulation": 5,
     "gribs.simulation.integrator": 5,
     "gribs.simulation.postprocess": 6,
+    "gribs.plotting": 7,
+    "gribs.reporting": 7,
 }
 
 
