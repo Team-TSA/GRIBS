@@ -108,7 +108,7 @@ def _inject_m2(monkeypatch):
             return mdot_total_reference, mdot_total_reference, 0.0
         total = mdot_total_reference / Yg_chamber
         return total, Yg_chamber * total, total - Yg_chamber * total
-    monkeypatch.setattr(gribs.NozzleTwoPhaseModel, "split", split_extra_div_yg)
+    monkeypatch.setattr("gribs.nozzle.NozzleTwoPhaseModel.split", split_extra_div_yg)
 
 
 def _run_cstar_ratio(path, tmp_path):

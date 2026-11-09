@@ -78,7 +78,7 @@ def test_selftest_backend_modes_independent_of_start_mode(start_mode, monkeypatc
         splits.add((self.mode, round(yg, 9)))
         return split(self, ref, yg)
     monkeypatch.setattr("gribs.thermo._ThermoSwap.__enter__", rec_enter)
-    monkeypatch.setattr(gribs.NozzleTwoPhaseModel, "split", rec_split)
+    monkeypatch.setattr("gribs.nozzle.NozzleTwoPhaseModel.split", rec_split)
     assert gribs.self_tests(c, verbose=False)          # includes the name contract
     assert gribs._thermo_state() is outer
     assert swaps == {

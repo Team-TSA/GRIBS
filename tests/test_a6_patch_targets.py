@@ -32,6 +32,13 @@ MOVED = {
     "PressureTableBackend": ("gribs.thermo", "class", 1),
     "ReferenceConstantBackend": ("gribs.thermo", "class", 1),
     "_ThermoSwap": ("gribs.thermo", "class", 1),
+    # unit 4 (12 sites before the move; the 2 restoring assignments of test_gribs.py became monkeypatch, so 10, plus
+    # the 2 sites of test_a6_cross_module_reads.py)
+    "burn_rate": ("gribs.propellant.burning", "function_or_global", 2),  # test_gribs.py (1), cross-module test (1)
+    "choke_limit_pressure": ("gribs.nozzle", "function_or_global", 2),
+    "equilibrium_pressure": ("gribs.chamber.equilibrium", "function_or_global", 1),
+    "nozzle_state": ("gribs.nozzle", "function_or_global", 5),  # test_gribs.py (4), cross-module test (1)
+    "NozzleTwoPhaseModel": ("gribs.nozzle", "class", 2),
 }
 
 # names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111)
@@ -39,19 +46,14 @@ ALLOWLIST = {
     "INTEGRATION_MAX_RHS_CALLS": 1,
     "INTEGRATION_MAX_TABLE_RESTARTS": 1,
     "INTEGRATION_MAX_WALL_S": 1,
-    "NozzleTwoPhaseModel": 2,
     "_cea_theoretical_diagnostics": 1,
     "_phase_grid": 2,
     "_print_backend_banner": 3,
-    "burn_rate": 1,
-    "choke_limit_pressure": 2,
     "environment_info": 1,
-    "equilibrium_pressure": 2,
     "load_json_configuration": 2,
     "make_figure": 1,
     "mass_energy_ledger": 2,
     "model_applicability_error": 1,
-    "nozzle_state": 5,
     "nozzle_transition_diagnostics": 2,
     "run_model": 3,
     "sample": 1,
@@ -71,6 +73,11 @@ MODULE_UNIT = {
     "gribs.util": 1,
     "gribs.config": 2,
     "gribs.thermo": 3,
+    "gribs.propellant": 4,
+    "gribs.propellant.burning": 4,
+    "gribs.nozzle": 4,
+    "gribs.chamber": 4,
+    "gribs.chamber.equilibrium": 4,
 }
 
 

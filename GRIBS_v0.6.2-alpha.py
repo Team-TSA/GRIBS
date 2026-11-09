@@ -207,7 +207,6 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from scipy.integrate import solve_ivp
-from scipy.optimize import brentq
 
 # A-6 (package split, stage 1; ADR_A6_PACKAGE_SPLIT): the package lives in src/gribs next to this entry file.
 # Names moved into the package are imported back below so that existing callers keep working. This entry
@@ -310,9 +309,29 @@ from gribs.thermo import (  # noqa: E402, F401
     N_GAS_PER_KG_TOTAL_DEFINITION,
     _sonic_column_status,
 )
+from gribs.propellant.burning import (  # noqa: E402, F401
+    base_burn_rate,
+    burn_rate,
+)
+from gribs.nozzle import (  # noqa: E402, F401
+    NozzleTwoPhaseModel,
+    area_mach,
+    mach_from_area,
+    critical_ratio,
+    choke_threshold_pressure,
+    choke_margin,
+    choke_limit_pressure,
+    nozzle_state,
+)
+from gribs.chamber.equilibrium import (  # noqa: E402, F401
+    equilibrium_pressure,
+)
 # owner modules of moved names that tests patch: the entry reads those names as <module>.<name> (T4)
 import gribs.config  # noqa: E402
 import gribs.thermo  # noqa: E402
+import gribs.propellant.burning  # noqa: E402
+import gribs.nozzle  # noqa: E402
+import gribs.chamber.equilibrium  # noqa: E402
 
 # ==============================================================================
 # 0. PROGRAM IDENTITY AND CONSTANTS
@@ -366,29 +385,8 @@ import gribs.thermo  # noqa: E402
 # 4. BURN RATE (Saint-Robert + temperature sensitivity + erosive burning)
 #    Unchanged from v0.3.1-alpha.
 # ==============================================================================
-def base_burn_rate(p0: float, c: Config) -> float:
-    return (c.a_burn * (max(p0, 0.0) / c.p_ref) ** c.n_burn
-            * math.exp(c.sigma_p * (c.T_grain - c.T_ref)))
-
-
-def burn_rate(p0: float, c: Config, Ab: float, Ri: float) -> float:
-    """Total regression rate including the optional erosive contribution."""
-    r0 = base_burn_rate(p0, c)
-    if c.ero_alpha <= 0.0 or Ri <= 0.0 or Ab <= 0.0:
-        return r0
-    A_port = math.pi * Ri ** 2
-    D_h = 2.0 * Ri
-    r = r0
-    for _ in range(60):                     # damped fixed-point iteration
-        G = c.rho_p * r * Ab / A_port       # port mass flux at the aft end
-        if G <= 1.0e-12:
-            return r0
-        r_new = r0 + c.ero_alpha * G ** 0.8 / D_h ** 0.2 \
-            * math.exp(-c.ero_beta * c.rho_p * r / G)
-        if abs(r_new - r) <= 1.0e-13 * max(r, 1.0e-12):
-            return r_new
-        r = 0.5 * (r + r_new)
-    return r
+# moved to src/gribs/propellant/burning.py (A-6 unit 4); re-exported above. The entry reads burn_rate as
+# gribs.propellant.burning.burn_rate (T4).
 
 
 # ==============================================================================
@@ -398,239 +396,15 @@ def burn_rate(p0: float, c: Config, Ab: float, Ri: float) -> float:
 #    mdot_total (gas + condensed), consistent with the pressure equation that
 #    conserves the TOTAL product mass.
 # ==============================================================================
-class NozzleTwoPhaseModel:
-    """Two-phase mass split of the nozzle flow (isolated for future upgrades).
-
-    Implemented model: HOMOGENEOUS EQUILIBRIUM, COMPLETE ENTRAINMENT.
-      * The isentropic formula is evaluated with the effective gas constant
-        R_eff = Ru / M_CEA = Yg * R_gas, so it returns the TOTAL-mixture
-        flow directly.  No additional /Yg factor is applied anywhere.
-      * Both phases are assumed to leave with the same velocity, so the
-        total flow is decomposed with the chamber phase split:
-            mdot_total     = mdot_total_reference
-            mdot_gas       = Yg_chamber * mdot_total
-            mdot_condensed = Yc_chamber * mdot_total
-      * This is a FIRST APPROXIMATION: it is not a rigorous two-phase choking
-        model (no particle slip, no two-phase sound speed, no non-equilibrium
-        nozzle chemistry, no particle-size effects).  For large condensed
-        fractions it tends to OVERESTIMATE the delivered mass flow and thrust.
-      * In 'single_phase_legacy' mode Yg := 1, so R_eff is the gas constant
-        itself and the total flow equals the gas reference flow, i.e. exactly
-        the v0.4.3-alpha behaviour (regression comparison only).
-
-    A future rigorous model (e.g. frozen/non-equilibrium two-phase choking,
-    particle lag) should replace ``split`` without touching the ODE, which only
-    consumes (mdot_total, mdot_gas, mdot_condensed).
-    """
-
-    def __init__(self, mode: str):
-        if mode not in KNOWN_TWO_PHASE_MODES:
-            raise ConfigurationError(
-                f"Unknown two-phase mode {mode!r}; expected one of "
-                f"{list(KNOWN_TWO_PHASE_MODES)}.")
-        self.mode = mode
-
-    @property
-    def entrainment_assumption(self) -> str:
-        return ("complete entrainment: the isentropic formula evaluated with "
-                "R_eff returns mdot_total directly (no additional /Yg); both "
-                "phases share the exit velocity (no particle slip)"
-                if self.mode == TWO_PHASE_HOMOGENEOUS else
-                "single-phase legacy: the total flow equals the gas reference "
-                "flow (Yg := 1)")
-
-    def split(self, mdot_total_reference: float,
-              Yg_chamber: float) -> Tuple[float, float, float]:
-        """Return (mdot_total, mdot_gas, mdot_condensed) [kg/s].
-
-        ``mdot_total_reference`` is the total-mixture flow produced by the
-        isentropic formula evaluated with R_eff = Ru/M_CEA = Yg*R_gas.  It
-        already carries the phase split through R_eff, so it is returned
-        unchanged as ``mdot_total``: no additional /Yg factor is applied.
-        """
-        if self.mode == TWO_PHASE_SINGLE_LEGACY:
-            return mdot_total_reference, mdot_total_reference, 0.0
-        if not (0.0 < Yg_chamber <= 1.0):
-            raise ThermochemistryError(
-                f"Nozzle two-phase split received Yg_chamber = {Yg_chamber!r}; "
-                "require 0 < Yg <= 1.")
-        mdot_total = mdot_total_reference
-        mdot_gas = Yg_chamber * mdot_total
-        return mdot_total, mdot_gas, mdot_total - mdot_gas
-
-
-def area_mach(M: float, g: float) -> float:
-    """A/At as a function of Mach number (isentropic)."""
-    return (1.0 / M) * ((2.0 / (g + 1.0))
-                        * (1.0 + 0.5 * (g - 1.0) * M * M)) ** ((g + 1.0) / (2.0 * (g - 1.0)))
-
-
-def mach_from_area(eps: float, g: float, supersonic: bool) -> float:
-    """Invert the area-Mach relation."""
-    if eps <= 1.0 + 1.0e-14:
-        return 1.0
-    f = lambda M: area_mach(M, g) - eps
-    if supersonic:
-        return brentq(f, 1.0 + 1.0e-12, 200.0, xtol=1e-14, rtol=8.9e-16, maxiter=200)
-    return brentq(f, 1.0e-7, 1.0, xtol=1e-16, rtol=8.9e-16, maxiter=200)
-
-
-def critical_ratio(g: float) -> float:
-    """pe/p0 at the throat when choked."""
-    return (2.0 / (g + 1.0)) ** (g / (g - 1.0))
-
-
-def choke_threshold_pressure(p0: float, At: float, Ae: float, c: Config) -> float:
-    """Chamber pressure above which the nozzle is choked (evaluated at gamma(p0))."""
-    _, _, g = gribs.thermo.gas_props(p0, c)
-    eps = Ae / At
-    if eps <= 1.0 + 1.0e-12:
-        return c.p_a / critical_ratio(g)
-    Me_sub = mach_from_area(eps, g, supersonic=False)
-    return c.p_a * (1.0 + 0.5 * (g - 1.0) * Me_sub ** 2) ** (g / (g - 1.0))
-
-
-def choke_margin(p0: float, At: float, Ae: float, c: Config) -> float:
-    """> 0 when choked, < 0 when subsonic."""
-    return p0 - choke_threshold_pressure(p0, At, Ae, c)
-
-
-def choke_limit_pressure(c: Config, At: float, Ae: float) -> Optional[float]:
-    """Solve p0 = p_threshold(p0) (the fixed point marking the choking limit)."""
-    f = lambda p: choke_margin(p, At, Ae, c)
-    lo, hi = c.p_a * (1.0 + 1e-9), c.p_a * 1.0e4
-    try:
-        if f(lo) * f(hi) > 0.0:
-            return None
-        return brentq(f, lo, hi, xtol=1e-8, rtol=1e-14)
-    except (ValueError, RuntimeError):
-        return None
-
-
-def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
-    """Nozzle mass flow, thrust, exit conditions and flow regime.
-
-    MASS BASIS (v0.5.0-alpha): the returned ``mdot_total`` is the TOTAL product
-    mass flow (gas + condensed) and is the quantity that must be fed to the
-    pressure ODE, which conserves the total product mass.  ``mdot_gas`` and
-    ``mdot_condensed`` decompose it with the chamber equilibrium phase split.
-    ``mdot`` is retained as a backward-compatible ALIAS of ``mdot_total`` (it is
-    NOT the gas-only flow); prefer the explicit names in new code.
-
-    The isentropic reference flow is evaluated with the effective gas
-    constant R_eff(p0) = Ru / M_CEA(p0) = Yg(p0) * R_gas(p0), so it returns
-    the TOTAL-mixture flow directly with no additional Yg factor (complete
-    entrainment, see ``NozzleTwoPhaseModel``).  In the single-phase legacy
-    mode Yg := 1, so R_eff is the gas constant itself and the total flow
-    equals the gas reference flow.
-    """
-    split_model = NozzleTwoPhaseModel(c.two_phase_mode)
-    Yg, Yc = gribs.thermo.phase_fractions(p0, c)
-
-    if p0 <= c.p_a:
-        return dict(mdot=0.0,                   # alias of mdot_total (documented)
-                    mdot_total=0.0,
-                    mdot_gas=0.0,
-                    mdot_condensed=0.0,
-                    mdot_total_reference=0.0,
-                    gas_mass_fraction=Yg,
-                    condensed_mass_fraction=Yc,
-                    F=0.0, Me=0.0, pe=p0, ve=0.0,
-                    regime="no-flow", A_eff=Ae)
-
-    R, T0, g = gribs.thermo.gas_props(p0, c)
-    eps = Ae / At
-    sq = math.sqrt(g / (R * T0))
-    p_thr = choke_threshold_pressure(p0, At, Ae, c)
-
-    if p0 >= p_thr:                                   # ---- choked ----
-        mdot_ref = c.Cd * At * p0 * sq \
-            * (2.0 / (g + 1.0)) ** ((g + 1.0) / (2.0 * (g - 1.0)))
-        Me = 1.0 if eps <= 1.0 + 1.0e-12 else mach_from_area(eps, g, True)
-        pe = p0 * (1.0 + 0.5 * (g - 1.0) * Me * Me) ** (-g / (g - 1.0))
-        Te = T0 / (1.0 + 0.5 * (g - 1.0) * Me * Me)
-        ve = Me * math.sqrt(g * R * Te)
-        A_eff, pe_eff, ve_eff, regime = Ae, pe, ve, "choked"
-
-        if c.use_separation and eps > 1.0 and pe < c.sep_ratio * c.p_a:
-            p_sep = c.sep_ratio * c.p_a
-            arg = (p0 / p_sep) ** ((g - 1.0) / g) - 1.0
-            if arg > 0.0:
-                M_sep = math.sqrt(2.0 / (g - 1.0) * arg)
-                eps_sep = area_mach(M_sep, g)
-                if 1.0 < eps_sep < eps:
-                    Te_s = T0 / (1.0 + 0.5 * (g - 1.0) * M_sep ** 2)
-                    A_eff = eps_sep * At
-                    pe_eff = p_sep
-                    ve_eff = M_sep * math.sqrt(g * R * Te_s)
-                    Me = M_sep
-                    regime = "separated"
-        # Complete velocity equilibrium: both phases leave at ve_eff.  With
-        # particle slip the momentum term would be mdot_gas*vg + mdot_c*vc and
-        # the thrust would be lower for large condensed fractions; eta_F may
-        # additionally lump two-phase losses (avoid double correction).
-        mdot_total, mdot_gas, mdot_cond = split_model.split(mdot_ref, Yg)
-        F = c.eta_thrust * mdot_total * ve_eff + (pe_eff - c.p_a) * A_eff
-        return dict(mdot=mdot_total,
-                    mdot_total=mdot_total,
-                    mdot_gas=mdot_gas,
-                    mdot_condensed=mdot_cond,
-                    mdot_total_reference=mdot_ref,
-                    gas_mass_fraction=Yg,
-                    condensed_mass_fraction=Yc,
-                    F=F, Me=Me, pe=pe_eff, ve=ve_eff,
-                    regime=regime, A_eff=A_eff)
-
-    # ---- subsonic (exit pressure equals ambient); continuous with the above ----
-    Me = math.sqrt(2.0 / (g - 1.0) * ((p0 / c.p_a) ** ((g - 1.0) / g) - 1.0))
-    mdot_ref = c.Cd * Ae * p0 * sq * Me \
-        * (1.0 + 0.5 * (g - 1.0) * Me * Me) ** (-(g + 1.0) / (2.0 * (g - 1.0)))
-    Te = T0 / (1.0 + 0.5 * (g - 1.0) * Me * Me)
-    ve = Me * math.sqrt(g * R * Te)
-    mdot_total, mdot_gas, mdot_cond = split_model.split(mdot_ref, Yg)
-    F = c.eta_thrust * mdot_total * ve
-    return dict(mdot=mdot_total,
-                mdot_total=mdot_total,
-                mdot_gas=mdot_gas,
-                mdot_condensed=mdot_cond,
-                mdot_total_reference=mdot_ref,
-                gas_mass_fraction=Yg,
-                condensed_mass_fraction=Yc,
-                F=F, Me=Me, pe=c.p_a, ve=ve,
-                regime="subsonic", A_eff=Ae)
+# moved to src/gribs/nozzle.py (A-6 unit 4); re-exported above. The entry reads nozzle_state and
+# choke_limit_pressure as gribs.nozzle.<name> (T4).
 
 
 # ==============================================================================
 # 6. QUASI-STEADY EQUILIBRIUM PRESSURE (diagnostic only)
 # ==============================================================================
-def equilibrium_pressure(Ab: float, Ri: float, At: float, Ae: float,
-                         c: Config) -> Optional[float]:
-    """Lowest pressure satisfying mdot_gen_total(p) = mdot_out_total(p).
-
-    Both sides use the TOTAL product mass basis, consistent with the pressure
-    ODE; None if no crossing is found.  Diagnostic only.
-    """
-    if not np.isfinite(Ab) or Ab <= 0.0:
-        return None
-
-    def bal(p):
-        try:
-            v = (c.rho_p * burn_rate(p, c, Ab, Ri) * Ab
-                 - nozzle_state(p, At, Ae, c)["mdot_total"])
-            return float(v) if np.isfinite(v) else np.nan
-        except (ValueError, OverflowError, FloatingPointError, GribsError):
-            return np.nan
-
-    grid = np.geomspace(c.p_a * (1.0 + 1e-9), 1.0e11, 140)
-    vals = np.array([bal(p) for p in grid])
-    for p1, p2, f1, f2 in zip(grid[:-1], grid[1:], vals[:-1], vals[1:]):
-        if not (np.isfinite(f1) and np.isfinite(f2)):
-            continue
-        if f1 == 0.0:
-            return float(p1)
-        if f1 * f2 < 0.0:
-            return float(brentq(bal, p1, p2, xtol=1.0, rtol=1e-12))
-    return None
+# moved to src/gribs/chamber/equilibrium.py (A-6 unit 4); re-exported above. The entry reads it as
+# gribs.chamber.equilibrium.equilibrium_pressure (T4).
 
 
 # ==============================================================================
@@ -669,7 +443,7 @@ def make_rhs(c: Config, Ae: float, burning: bool) -> Callable:
 
         Ri, Lp, Ab, Vg = geometry(x, c)
         if burning and Ab > 0.0:
-            r = burn_rate(p0, c, Ab, Ri)
+            r = gribs.propellant.burning.burn_rate(p0, c, Ab, Ri)
         else:
             r, Ab = 0.0, 0.0
         # TOTAL generated product mass flow (gas + condensed) [kg/s]: every
@@ -677,7 +451,7 @@ def make_rhs(c: Config, Ae: float, burning: bool) -> Callable:
         m_gen_total = c.rho_p * r * Ab + igniter_mdot(t, c)
 
         # TOTAL nozzle outflow (gas + condensed), consistent mass basis.
-        nz = nozzle_state(p0, At, Ae, c)
+        nz = gribs.nozzle.nozzle_state(p0, At, Ae, c)
         psi, dpsi = gribs.thermo.psi_and_deriv(p0, c)
         denom = Vg * (1.0 - p0 * dpsi / psi)
         if denom <= 0.0:
@@ -849,7 +623,7 @@ def run_model(c: Config) -> dict:
     Ae = c.eps_nozzle * At0                      # geometric exit area, fixed
     xw = web_thickness(c)
 
-    init_regime = nozzle_state(c.p0_init, At0, Ae, c)["regime"]
+    init_regime = gribs.nozzle.nozzle_state(c.p0_init, At0, Ae, c)["regime"]
     if c.unchoked_policy == "stop" and init_regime != "choked":
         raise ValueError("Initial state is not choked: policy 'stop' has "
                          "nothing to integrate.")
@@ -1026,9 +800,9 @@ def sample(res: dict, c: Config) -> dict:
             R, T0, g = gribs.thermo.gas_props(p0, c)
             Yg, Yc = gribs.thermo.phase_fractions(p0, c)
             psi, _ = gribs.thermo.psi_and_deriv(p0, c)
-            nz = nozzle_state(p0, At, Ae, c)
+            nz = gribs.nozzle.nozzle_state(p0, At, Ae, c)
             if phase == "burn":
-                r = burn_rate(p0, c, Ab, Ri)
+                r = gribs.propellant.burning.burn_rate(p0, c, Ab, Ri)
             else:
                 r, Ab = 0.0, 0.0
             # Match make_rhs(): igniter injection is part of the total
@@ -1078,7 +852,7 @@ def sample(res: dict, c: Config) -> dict:
         if burn_idx.size:
             pick = burn_idx[np.unique(np.linspace(0, burn_idx.size - 1,
                                                   min(200, burn_idx.size)).astype(int))]
-            vals = np.array([equilibrium_pressure(out["Ab"][i], out["Ri"][i],
+            vals = np.array([gribs.chamber.equilibrium.equilibrium_pressure(out["Ab"][i], out["Ri"][i],
                                                   out["At"][i], Ae, c) or np.nan
                              for i in pick])
             ok = np.isfinite(vals)
@@ -1903,11 +1677,11 @@ def summarize(res: dict, h: dict, c: Config,
     Yg_h = np.asarray(h["Y_gas"], dtype=float)
     Yc_h = np.asarray(h["Y_condensed"], dtype=float)
 
-    p_star = choke_limit_pressure(c, At0, Ae)
+    p_star = gribs.nozzle.choke_limit_pressure(c, At0, Ae)
     transition = nozzle_transition_diagnostics(h, c, Ae)
 
     mg0 = c.rho_p * base_burn_rate(c.p0_init, c) * geometry(0.0, c)[2]
-    mo0 = nozzle_state(c.p0_init, At0, Ae, c)["mdot_total"]
+    mo0 = gribs.nozzle.nozzle_state(c.p0_init, At0, Ae, c)["mdot_total"]
 
     if backend is None:
         backend = gribs.thermo.thermochemistry()
@@ -2648,14 +2422,14 @@ def self_tests(c: Config, verbose=True) -> bool:
 
     At0 = math.pi * cc.R_t0 ** 2
     Ae = eps * At0
-    pstar = choke_limit_pressure(cc, At0, Ae)
+    pstar = gribs.nozzle.choke_limit_pressure(cc, At0, Ae)
 
     if pstar is None:
         chk("nozzle choking-boundary continuity", False,
             "choking-limit pressure could not be determined")
     else:
-        lo = nozzle_state(pstar * (1.0 - 1e-9), At0, Ae, cc)
-        hi = nozzle_state(pstar * (1.0 + 1e-9), At0, Ae, cc)
+        lo = gribs.nozzle.nozzle_state(pstar * (1.0 - 1e-9), At0, Ae, cc)
+        hi = gribs.nozzle.nozzle_state(pstar * (1.0 + 1e-9), At0, Ae, cc)
         worst_mdot = abs(lo["mdot"] / hi["mdot"] - 1.0)
         worst_thrust = abs((lo["F"] + 1e-12) / (hi["F"] + 1e-12) - 1.0)
 
@@ -2685,7 +2459,7 @@ def self_tests(c: Config, verbose=True) -> bool:
         At0 = math.pi * cc5.R_t0 ** 2
         e = 0.0
         for p in np.geomspace(cc5.p_a / 0.5, 50e6, 20):
-            nz = nozzle_state(p, At0, At0, cc5)
+            nz = gribs.nozzle.nozzle_state(p, At0, At0, cc5)
             _, _, g = gribs.thermo.gas_props(p, cc5)
             F_ref = At0 * (critical_ratio(g) * p * (g + 1.0) - cc5.p_a)
             e = max(e, abs(nz["F"] / F_ref - 1.0))
@@ -2852,7 +2626,7 @@ def self_tests(c: Config, verbose=True) -> bool:
                 e_dec = 0.0
                 c_hom_c = Config(**{**asdict(c), "two_phase_mode": TWO_PHASE_HOMOGENEOUS})
                 for p in np.geomspace(c.p_a * 1.05, c.p_fit_max, 30):
-                    nz = nozzle_state(float(p), At0, Ae, c_hom_c)
+                    nz = gribs.nozzle.nozzle_state(float(p), At0, Ae, c_hom_c)
                     if nz["mdot_total"] <= 0.0:
                         continue
                     Yg_p, Yc_p = gribs.thermo.phase_fractions(float(p), c_hom_c)

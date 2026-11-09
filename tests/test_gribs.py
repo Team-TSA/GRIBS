@@ -594,15 +594,13 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown(monkeypatch):
     }
 
     original_phase_grid = gribs._phase_grid
-    original_nozzle_state = gribs.nozzle_state
-    original_equilibrium_pressure = gribs.equilibrium_pressure
 
     try:
         gribs._phase_grid = lambda sol, n_lin, log_head: sol.t
         monkeypatch.setattr("gribs.thermo.gas_props", lambda p, config: (300.0, 1000.0, 1.2))
         monkeypatch.setattr("gribs.thermo.phase_fractions", lambda p, config: (1.0, 0.0))
         monkeypatch.setattr("gribs.thermo.psi_and_deriv", lambda p, config: (300000.0, 0.0))
-        gribs.nozzle_state = lambda p, At, Ae, config: {
+        monkeypatch.setattr("gribs.nozzle.nozzle_state", lambda p, At, Ae, config: {
             "mdot_total": 0.0,
             "mdot_gas": 0.0,
             "mdot_condensed": 0.0,
@@ -611,15 +609,13 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown(monkeypatch):
             "pe": config.p_a,
             "ve": 0.0,
             "regime": "subsonic",
-        }
+        })
         monkeypatch.setattr("gribs.thermo.is_extrapolated", lambda p, config: False)
-        gribs.equilibrium_pressure = lambda Ab, Ri, At, Ae, config: None
+        monkeypatch.setattr("gribs.chamber.equilibrium.equilibrium_pressure", lambda Ab, Ri, At, Ae, config: None)
 
         history = gribs.sample(result, c)
     finally:
         gribs._phase_grid = original_phase_grid
-        gribs.nozzle_state = original_nozzle_state
-        gribs.equilibrium_pressure = original_equilibrium_pressure
 
     blowdown = history["phase"] == "blowdown"
     assert gribs.np.any(blowdown)
@@ -670,8 +666,7 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
 
     monkeypatch.setattr("gribs.thermo.thermochemistry", lambda: Backend())
     monkeypatch.setattr(
-        gribs,
-        "choke_limit_pressure",
+        "gribs.nozzle.choke_limit_pressure",
         lambda config, At0, Ae: None,
     )
     monkeypatch.setattr(
@@ -690,8 +685,7 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        gribs,
-        "nozzle_state",
+        "gribs.nozzle.nozzle_state",
         lambda p, At, Ae, config: {
             "mdot_total": 1.0,
         },
@@ -938,8 +932,7 @@ def test_rhs_exposes_integrated_igniter_mass_as_appended_state(monkeypatch):
     Ae = c.eps_nozzle * gribs.math.pi * c.R_t0**2
 
     monkeypatch.setattr(
-        gribs,
-        "nozzle_state",
+        "gribs.nozzle.nozzle_state",
         lambda p0, At, exit_area, config: {
             "mdot_total": 0.0,
             "F": 0.0,
@@ -950,8 +943,7 @@ def test_rhs_exposes_integrated_igniter_mass_as_appended_state(monkeypatch):
         lambda p0, config: (1.0, 0.0),
     )
     monkeypatch.setattr(
-        gribs,
-        "burn_rate",
+        "gribs.propellant.burning.burn_rate",
         lambda p0, config, Ab, Ri: 0.0,
     )
 
@@ -2560,7 +2552,7 @@ def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, sup
     if table is not None:
         backend.table = table
     monkeypatch.setattr("gribs.thermo.thermochemistry", lambda: backend)
-    monkeypatch.setattr(gribs, "choke_limit_pressure", lambda config, At0, Ae: None)
+    monkeypatch.setattr("gribs.nozzle.choke_limit_pressure", lambda config, At0, Ae: None)
     monkeypatch.setattr(
         gribs, "nozzle_transition_diagnostics",
         lambda history, config, Ae: {
@@ -2569,7 +2561,7 @@ def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, sup
             "impulse_Ns": 0.0, "impulse_fraction": 0.0,
         },
     )
-    monkeypatch.setattr(gribs, "nozzle_state", lambda p, At, Ae, config: {"mdot_total": 1.0})
+    monkeypatch.setattr("gribs.nozzle.nozzle_state", lambda p, At, Ae, config: {"mdot_total": 1.0})
     monkeypatch.setattr(
         gribs, "mass_energy_ledger",
         lambda res, h, config: {"schema_version": "a4-ledger-1", "mass": {"passed": True},

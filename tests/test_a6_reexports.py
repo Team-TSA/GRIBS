@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config", "gribs.thermo")
+MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config", "gribs.thermo",
+           "gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium")
 
 
 def _entry_path():
@@ -106,6 +107,19 @@ def test_entry_and_package_share_the_thermochemistry_objects_and_state():
     marker = object()
     entry._set_thermo(marker)  # restored by the conftest state guard
     assert thermo._thermo_state() is marker and entry.thermochemistry() is marker
+
+
+@pytest.mark.fast
+def test_entry_and_package_share_the_burn_rate_nozzle_and_equilibrium_objects():
+    """Unit 4: the entry re-exports the objects of gribs.propellant.burning, gribs.nozzle and gribs.chamber.equilibrium."""
+    entry = _load_entry()
+    for module in ("gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium"):
+        mod = importlib.import_module(module)
+        names = sorted(_top_level_names(module))
+        assert names, module
+        for name in names:
+            assert getattr(entry, name) is getattr(mod, name), (module, name)
+    assert entry.NozzleTwoPhaseModel.__module__ == "gribs.nozzle"
 
 
 @pytest.mark.fast
