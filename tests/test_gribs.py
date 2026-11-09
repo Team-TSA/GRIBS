@@ -1282,8 +1282,7 @@ def test_main_writes_diagnostics_before_ledger_exit(
     )
     monkeypatch.setattr("gribs.plotting.make_figure", lambda *_args: None)
     monkeypatch.setattr(
-        gribs,
-        "self_tests_post_run",
+        "gribs.selftest.self_tests_post_run",
         lambda *_args, **_kwargs: None,
     )
 

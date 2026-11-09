@@ -13,7 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config", "gribs.thermo",
            "gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium", "gribs.simulation.integrator",
-           "gribs.simulation.postprocess", "gribs.plotting", "gribs.reporting")
+           "gribs.simulation.postprocess", "gribs.plotting", "gribs.reporting", "gribs.selftest")
 
 
 def _entry_path():
@@ -187,6 +187,24 @@ def test_plotting_sets_the_agg_backend_when_imported_alone():
     out = subprocess.run([sys.executable, "-c", code, str(ROOT / "src")], capture_output=True, text=True, env=env,
                          check=True).stdout.split()
     assert out[-1] == "agg", out
+
+
+@pytest.mark.fast
+def test_entry_and_package_share_the_selftest_objects():
+    """Unit 8: the entry re-exports the objects of gribs.selftest. The self-tests read the non-moved names of their
+    owners (from-imported) and the moved classes of gribs.thermo as gribs.thermo.<name>, so each exists once."""
+    entry = _load_entry(); selftest = importlib.import_module("gribs.selftest")
+    thermo = importlib.import_module("gribs.thermo"); integrator = importlib.import_module("gribs.simulation.integrator")
+    postprocess = importlib.import_module("gribs.simulation.postprocess")
+    names = sorted(_top_level_names("gribs.selftest"))
+    assert {"self_tests", "self_tests_post_run", "_SyntheticTestBackend"} <= set(names), names
+    for name in names:
+        assert getattr(entry, name) is getattr(selftest, name), name
+    assert entry.self_tests_post_run.__module__ == "gribs.selftest"
+    assert selftest._SyntheticTestBackend.__bases__ == (thermo.PressureTableBackend,)
+    for name, owner in (("IP", integrator), ("make_rhs", integrator), ("theta_and_deriv", thermo),
+                        ("post_run_consistency_report", postprocess)):
+        assert getattr(selftest, name) is getattr(owner, name), name
 
 
 @pytest.mark.fast

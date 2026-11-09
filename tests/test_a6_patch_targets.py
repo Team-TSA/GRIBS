@@ -56,6 +56,8 @@ MOVED = {
     "make_figure": ("gribs.plotting", "function_or_global", 1),
     "summary_text": ("gribs.reporting", "function_or_global", 1),
     "write_csv": ("gribs.reporting", "function_or_global", 1),
+    # unit 8
+    "self_tests_post_run": ("gribs.selftest", "function_or_global", 1),
 }
 
 # names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111)
@@ -64,7 +66,6 @@ ALLOWLIST = {
     "_print_backend_banner": 3,
     "environment_info": 1,
     "load_json_configuration": 2,
-    "self_tests_post_run": 1,
 }
 
 
@@ -87,6 +88,7 @@ MODULE_UNIT = {
     "gribs.simulation.postprocess": 6,
     "gribs.plotting": 7,
     "gribs.reporting": 7,
+    "gribs.selftest": 8,
 }
 
 
