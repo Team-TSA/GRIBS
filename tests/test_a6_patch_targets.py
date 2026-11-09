@@ -24,7 +24,7 @@ MOVED = {
     "_cache_rename_noreplace": ("gribs.thermo", "function_or_global", 2),  # _cache_v7_child.py, test_cache_atomic_v7.py
     "_cache_write_checkpoint": ("gribs.thermo", "function_or_global", 15),  # the two children (2), test_cache_atomic_v7.py (13)
     "gas_props": ("gribs.thermo", "function_or_global", 1),
-    "initialize_thermochemistry": ("gribs.thermo", "function_or_global", 5),
+    "initialize_thermochemistry": ("gribs.thermo", "function_or_global", 6),  # unit 10: +1 test_a6_public_api.py
     "is_extrapolated": ("gribs.thermo", "function_or_global", 1),
     "phase_fractions": ("gribs.thermo", "function_or_global", 1),
     "psi_and_deriv": ("gribs.thermo", "function_or_global", 2),
@@ -43,7 +43,7 @@ MOVED = {
     "INTEGRATION_MAX_RHS_CALLS": ("gribs.simulation.integrator", "function_or_global", 1),
     "INTEGRATION_MAX_TABLE_RESTARTS": ("gribs.simulation.integrator", "function_or_global", 1),
     "INTEGRATION_MAX_WALL_S": ("gribs.simulation.integrator", "function_or_global", 1),
-    "run_model": ("gribs.simulation.integrator", "function_or_global", 3),
+    "run_model": ("gribs.simulation.integrator", "function_or_global", 4),  # unit 10: +1 test_a6_public_api.py
     # unit 6 (9 sites before the move; the assign / restore pair of the _phase_grid try/finally test of test_gribs.py
     # became one monkeypatch, so 8)
     "_phase_grid": ("gribs.simulation.postprocess", "function_or_global", 1),
@@ -71,9 +71,12 @@ ALLOWLIST = {}
 
 
 # package module -> unit that introduced it (ADR_A6_PACKAGE_SPLIT; report 112 order). A module may import only
-# gribs modules of the same or an earlier unit. Every module under src/gribs must be listed.
+# gribs modules of the same or an earlier unit. Every module under src/gribs must be listed. The values are layers
+# (report 114 addendum): gribs._version is layer 1 (gribs.constants imports it); the package root "gribs" is
+# layer 10 since unit 10 (public API), so a module that imports a public name through `from gribs import X` fails.
 MODULE_UNIT = {
-    "gribs": 0,
+    "gribs": 10,
+    "gribs._version": 1,
     "gribs.constants": 1,
     "gribs.errors": 1,
     "gribs.util": 1,
@@ -92,6 +95,8 @@ MODULE_UNIT = {
     "gribs.selftest": 8,
     "gribs.config.loader": 9,
     "gribs.cli": 9,
+    "gribs.api": 10,
+    "gribs.simulation.result": 10,
 }
 
 

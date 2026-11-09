@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
+# the single definition of PROGRAM_VERSION is gribs/_version.py (numpy-free; A-6 unit 10, U-39 (a))
+from gribs._version import PROGRAM_VERSION as PROGRAM_VERSION
+
 PROGRAM_NAME = "GRIBS"
-PROGRAM_VERSION = "0.6.2-alpha"
+# PROGRAM_VERSION: imported above from gribs._version
 SCHEMA_VERSION = "0.5.0-alpha"
 #: Schema string of the pre-migration configuration; used only by the explicit
 #: v0.3 -> v0.4 migration helper (never for normal operation).

@@ -1,6 +1,7 @@
 """The only version written to any output is PROGRAM_VERSION (ADR_A6_PACKAGE_SPLIT). The pyproject version is a
 placeholder and importlib.metadata.version("gribs") is never used."""
 import ast
+import importlib
 import json
 import subprocess
 import sys
@@ -20,7 +21,7 @@ def _entry():
 
 
 def _program_version():
-    tree = ast.parse((ROOT / "src" / "gribs" / "constants.py").read_text())
+    tree = ast.parse((ROOT / "src" / "gribs" / "_version.py").read_text())  # single definition (unit 10)
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "PROGRAM_VERSION" for t in node.targets):
             return node.value.value
@@ -43,6 +44,19 @@ def test_no_metadata_version_of_gribs_in_sources():
                 if name in ("version", "metadata", "distribution"):
                     problems.append(f"{path}:{node.lineno}")
     assert not problems, problems
+
+
+@pytest.mark.fast
+def test_package_version_is_program_version_not_pyproject_version():
+    """gribs.__version__ (U-39 (a)) is PROGRAM_VERSION, which is assigned only in gribs/_version.py."""
+    gribs = importlib.import_module("gribs")
+    assert gribs.__version__ == _program_version() != _pyproject_version()
+    assigned = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "src").rglob("*.py")
+                      for node in ast.walk(ast.parse(p.read_text()))
+                      if isinstance(node, (ast.Assign, ast.AnnAssign))
+                      and any(isinstance(t, ast.Name) and t.id == "PROGRAM_VERSION"
+                              for t in (node.targets if isinstance(node, ast.Assign) else [node.target])))
+    assert assigned == ["src/gribs/_version.py"], assigned
 
 
 @pytest.mark.integration
