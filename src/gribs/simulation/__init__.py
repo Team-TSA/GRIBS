@@ -1,1 +1,1 @@
-"""Simulation (A-6 unit 5): the ODE integration; post-processing follows in unit 6."""
+"""Simulation (A-6 units 5-6): the ODE integration (integrator) and the post-processing (postprocess)."""

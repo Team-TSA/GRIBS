@@ -44,22 +44,24 @@ MOVED = {
     "INTEGRATION_MAX_TABLE_RESTARTS": ("gribs.simulation.integrator", "function_or_global", 1),
     "INTEGRATION_MAX_WALL_S": ("gribs.simulation.integrator", "function_or_global", 1),
     "run_model": ("gribs.simulation.integrator", "function_or_global", 3),
+    # unit 6 (9 sites before the move; the assign / restore pair of the _phase_grid try/finally test of test_gribs.py
+    # became one monkeypatch, so 8)
+    "_phase_grid": ("gribs.simulation.postprocess", "function_or_global", 1),
+    "mass_energy_ledger": ("gribs.simulation.postprocess", "function_or_global", 2),
+    "model_applicability_error": ("gribs.simulation.postprocess", "function_or_global", 1),
+    "nozzle_transition_diagnostics": ("gribs.simulation.postprocess", "function_or_global", 2),
+    "sample": ("gribs.simulation.postprocess", "function_or_global", 1),
+    "summarize": ("gribs.simulation.postprocess", "function_or_global", 1),
 }
 
 # names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111)
 ALLOWLIST = {
     "_cea_theoretical_diagnostics": 1,
-    "_phase_grid": 2,
     "_print_backend_banner": 3,
     "environment_info": 1,
     "load_json_configuration": 2,
     "make_figure": 1,
-    "mass_energy_ledger": 2,
-    "model_applicability_error": 1,
-    "nozzle_transition_diagnostics": 2,
-    "sample": 1,
     "self_tests_post_run": 1,
-    "summarize": 1,
     "summary_text": 1,
     "write_csv": 1,
 }
@@ -81,6 +83,7 @@ MODULE_UNIT = {
     "gribs.chamber.equilibrium": 4,
     "gribs.simulation": 5,
     "gribs.simulation.integrator": 5,
+    "gribs.simulation.postprocess": 6,
 }
 
 

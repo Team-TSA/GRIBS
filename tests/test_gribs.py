@@ -593,29 +593,24 @@ def test_sampled_generation_rate_includes_igniter_during_blowdown(monkeypatch):
         "sol_blow": solution,
     }
 
-    original_phase_grid = gribs._phase_grid
+    monkeypatch.setattr("gribs.simulation.postprocess._phase_grid", lambda sol, n_lin, log_head: sol.t)
+    monkeypatch.setattr("gribs.thermo.gas_props", lambda p, config: (300.0, 1000.0, 1.2))
+    monkeypatch.setattr("gribs.thermo.phase_fractions", lambda p, config: (1.0, 0.0))
+    monkeypatch.setattr("gribs.thermo.psi_and_deriv", lambda p, config: (300000.0, 0.0))
+    monkeypatch.setattr("gribs.nozzle.nozzle_state", lambda p, At, Ae, config: {
+        "mdot_total": 0.0,
+        "mdot_gas": 0.0,
+        "mdot_condensed": 0.0,
+        "F": 0.0,
+        "Me": 0.0,
+        "pe": config.p_a,
+        "ve": 0.0,
+        "regime": "subsonic",
+    })
+    monkeypatch.setattr("gribs.thermo.is_extrapolated", lambda p, config: False)
+    monkeypatch.setattr("gribs.chamber.equilibrium.equilibrium_pressure", lambda Ab, Ri, At, Ae, config: None)
 
-    try:
-        gribs._phase_grid = lambda sol, n_lin, log_head: sol.t
-        monkeypatch.setattr("gribs.thermo.gas_props", lambda p, config: (300.0, 1000.0, 1.2))
-        monkeypatch.setattr("gribs.thermo.phase_fractions", lambda p, config: (1.0, 0.0))
-        monkeypatch.setattr("gribs.thermo.psi_and_deriv", lambda p, config: (300000.0, 0.0))
-        monkeypatch.setattr("gribs.nozzle.nozzle_state", lambda p, At, Ae, config: {
-            "mdot_total": 0.0,
-            "mdot_gas": 0.0,
-            "mdot_condensed": 0.0,
-            "F": 0.0,
-            "Me": 0.0,
-            "pe": config.p_a,
-            "ve": 0.0,
-            "regime": "subsonic",
-        })
-        monkeypatch.setattr("gribs.thermo.is_extrapolated", lambda p, config: False)
-        monkeypatch.setattr("gribs.chamber.equilibrium.equilibrium_pressure", lambda Ab, Ri, At, Ae, config: None)
-
-        history = gribs.sample(result, c)
-    finally:
-        gribs._phase_grid = original_phase_grid
+    history = gribs.sample(result, c)
 
     blowdown = history["phase"] == "blowdown"
     assert gribs.np.any(blowdown)
@@ -638,8 +633,7 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
     }
 
     monkeypatch.setattr(
-        gribs,
-        "mass_energy_ledger",
+        "gribs.simulation.postprocess.mass_energy_ledger",
         lambda res, h, c: sentinel_ledger,
     )
 
@@ -670,8 +664,7 @@ def test_summarize_preserves_legacy_metrics_and_adds_ledger(monkeypatch):
         lambda config, At0, Ae: None,
     )
     monkeypatch.setattr(
-        gribs,
-        "nozzle_transition_diagnostics",
+        "gribs.simulation.postprocess.nozzle_transition_diagnostics",
         lambda history, config, Ae: {
             "policy": "jump",
             "applicable": False,
@@ -1262,12 +1255,11 @@ def test_main_writes_diagnostics_before_ledger_exit(
         "gribs.thermo.initialize_thermochemistry", lambda *_args: backend
     )
     monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
-    monkeypatch.setattr(gribs, "model_applicability_error", lambda *_args: None)
+    monkeypatch.setattr("gribs.simulation.postprocess.model_applicability_error", lambda *_args: None)
     monkeypatch.setattr("gribs.simulation.integrator.run_model", lambda _config: object())
-    monkeypatch.setattr(gribs, "sample", lambda *_args: {})
+    monkeypatch.setattr("gribs.simulation.postprocess.sample", lambda *_args: {})
     monkeypatch.setattr(
-        gribs,
-        "summarize",
+        "gribs.simulation.postprocess.summarize",
         lambda *_args, **_kwargs: summary,
     )
     monkeypatch.setattr(gribs, "environment_info", lambda: {})
@@ -2553,7 +2545,7 @@ def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, sup
     monkeypatch.setattr("gribs.thermo.thermochemistry", lambda: backend)
     monkeypatch.setattr("gribs.nozzle.choke_limit_pressure", lambda config, At0, Ae: None)
     monkeypatch.setattr(
-        gribs, "nozzle_transition_diagnostics",
+        "gribs.simulation.postprocess.nozzle_transition_diagnostics",
         lambda history, config, Ae: {
             "policy": "jump", "applicable": False, "detected": False, "warning_code": None,
             "interval_count": 0, "duration_s": 0.0, "duration_fraction": 0.0,
@@ -2562,7 +2554,7 @@ def _direct_summarize(monkeypatch, property_validation, two_phase_mode=None, sup
     )
     monkeypatch.setattr("gribs.nozzle.nozzle_state", lambda p, At, Ae, config: {"mdot_total": 1.0})
     monkeypatch.setattr(
-        gribs, "mass_energy_ledger",
+        "gribs.simulation.postprocess.mass_energy_ledger",
         lambda res, h, config: {"schema_version": "a4-ledger-1", "mass": {"passed": True},
                                 "energy": {"available": False, "closure_residual_available": False},
                                 "passed": True},

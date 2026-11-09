@@ -10,7 +10,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config", "gribs.thermo",
-           "gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium", "gribs.simulation.integrator")
+           "gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium", "gribs.simulation.integrator",
+           "gribs.simulation.postprocess")
 
 
 def _entry_path():
@@ -140,6 +141,22 @@ def test_entry_and_package_share_the_integrator_objects():
     assert (entry.IP, entry.IX, entry.IRT, entry.IMO, entry.IIMP, entry.IMG, entry.IMIGN) == tuple(range(7))
     assert entry.igniter_mdot is integrator.igniter_mdot
     assert entry.IntegrationBudgetError.__module__ == "gribs.simulation.integrator"
+
+
+@pytest.mark.fast
+def test_entry_and_package_share_the_postprocess_objects():
+    """Unit 6: the entry re-exports the objects of gribs.simulation.postprocess; the post-processing reads the state
+    indices and igniter_mdot of gribs.simulation.integrator (U-57, option A), so there is one definition of each."""
+    entry = _load_entry(); postprocess = importlib.import_module("gribs.simulation.postprocess")
+    integrator = importlib.import_module("gribs.simulation.integrator")
+    names = sorted(_top_level_names("gribs.simulation.postprocess"))
+    assert {"_phase_grid", "sample", "summarize", "mass_energy_ledger", "model_applicability_error",
+            "nozzle_transition_diagnostics"} <= set(names), names
+    for name in names:
+        assert getattr(entry, name) is getattr(postprocess, name), name
+    for name in ("IP", "IX", "IRT", "IMO", "IIMP", "IMG", "IMIGN", "igniter_mdot"):
+        assert getattr(postprocess, name) is getattr(integrator, name), name
+    assert entry.PhaseFractionValidationError.__module__ == "gribs.simulation.postprocess"
 
 
 @pytest.mark.fast
