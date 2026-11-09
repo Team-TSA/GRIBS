@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ("gribs.constants", "gribs.errors", "gribs.util", "gribs.config", "gribs.thermo",
-           "gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium")
+           "gribs.propellant.burning", "gribs.nozzle", "gribs.chamber.equilibrium", "gribs.simulation.integrator")
 
 
 def _entry_path():
@@ -28,8 +28,9 @@ def _top_level_names(module):
             out.add(node.name)
         elif isinstance(node, (ast.Assign, ast.AnnAssign)):
             for t in (node.targets if isinstance(node, ast.Assign) else [node.target]):
-                if isinstance(t, ast.Name):
-                    out.add(t.id)
+                for x in (t.elts if isinstance(t, ast.Tuple) else [t]):  # a tuple target binds each element
+                    if isinstance(x, ast.Name):
+                        out.add(x.id)
     return out
 
 
@@ -120,6 +121,25 @@ def test_entry_and_package_share_the_burn_rate_nozzle_and_equilibrium_objects():
         for name in names:
             assert getattr(entry, name) is getattr(mod, name), (module, name)
     assert entry.NozzleTwoPhaseModel.__module__ == "gribs.nozzle"
+
+
+@pytest.mark.fast
+def test_top_level_names_count_tuple_targets():
+    """The state indices are bound by one tuple assignment; the completeness check must see each of them."""
+    names = _top_level_names("gribs.simulation.integrator")
+    assert {"IP", "IX", "IRT", "IMO", "IIMP", "IMG", "IMIGN"} <= names, sorted(names)
+
+
+@pytest.mark.fast
+def test_entry_and_package_share_the_integrator_objects():
+    """Unit 5: the entry re-exports the objects of gribs.simulation.integrator. sample() and the self-tests in the entry
+    read the state indices and igniter_mdot by their bare names (option A of report 123)."""
+    entry = _load_entry(); integrator = importlib.import_module("gribs.simulation.integrator")
+    for name in sorted(_top_level_names("gribs.simulation.integrator")):
+        assert getattr(entry, name) is getattr(integrator, name), name
+    assert (entry.IP, entry.IX, entry.IRT, entry.IMO, entry.IIMP, entry.IMG, entry.IMIGN) == tuple(range(7))
+    assert entry.igniter_mdot is integrator.igniter_mdot
+    assert entry.IntegrationBudgetError.__module__ == "gribs.simulation.integrator"
 
 
 @pytest.mark.fast

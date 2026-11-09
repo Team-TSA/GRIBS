@@ -39,13 +39,15 @@ MOVED = {
     "equilibrium_pressure": ("gribs.chamber.equilibrium", "function_or_global", 1),
     "nozzle_state": ("gribs.nozzle", "function_or_global", 5),  # test_gribs.py (4), cross-module test (1)
     "NozzleTwoPhaseModel": ("gribs.nozzle", "class", 2),
+    # unit 5 (6 sites): test_integration_boundary_restart.py (the three limits), test_gribs.py (run_model)
+    "INTEGRATION_MAX_RHS_CALLS": ("gribs.simulation.integrator", "function_or_global", 1),
+    "INTEGRATION_MAX_TABLE_RESTARTS": ("gribs.simulation.integrator", "function_or_global", 1),
+    "INTEGRATION_MAX_WALL_S": ("gribs.simulation.integrator", "function_or_global", 1),
+    "run_model": ("gribs.simulation.integrator", "function_or_global", 3),
 }
 
 # names not moved yet -> exact number of patch / assignment sites in tests (AST census, report 110 / 111)
 ALLOWLIST = {
-    "INTEGRATION_MAX_RHS_CALLS": 1,
-    "INTEGRATION_MAX_TABLE_RESTARTS": 1,
-    "INTEGRATION_MAX_WALL_S": 1,
     "_cea_theoretical_diagnostics": 1,
     "_phase_grid": 2,
     "_print_backend_banner": 3,
@@ -55,7 +57,6 @@ ALLOWLIST = {
     "mass_energy_ledger": 2,
     "model_applicability_error": 1,
     "nozzle_transition_diagnostics": 2,
-    "run_model": 3,
     "sample": 1,
     "self_tests_post_run": 1,
     "summarize": 1,
@@ -78,6 +79,8 @@ MODULE_UNIT = {
     "gribs.nozzle": 4,
     "gribs.chamber": 4,
     "gribs.chamber.equilibrium": 4,
+    "gribs.simulation": 5,
+    "gribs.simulation.integrator": 5,
 }
 
 

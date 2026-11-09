@@ -1263,7 +1263,7 @@ def test_main_writes_diagnostics_before_ledger_exit(
     )
     monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
     monkeypatch.setattr(gribs, "model_applicability_error", lambda *_args: None)
-    monkeypatch.setattr(gribs, "run_model", lambda _config: object())
+    monkeypatch.setattr("gribs.simulation.integrator.run_model", lambda _config: object())
     monkeypatch.setattr(gribs, "sample", lambda *_args: {})
     monkeypatch.setattr(
         gribs,
@@ -1427,8 +1427,7 @@ def test_main_fails_fast_for_out_of_scope_two_phase_table(
     )
     monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
     monkeypatch.setattr(
-        gribs,
-        "run_model",
+        "gribs.simulation.integrator.run_model",
         lambda *_args: pytest.fail("out-of-scope run reached the solver"),
     )
 
@@ -2522,7 +2521,7 @@ def test_main_reports_invalid_phase_fraction_validation_before_the_solver(
     monkeypatch.setattr("gribs.thermo.initialize_thermochemistry", lambda _config, _cache_dir: backend)
     monkeypatch.setattr(gribs, "_print_backend_banner", lambda *_args: None)
     monkeypatch.setattr(
-        gribs, "run_model",
+        "gribs.simulation.integrator.run_model",
         lambda *_args: pytest.fail("run with unusable phase-fraction validation reached the solver"),
     )
 

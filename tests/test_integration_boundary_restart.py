@@ -25,6 +25,7 @@ spec = importlib.util.spec_from_file_location("gribs_boundary_restart", BODY)
 g = importlib.util.module_from_spec(spec)
 sys.modules["gribs_boundary_restart"] = g
 spec.loader.exec_module(g)
+import gribs.simulation.integrator as integrator  # noqa: E402 - importable once the entry has put src/ on sys.path
 
 PMIN, PMAX = 1.0e5, 8.0e6
 
@@ -99,21 +100,21 @@ def test_user_events_are_merged_and_terminal_events_stop():
 
 @pytest.mark.fast
 def test_rhs_budget_raises(monkeypatch):
-    monkeypatch.setattr(g, "INTEGRATION_MAX_RHS_CALLS", 50)
+    monkeypatch.setattr("gribs.simulation.integrator.INTEGRATION_MAX_RHS_CALLS", 50)
     with pytest.raises(g.IntegrationBudgetError, match="E_INTEGRATION_BUDGET_EXCEEDED: more than 50 right-hand-side"):
         solve(cfg())
 
 
 @pytest.mark.fast
 def test_wall_budget_raises(monkeypatch):
-    monkeypatch.setattr(g, "INTEGRATION_MAX_WALL_S", 0.0)
+    monkeypatch.setattr("gribs.simulation.integrator.INTEGRATION_MAX_WALL_S", 0.0)
     with pytest.raises(g.IntegrationBudgetError, match="E_INTEGRATION_BUDGET_EXCEEDED: wall time above 0 s"):
         solve(cfg(), t1=50.0, max_step=1e-3)          # > 1024 RHS calls before the first wall check
 
 
 @pytest.mark.fast
 def test_restart_budget_raises(monkeypatch):
-    monkeypatch.setattr(g, "INTEGRATION_MAX_TABLE_RESTARTS", 2)
+    monkeypatch.setattr("gribs.simulation.integrator.INTEGRATION_MAX_TABLE_RESTARTS", 2)
     with pytest.raises(g.IntegrationBudgetError, match="more than 2 solver restarts"):
         solve(cfg())
 
@@ -122,7 +123,9 @@ def test_restart_budget_raises(monkeypatch):
 def test_budget_error_is_runtime_error_for_cli_exit_4():
     assert issubclass(g.IntegrationBudgetError, RuntimeError)
     assert g.IntegrationBudgetError.code == "E_INTEGRATION_BUDGET_EXCEEDED"
-    assert (g.INTEGRATION_MAX_RHS_CALLS, g.INTEGRATION_MAX_WALL_S, g.INTEGRATION_MAX_TABLE_RESTARTS) == \
+    assert g.IntegrationBudgetError is integrator.IntegrationBudgetError  # one class, raised by the owner
+    assert (integrator.INTEGRATION_MAX_RHS_CALLS, integrator.INTEGRATION_MAX_WALL_S,
+            integrator.INTEGRATION_MAX_TABLE_RESTARTS) == \
         (2_000_000, 300.0, 10_000)
 
 
