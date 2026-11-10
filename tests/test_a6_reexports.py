@@ -142,8 +142,9 @@ def test_top_level_names_count_tuple_targets():
 
 @pytest.mark.fast
 def test_entry_and_package_share_the_integrator_objects():
-    """Unit 5: the entry re-exports the objects of gribs.simulation.integrator. sample() and the self-tests in the entry
-    read the state indices and igniter_mdot by their bare names (option A of report 123)."""
+    """Unit 5: the entry re-exports the objects of gribs.simulation.integrator. sample() (gribs.simulation.postprocess)
+    and the self-tests (gribs.selftest) import the state indices and igniter_mdot from gribs.simulation.integrator, so
+    the entry, the integrator and its readers share the same objects."""
     entry = _load_entry(); integrator = importlib.import_module("gribs.simulation.integrator")
     for name in sorted(_top_level_names("gribs.simulation.integrator")):
         assert getattr(entry, name) is getattr(integrator, name), name

@@ -4,6 +4,26 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+A-6 stage 1: the program code is split into a Python package and a Python interface is added. The program version stays `0.6.2-alpha`. G0 has not been decided for these changes.
+
+### Changed
+
+- The program code is moved from the single file `GRIBS_v0.6.2-alpha.py` into the package `gribs` under `src/gribs/` (22 modules). `GRIBS_v0.6.2-alpha.py` remains the program file: it adds `src/` to the import path and imports the moved names back, so existing callers of its names keep working. Command-line options, exit codes, outputs and numerical results are unchanged: after each step of the split, the golden cases g1–g8 gave byte-identical time histories, CEA caches and figures, and identical normalized summaries, compared with the v0.6.2-alpha G0 reproduction.
+- The program file now needs `src/gribs/` next to it; copying the program file alone no longer works.
+- New `pyproject.toml` (package `gribs`, placeholder version `0.7.0.dev0`, not used in any output); `pytest.ini` adds `src` to the import path.
+- `tools/a5_1_g4a_cea_comparison.py` records the identity of the executed code as the entry file hash combined with a digest of the package files (`body_composite_v1`), instead of the hash of the program file alone.
+
+### Added
+
+- Python interface: `gribs.run_simulation`, `gribs.Result`, `gribs.__version__` (README, "Python API", with its limits).
+- Tests: guard tests for the package split (patch targets, re-exports, module ownership, thermochemistry backend state, output version) and acceptance tests of the Python interface.
+
+### Documentation
+
+- README: package layout, quick start, Python API; G0 approval of the v0.6.2-alpha release commit `3c0c98c`; G0 records in Release assets and in `docs/G0/`; the small margin of the total-mass-consistency check, the CI environment and the cache-key path (GitHub Issue #10, items 1–3; the issue stays open). The v0.6.2-alpha section no longer says "The README states that ...".
+- MODEL_LIMITATIONS.md: G4b has not been done because no usable public data was found.
+- `docs/G0/G0_APPROVAL_3c0c98c_2026-11-07.txt`: the G0 approval record of v0.6.2-alpha with an English summary.
+
 ## [v0.6.2-alpha] - 2026-11-07
 
 Patch release of v0.6.0-alpha "Keystone". Numerical results are unchanged; a model-applicability warning is added and the README G0 text is corrected. Status: unchanged from v0.6.1-alpha (physical validity not established; G4a not passed; G4b and G5 not complete). The G0 decision for the v0.6.2-alpha release commit is stated in the release notes.

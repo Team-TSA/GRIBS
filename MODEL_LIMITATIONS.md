@@ -34,4 +34,4 @@ The chamber-property tables have a configured pressure range. With `thermochemis
 
 ## Validation status
 
-No claim of experimental validation is made by this public repository. Physical validity has not been established; the reproducibility and CEA-consistency evidence and its limits are described in the README, "Validation status". Users should document solver convergence, uncertainty, independent comparisons, and experimental validation before relying on results.
+No claim of experimental validation is made by this public repository. Physical validity has not been established. Reproduction of reported or experimental data (gate G4b) has not been done, because no usable public data was found: the reported AP/Al cases do not give complete inputs, and no experimental data set or independent two-phase model was available. The reproducibility and CEA-consistency evidence and its limits are described in the README, "Validation status". Users should document solver convergence, uncertainty, independent comparisons, and experimental validation before relying on results.

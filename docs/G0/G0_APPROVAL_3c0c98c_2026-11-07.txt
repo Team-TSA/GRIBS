@@ -1,0 +1,55 @@
+# English summary (added in the repository copy; everything after the separator line is the original record,
+# byte-identical to the asset of the GitHub Release v0.6.2-alpha, SHA-256 f45de3bd37f7ff1b6b201a450db73fceca2c4d01f856e34b70f82bd4d8f7da9c):
+# Revision: 3c0c98cb4ef243a679b4d49dab5a23876f8145b7 (v0.6.2-alpha release commit); G0 (reproducibility) approved by the maintainer on 2026-11-07.
+# Environment: Ubuntu 26.04.1 LTS, Linux 7.0.0-42, glibc 2.43, Python 3.14.4, cea 3.3.4, NumPy 2.5.3, SciPy 1.18.1, Matplotlib 3.11.2, pytest 9.1.1.
+# Limits: this revision and environment only; not physical validity, G4a (not passed), G4b, G5, CI, other environments or later revisions. The paths it cites (runs/..., reports/...) are working records outside this repository; the decision text is Japanese, verbatim.
+# ---- original record ----
+# STATUS: APPROVED. G0 approval record for 3c0c98c (v0.6.2-alpha; 2026-11-07, report 106). New file; earlier G0 files and reports unchanged.
+# Approved by the user, LIMITED to the revision, run r478, the environment and the objects recorded in
+# G0_REPRODUCTION_3c0c98c_2026-11-07.txt (sha256 1ba3d297f8e97334a285b31fbf084935710616bee3f6748ac0a77d26a22efb2c).
+
+revision (verbatim from the reproduction record):
+  revision: 3c0c98cb4ef243a679b4d49dab5a23876f8145b7 (tree 46fdd36164b88e2549ba56500c5abbad3a74b1ce)
+    release: prepare v0.6.2-alpha (branch release/v0.6.2-alpha in the clone)
+    parents: 8e2f12d (feat(output): add W_HIGH_CONDENSATE_G4B_UNVALIDATED for the high-condensate band) <- cf91f97 (v0.6.1-alpha)
+  body: GRIBS_v0.6.2-alpha.py sha256 6acbaabbe5ab5fdf4a60a6be59c7bf8944beb54c16c6af5c0de888a116438770
+  source of the commit objects: runs/r478_v062_release_candidate/commits/v062_commits_cf91f97..3c0c98c.bundle
+    (sha256 8cf6b8db62e391c3795e29fdc4087b84cf3af84a6cef20921ab70b82c19f11e9)
+
+run: r478 (runs/r478_v062_release_candidate), procedure of report 80 / r466
+
+environment (verbatim from the reproduction record):
+  environment: g0/env_manifest.txt -- lines 1-38 identical to r466 (Ubuntu 26.04.1 LTS, Linux 7.0.0-42, glibc 2.43,
+    Python 3.14.4, cea 3.3.4 with library / data-file hashes, numpy 2.5.3, scipy 1.18.1, matplotlib 3.11.2, pytest 9.1.1)
+
+objects (verbatim from the reproduction record):
+  tracked tests: 804 passed, 0 failed (299 s); one body loaded, sha256 6acbaabb... (g0/body_probe.json)
+    = the 801 tests of v0.6.1-alpha + test_high_condensate_g4b_warning_band_boundaries[0.65 / 0.80 / 0.8001]
+  --selftest: all checks passed; --version: GRIBS 0.6.2-alpha
+  golden g1-g8 (CLI): 15 fields each (13 metrics + two_phase_mode / two_phase_active) all ok, 8/8
+  vs r466 (G0 of cf91f97), g1-g8:
+    time_history.csv 8/8 and CEA caches 7/7 byte-identical
+    summary.json / summary.txt: 0 differing lines after normalization for g1-g3 and g6-g8;
+      g4 and g5: only the added W_HIGH_CONDENSATE_G4B_UNVALIDATED warning (summary.json 13 lines, summary.txt 2 lines)
+    ballistics.png: differs only in an 11 x 16 px box of the footer (version digit; 92-93 px)
+  G1 probes vs r466: numeric leaves nozzle station 576, G1abc 1588, gap 641, mid 321 equal, 0 differ; non-numeric
+    differences only body path / body sha256 / main path; species CSV identical; stdout identical after path / version
+    normalization; G4a: 9 of 18 points exceed 2e-3 (unchanged, not passed)
+
+decision (user, 2026-11-07, verbatim):
+  U-14: 3c0c98c を採用し、G0 を承認します。承認はこの revision、run r478、
+  記録された環境と対象に限ります。実 checkout へ取り込むときは、bundle から
+  commit オブジェクトをそのまま fetch し、hash が 3c0c98c のままであることを
+  確認してください。パッチを当て直して新しい commit を作った場合は、G0 は無効です。
+
+related decision (user, 2026-11-07, verbatim):
+  U-15: ... 日付 2026-11-07 は今日リリースする場合だけ確定です。日付が変わる場合は、
+  新しい commit を作り、G0 をやり直してください。
+
+not approved / not covered (verbatim from the reproduction record, plus the user's conditions above):
+  physical validity, G4a (not passed), G4b, G5, other environments, CI, or any other revision (including a commit
+  produced when importing into the checkout if its hash differs). The approval is void for any commit re-created by
+  re-applying the patch, and for a release whose date differs from 2026-11-07 (CHANGELOG / CITATION) -- that requires
+  a new commit and a new G0.
+
+earlier G0 files: not modified. G0_MANIFEST.txt not modified (no append was instructed).

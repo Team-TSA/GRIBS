@@ -21,12 +21,16 @@ GRIBS is a JSON-configured transient internal-ballistics simulator for solid roc
 - Detailed configuration, environment, cache, and thermochemistry provenance in `summary.json`
 - Optional theoretical CEA rocket-performance diagnostics for comparison only
 
+## Changes after v0.6.2-alpha (not yet released)
+
+The program code has been moved from the single file `GRIBS_v0.6.2-alpha.py` into the Python package `gribs` under `src/gribs/`. `GRIBS_v0.6.2-alpha.py` remains the program file and the command line: it imports the package from the `src/` directory next to it. Command-line options, exit codes, outputs and numerical results are unchanged; the program version is still 0.6.2-alpha. A Python interface (`gribs.run_simulation`, `gribs.Result`, `gribs.__version__`) is added; see [Python API](#python-api) and [Repository files](#repository-files). These changes are not part of a release yet, and G0 has not been decided for them (see [Validation status](#validation-status)).
+
 ## What changed in v0.6.2-alpha
 
 v0.6.2-alpha is a patch release of v0.6.0-alpha "Keystone". The program version is 0.6.2-alpha and the program file is `GRIBS_v0.6.2-alpha.py`; the configuration schema is unchanged at `0.5.0-alpha`. Numerical results are unchanged. See `CHANGELOG.md` for the full list.
 
 - **High-condensate warning.** Runs whose thermochemistry table reaches `Yg_min <= 0.80` with model status `approximate_with_limitations` also report `W_HIGH_CONDENSATE_G4B_UNVALIDATED`: reproduction of reported or experimental data (G4b) has not been done for that band. `model_status`, the run verdict and the exit codes are unchanged (see [Known limitations](#known-limitations)).
-- **Validation status.** The README states that G0 was approved for the v0.6.1-alpha release commit `cf91f97`.
+- **Validation status.** G0 is described as approved for the v0.6.1-alpha release commit `cf91f97` (as well as `4e7896a`).
 
 ## What changed in v0.6.1-alpha
 
@@ -71,7 +75,9 @@ The update from the supplied v0.4.2-alpha implementation to v0.4.3-alpha changes
 
 ```text
 GRIBS/
-├── GRIBS_v0.6.2-alpha.py
+├── GRIBS_v0.6.2-alpha.py   program file and command line (imports the package below)
+├── src/gribs/             the GRIBS package (the program code)
+├── pyproject.toml         package metadata (version placeholder, see Python API)
 ├── gribs_config.json
 ├── requirements.txt
 ├── requirements-dev.txt
@@ -87,6 +93,7 @@ GRIBS/
 ├── tests/            pytest suite
 ├── tools/            verification tools
 ├── verification/     recorded verification evidence
+├── docs/G0/          G0 approval records (see Validation status)
 └── results_golden_g1 … g6/   recorded golden outputs (regression references)
 ```
 
@@ -120,7 +127,7 @@ python -c "import numpy, scipy, matplotlib, cea; print(cea.__version__)"
 
 ## Quick start
 
-Place `GRIBS_v0.6.2-alpha.py` and `gribs_config.json` in the same directory.
+Run from a copy of the repository: `GRIBS_v0.6.2-alpha.py` needs the directory `src/gribs/` next to it (it adds `src/` to the Python import path), so copying the program file alone is not enough. Place `gribs_config.json` in the same directory, or select another file with `--config`.
 
 Validate the configuration without initializing CEA:
 
@@ -381,6 +388,29 @@ python GRIBS_v0.6.2-alpha.py \
   --dump-thermo thermo_table.json
 ```
 
+## Python API
+
+Added after v0.6.2-alpha (not yet released). The package `gribs` (`src/gribs/`) has three public names:
+
+- `gribs.run_simulation(config_path, *, backend_override=None)` runs one configuration file and returns a `gribs.Result`. `backend_override` has the meaning of `--backend`. It calls the same functions in the same order as the command line.
+- `gribs.Result` is a frozen dataclass with the `summary.json` sections `program`, `configuration_source`, `configuration_migration`, `original_configuration`, `resolved_configuration`, `derived_inputs`, `two_phase_model`, `thermochemistry` and `summary` (the `results` section), plus `history` (the arrays `time_history.csv` is written from), `integration_budget` and `run_passed` (the verdict for which the command line exits with a nonzero code when it is false). The properties `warnings` and `program_version` read `summary["warnings"]` and `program["version"]`.
+- `gribs.__version__` is the program version (`0.6.2-alpha`). The version `0.7.0.dev0` in `pyproject.toml` is a development placeholder and is not reported anywhere.
+
+```python
+import gribs   # with src/ on the import path, for example: PYTHONPATH=src python example.py
+
+result = gribs.run_simulation("gribs_config.json")
+print(result.run_passed, result.summary["p_max_Pa"], result.summary["Isp_s"])
+```
+
+Limits of this interface:
+
+- The input is the path of a configuration file; a configuration given as a Python dictionary is not accepted.
+- Runs in one process must be made one after another. Concurrent runs (for example in threads) are not supported: the selected thermochemistry backend is module state of `gribs.thermo`; `run_simulation` restores it after each call, also after an error.
+- Nothing is printed and no output file is written (no `summary.json`, `time_history.csv` or figure). The chamber-property cache is still read and written, in the same directory as by the command line.
+- Errors are raised instead of being turned into exit codes: `gribs.errors.ConfigurationError` (command line: exit code 2), `gribs.errors.ThermochemistryError` (3), `gribs.api.ModelApplicabilityError` (1, raised before the simulation) and the errors of the simulation (4).
+- A `Result` does not contain the `summary.json` sections `environment`, `cea_theoretical_diagnostics` and `output_files`, which only the command line computes. There is no input hash, no uncertainty summary and no dedicated warning type (warnings are dictionaries as in `summary.json`).
+
 ## Outputs
 
 The default output directory is `results/`. Output names are configurable in `gribs_config.json`.
@@ -494,13 +524,14 @@ GRIBS v0.6.2-alpha is alpha research software. **Its physical validity has not b
   - golden cases g1–g6 rerun through the CLI: all 13 result metrics of each case pass the golden regression test described below; g1 and g3–g6 are identical to the earlier reproduction (time histories, figures and CEA caches byte-identical; `summary.json` and `summary.txt` identical after replacing run-directory paths); g2 differs only through the solver restart at the property-table limit (physical and timing metrics within 3.5e-10 of the golden values);
   - G1 probes: numerical difference 0 against the earlier record.
 
-  The v0.6.1-alpha release commit `cf91f97` was reproduced separately in the same recorded environment (801 tracked tests passed; golden cases g1–g8 rerun through the CLI; G1 probes with numerical difference 0 against the `4e7896a` record), and G0 was approved for it with the same limits. G0 does not extend automatically to any later revision, including changes made after v0.6.1-alpha. The G0 decision for the v0.6.2-alpha release commit is stated in the v0.6.2-alpha release notes, because a commit cannot record the approval of itself. G0 does not cover physical validity, other kernels, other Python or dependency versions (including other `cea` versions; `requirements.txt` accepts `cea>=3.0`), other CPUs or floating-point environments, the external `fcea2` executable, or CI.
+  The v0.6.1-alpha release commit `cf91f97` was reproduced separately in the same recorded environment (801 tracked tests passed; golden cases g1–g8 rerun through the CLI; G1 probes with numerical difference 0 against the `4e7896a` record), and G0 was approved for it with the same limits. G0 does not extend automatically to any later revision. G0 was also approved for the v0.6.2-alpha release commit `3c0c98c`, reproduced in the same recorded environment (804 tracked tests passed; golden cases g1–g8 rerun through the CLI; G1 probes with numerical difference 0 against the `cf91f97` record), with the same limits. G0 has not been decided for the changes made after v0.6.2-alpha (the package split and the Python API). G0 does not cover physical validity, other kernels, other Python or dependency versions (including other `cea` versions; `requirements.txt` accepts `cea>=3.0`), other CPUs or floating-point environments, the external `fcea2` executable, or CI.
 - **G1 — CEA semantics (internal consistency): approved within a limited scope.** It covers the numerical internal consistency of cea 3.3.4 outputs (mass-fraction sums, molecular-weight and density identities, species reconstruction, nozzle stations) for golden cases g2–g5 and two mid-condensed AP/Al evidence compositions (AP70/Al5/HTPB25 and AP70/Al7/HTPB23): 60 equilibrium points and 54 nozzle-station points. Conditions: some checks at a stricter tolerance (1e-8) remain recorded mismatches; some interpretations of CEA quantities are inferred and not confirmed against a CEA specification; G1 is not independent verification or physical validation.
 - **G4a — comparison with the CEA reference `c*`: not passed (known limitation).** The criterion (relative difference within 2e-3 between the GRIBS constant-gamma nozzle `c*` and the CEA infinite-area-chamber `c*`) and its tolerance are unchanged. 9 of 18 points exceed it: g3 at 10/30/70 bar (−2.0e-3 to −2.1e-3), g4 at 70 bar (+2.05e-3), AP70/Al5 at 10 and 30 bar (+2.1e-3 to +2.6e-3), and AP70/Al7 at 10/30/70 bar (about −2.1% to −2.3%). The larger differences coincide with condensed species appearing or changing phase between the chamber and the throat; this is supported by intervention tests but not proven. The equilibrium-expansion alternative studied during Phase A is not part of this release.
 - **G4b — reproduction of reported or experimental data: not done.** The complete inputs of the reported AP/Al cases, experimental data and an independent two-phase model are not available. Runs whose thermochemistry table reaches the high-condensate band (Yg_min <= 0.80, model status `approximate_with_limitations`) report the warning `W_HIGH_CONDENSATE_G4B_UNVALIDATED`; see [Known limitations](#known-limitations).
-- **Golden regression test:** the physical and timing metrics are compared with the frozen golden values (relative 1e-6 / 1e-9). The three residual metrics (propellant mass balance, total mass consistency, maximum condensed mass fraction) are round-off-level numerical residuals that change by tens of percent with last-digit differences of the CEA table; they are checked against the program's own verification thresholds instead: propellant mass balance <= max(1e-9, 100 x solver rtol) (the mass-ledger gate), total mass consistency <= 1e-6 (the post-run consistency tolerance), maximum condensed mass fraction within max(1e-9 x |golden|, 1e-12) of the golden value. The test also checks the two-phase model mode and activity of each case. The golden values of g1–g6 are unchanged; g7 and g8 were added in v0.6.1-alpha. Golden cases g3 and g6 use the reactant `C` (gaseous atomic carbon, see [Propellant composition and bulk density](#propellant-composition-and-bulk-density)); they are kept unchanged as numerical regression references, and their results are not representative of a real propellant. Golden cases g7 and g8 are the same cases with graphite `C(gr)` (carbon density 2200 kg/m³ as in g3 and g6; the default configuration uses 2260 kg/m³). Their values are frozen in `cases/golden/golden_values.json`; unlike g1–g6 they have no recorded output directory (`results_golden_g7`, `results_golden_g8`).
+- **Golden regression test:** the physical and timing metrics are compared with the frozen golden values (relative 1e-6 / 1e-9). The three residual metrics (propellant mass balance, total mass consistency, maximum condensed mass fraction) are round-off-level numerical residuals that change by tens of percent with last-digit differences of the CEA table; they are checked against the program's own verification thresholds instead: propellant mass balance <= max(1e-9, 100 x solver rtol) (the mass-ledger gate), total mass consistency <= 1e-6 (the post-run consistency tolerance; the margin is small: the largest golden value is 4.7e-7 (g4), and last-digit perturbations of the CEA table have moved this residual to about 7.4e-7, so this check may fail on another platform without a change of the model; GitHub Issue #10, item 1), maximum condensed mass fraction within max(1e-9 x |golden|, 1e-12) of the golden value. The test also checks the two-phase model mode and activity of each case. The golden values of g1–g6 are unchanged; g7 and g8 were added in v0.6.1-alpha. Golden cases g3 and g6 use the reactant `C` (gaseous atomic carbon, see [Propellant composition and bulk density](#propellant-composition-and-bulk-density)); they are kept unchanged as numerical regression references, and their results are not representative of a real propellant. Golden cases g7 and g8 are the same cases with graphite `C(gr)` (carbon density 2200 kg/m³ as in g3 and g6; the default configuration uses 2260 kg/m³). Their values are frozen in `cases/golden/golden_values.json`; unlike g1–g6 they have no recorded output directory (`results_golden_g7`, `results_golden_g8`).
 - **G5 — release gate: not done.** The golden reference values in `cases/golden/` (g1–g8) and the recorded outputs in `results_golden_*` (g1–g6) were frozen before G5; g7 and g8 were added before G5 with the maintainer's approval. They are regression references, not validated or approved values.
-- **Continuous integration:** the GitHub workflow runs the self-tests and the test suite on Python 3.11, 3.12 and 3.13. Python 3.14 is checked locally only. CI results are not part of the G0 evidence.
+- **Continuous integration:** the GitHub workflow runs the self-tests and the test suite on Python 3.11, 3.12 and 3.13. Python 3.14 is checked locally only. CI results are not part of the G0 evidence. The CI environment is not the recorded G0 environment: the runner image is `ubuntu-latest` and the dependency versions are not pinned (`requirements.txt` accepts `cea>=3.0`), so it can change between runs; pinning would not remove CPU differences (GitHub Issue #10, item 2).
+- **G0 records:** the G0 approval record of a release is attached to its GitHub Release as an asset. The repository also keeps G0 approval records in `docs/G0/`, starting with the record of `3c0c98c` (v0.6.2-alpha). A record can be added only in a later commit, because a commit cannot contain the approval of itself. The records are kept verbatim (the decision text is in Japanese) with a short English summary at the top; the working records they cite (`runs/…`, `reports/…`) are not part of the repository.
 
 ## Known limitations
 
@@ -519,6 +550,7 @@ GRIBS v0.6.2-alpha is alpha research software. **Its physical validity has not b
 - The external executable backend depends on the user's compatible executable and database files.
 - Theoretical CEA rocket diagnostics do not replace GRIBS results.
 - The chamber-property cache relies on the operating assumptions in [Chamber-property cache writes and concurrent runs](#chamber-property-cache-writes-and-concurrent-runs). Survival after a crash or power loss is not guaranteed (the parent of a newly created cache directory is not synced), and other users (UIDs), other file systems, other hosts, file systems without hard links, `security.*` / `trusted.*` extended attributes, SELinux and device files have not been tested. Publishing a new cache requires hard links or Linux `renameat2` (glibc 2.28 or later).
+- The `cea_python` cache key includes the path of the imported `cea` module (`cea_module_path`). After the virtual environment is moved or recreated at another path, the cache file name changes, the existing cache is not reused and the table is built again (GitHub Issue #10, item 3).
 - Not included in this release and not approved for use: stopping at the property-table range with a dedicated exit code (M3), the safe output mode (output-directory locking and overwrite refusal), the Phase B physical extensions (B1: energy / equation-of-state closure), and the Phase B CEA comparison layers (B2-C, B2-D). None of them is connected to the program.
 - `MODEL_LIMITATIONS.md` summarises the model assumptions. It was written for the earlier v0.3 / v0.4 model and has been revised only minimally for v0.6.0-alpha, v0.6.1-alpha and v0.6.2-alpha; where it differs, this README and `CHANGELOG.md` take precedence.
 - Model outputs are not substitutes for static firing tests, material characterization, or independent review.
