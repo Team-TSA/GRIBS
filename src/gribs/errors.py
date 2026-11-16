@@ -68,3 +68,18 @@ class CEADatabaseError(ThermochemistryError):
         super().__init__(message)
         self.code = code
         self.context = dict(context or {})
+
+
+class ErosiveRootNotConvergedError(GribsError):
+    """The erosive-burning burn rate could not be solved (P5-4, F-02).
+
+    Raised by ``gribs.propellant.burning.burn_rate`` instead of returning an
+    unconverged value. The command line reports it as a simulation failure
+    (exit code 4).
+    """
+
+    code = "E_EROSIVE_ROOT_NOT_CONVERGED"
+
+    def __init__(self, message: str, *, context: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.context = dict(context or {})

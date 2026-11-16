@@ -243,6 +243,7 @@ from gribs.errors import (  # noqa: E402, F401
     GammaBelowUnityError,
     BackendUnavailableError,
     CEADatabaseError,
+    ErosiveRootNotConvergedError,
 )
 from gribs.util import (  # noqa: E402, F401
     _report_value_text,
@@ -304,8 +305,11 @@ from gribs.thermo import (  # noqa: E402, F401
     _sonic_column_status,
 )
 from gribs.propellant.burning import (  # noqa: E402, F401
+    EROSIVE_ROOT_MAX_ITER,
+    EROSIVE_ROOT_RTOL,
     base_burn_rate,
     burn_rate,
+    _erosive_root,
 )
 from gribs.nozzle import (  # noqa: E402, F401
     NozzleTwoPhaseModel,

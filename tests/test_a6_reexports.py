@@ -82,7 +82,7 @@ def test_entry_reexports_every_top_level_name():
 def test_entry_and_package_share_the_exception_classes():
     entry = _load_entry(); errors = importlib.import_module("gribs.errors")
     names = sorted(_top_level_names("gribs.errors"))
-    assert len(names) == 8, names          # 7 moved in unit 1, plus CEADatabaseError (P5-1)
+    assert len(names) == 9, names          # 7 moved in unit 1, plus CEADatabaseError (P5-1), ErosiveRootNotConvergedError (P5-4)
     for name in names:
         assert getattr(entry, name) is getattr(errors, name), name
 
