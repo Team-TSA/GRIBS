@@ -47,6 +47,7 @@ from gribs.reporting import cea_diagnostics_status
 from gribs.selftest import self_tests
 from gribs.simulation.postprocess import (
     EXIT_CODE_SUCCESS,
+    add_run_state_keys,
     append_run_verdict_warnings,
     run_verdict_passed,
     run_verification_exit_code,
@@ -331,6 +332,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "context": dict(_cache_dur)})
     append_run_verdict_warnings(summ)
     run_passed = run_verdict_passed(summ)
+    add_run_state_keys(summ)
     verification_exit_code = run_verification_exit_code(
         summ,
         allow_verification_failure=args.allow_verification_failure,

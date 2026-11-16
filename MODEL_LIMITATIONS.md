@@ -23,7 +23,16 @@ GRIBS is a lumped-parameter numerical model. Users must evaluate whether each as
 
 ## Property and input limitations
 
-The chamber-property tables have a configured pressure range. With `thermochemistry.outside_range_policy = "clamp"` (used by the supplied configurations), properties outside that range are held at the nearest table limit and the run is not stopped. Clamping improves numerical robustness outside that interval but suppresses pressure dependence there. Extrapolation remains smooth but may be physically unreliable. Combustion coefficients, efficiencies, flow coefficients, and erosion parameters require independent evidence for the intended formulation and operating range.
+The chamber-property tables have a configured pressure range. With `thermochemistry.outside_range_policy = "clamp"` (used by the supplied configurations), properties outside that range are held at the nearest table limit and the run is not stopped. Clamping improves numerical robustness outside that interval but suppresses pressure dependence there. A run that leaves the range reports the warning `W_PROPERTY_TABLE_EXTRAPOLATED` (number and fraction of samples, policy). Extrapolation remains smooth but may be physically unreliable. Combustion coefficients, efficiencies, flow coefficients, and erosion parameters require independent evidence for the intended formulation and operating range.
+
+## Run state
+
+The run summary reports six run-state keys: `solver_completed`, `mass_consistency_passed`, `nominal_termination_reached`, `model_domain_passed`, `warnings_present` and `results_usable`. `results_usable` is true only when the first four are true. They are reported only for a run that completed; a run that stops with an error before the summary is made (configuration, thermochemistry, model-applicability or solver error) has no summary and no keys. They do not change `run_passed` or the exit code.
+
+- A run that ends other than by burnout (and, with blowdown enabled, by reaching ambient pressure) reports `W_NON_NOMINAL_TERMINATION` and is not usable.
+- At > Ae (`W_THROAT_EXCEEDS_EXIT_AREA`, item 9) and `E_OUT_OF_VALIDATED_RANGE` are model-domain violations; the run is not usable.
+- Leaving the property-table pressure range (`W_PROPERTY_TABLE_EXTRAPOLATED`, see below) and subsonic nozzle flow during burning (`W_SUBSONIC_BURNING`; burn-phase c* indicators lose their meaning there) are warnings only and do not make the run unusable. Golden g1 and g2 leave the table range and are reported usable with this warning.
+- `results_usable` is a statement about these checks only. It is not evidence that the physical model is valid (see "Validation status").
 
 ## Interpretation limits
 

@@ -1225,6 +1225,7 @@ def summarize(res: dict, h: dict, c: Config,
     append_model_applicability_warnings(s)
     append_thermal_efficiency_warning(s, c, backend)
     append_external_cea_database_warning(s, backend)
+    append_run_state_warnings(s, h)
     return s
 
 
@@ -1295,6 +1296,136 @@ def append_throat_exceeds_exit_area_warning(summary: dict, res: dict, h: dict, c
             "final_throat_radius_m": float(Rt[-1]),
             "final_throat_to_exit_area_ratio": float((Rt[-1] / c.R_t0) ** 2 / c.eps_nozzle),
         },
+    })
+
+
+W_NON_NOMINAL_TERMINATION = "W_NON_NOMINAL_TERMINATION"
+W_SUBSONIC_BURNING = "W_SUBSONIC_BURNING"
+W_PROPERTY_TABLE_EXTRAPOLATED = "W_PROPERTY_TABLE_EXTRAPOLATED"
+RUN_STATE_KEYS = (
+    "solver_completed",
+    "mass_consistency_passed",
+    "nominal_termination_reached",
+    "model_domain_passed",
+    "warnings_present",
+    "results_usable",
+)
+
+
+def nominal_termination(burn_stop_reason: Any, blowdown_stop_reason: Any) -> bool:
+    """P5-5: the burning phase ended by burnout and the blowdown, when it was run, reached ambient pressure.
+
+    After a burnout the blowdown is "not-run" only when it is disabled, which is a nominal end.
+    """
+    return burn_stop_reason == "burnout" and blowdown_stop_reason in ("ambient", "not-run")
+
+
+def append_run_state_warnings(summary: dict, h: dict) -> None:
+    """P5-5 (F-16): warnings for run states that the run-state keys report.
+
+    W_NON_NOMINAL_TERMINATION: the run did not end nominally (see nominal_termination).
+    W_SUBSONIC_BURNING: the nozzle was subsonic at one or more samples of the burning phase.
+    W_PROPERTY_TABLE_EXTRAPOLATED: the chamber pressure left the pressure range of the chamber-property table.
+    The last two do not make the results unusable.  None of them changes the run verdict, the exit code or a
+    computed value.  A code already present is not added again.
+    """
+    warnings = summary.setdefault("warnings", [])
+    existing = {w.get("code") for w in warnings if isinstance(w, dict)}
+    burn_reason = summary.get("burn_stop_reason")
+    blow_reason = summary.get("blowdown_stop_reason")
+    if not nominal_termination(burn_reason, blow_reason) and W_NON_NOMINAL_TERMINATION not in existing:
+        warnings.append({
+            "code": W_NON_NOMINAL_TERMINATION,
+            "severity": "warning",
+            "message": (
+                f"The run did not end nominally: the burning phase ended by {burn_reason!r} and the blowdown "
+                f"by {blow_reason!r} (nominal: burnout, then ambient pressure or no blowdown). The results "
+                "describe a truncated or interrupted run and are reported as not usable "
+                "(results_usable = false)."
+            ),
+            "context": {
+                "burn_stop_reason": burn_reason,
+                "blowdown_stop_reason": blow_reason,
+                "burn_time_s": summary.get("burn_time_s"),
+                "total_time_s": summary.get("total_time_s"),
+            },
+        })
+    phase = np.asarray(h["phase"])
+    regime = np.asarray(h["regime"])
+    burn = phase == "burn"
+    subsonic = np.flatnonzero(burn & (regime == "subsonic"))
+    if subsonic.size and W_SUBSONIC_BURNING not in existing:
+        warnings.append({
+            "code": W_SUBSONIC_BURNING,
+            "severity": "warning",
+            "message": (
+                "The nozzle was not choked (subsonic flow) during part of the burning phase. This is a valid "
+                "branch of the nozzle model, but burn-phase c* indicators lose their meaning there. It does not "
+                "make the results unusable."
+            ),
+            "context": {
+                "subsonic_burn_samples": int(subsonic.size),
+                "burn_samples": int(np.count_nonzero(burn)),
+                "first_subsonic_burn_time_s": float(np.asarray(h["t"], dtype=float)[subsonic[0]]),
+                "initial_regime": summary.get("initial_regime"),
+            },
+        })
+    if summary.get("property_extrapolation") and W_PROPERTY_TABLE_EXTRAPOLATED not in existing:
+        policy = summary.get("property_policy")
+        fraction = _finite_number_or_none(summary.get("property_extrapolation_fraction"))
+        warnings.append({
+            "code": W_PROPERTY_TABLE_EXTRAPOLATED,
+            "severity": "warning",
+            "message": (
+                "The chamber pressure left the pressure range of the chamber-property table at "
+                f"{summary.get('property_extrapolation_points')} samples"
+                + ("" if fraction is None else f" ({100.0 * fraction:.3g} % of the samples)")
+                + "; outside it the properties were "
+                + ("held at the nearest table limit" if policy == "clamp" else "extrapolated")
+                + f" (outside_range_policy = {policy!r}). This is reported as a warning; it is not a "
+                "model-domain violation and does not make the results unusable."
+            ),
+            "context": {
+                "policy": policy,
+                "points": summary.get("property_extrapolation_points"),
+                "fraction": summary.get("property_extrapolation_fraction"),
+                "property_range_min_Pa": summary.get("property_range_min_Pa"),
+                "property_range_max_Pa": summary.get("property_range_max_Pa"),
+                "pressure_min_Pa": summary.get("pressure_min_Pa"),
+                "pressure_max_Pa": summary.get("pressure_max_Pa"),
+            },
+        })
+
+
+def add_run_state_keys(summary: dict) -> None:
+    """P5-5 (F-16): set the six run-state keys at the top level of the summary of a completed run.
+
+    Called after all warnings are appended (after append_run_verdict_warnings).  A run that raises has no summary,
+    and no keys are made for it.  The keys do not change run_passed or the exit code.
+      solver_completed: both phases were integrated and the chamber pressure is finite (a run that reaches this
+        point has completed the integration; the pressure extremes are NaN or infinite otherwise).
+      mass_consistency_passed: the post-run mass consistency and the mass ledger passed.
+      nominal_termination_reached: see nominal_termination.
+      model_domain_passed: no At > Ae (event_times.throat_exceeds_exit_s is empty) and no
+        E_OUT_OF_VALIDATED_RANGE.  Leaving the property-table range is not a domain violation (a warning).
+      warnings_present: summary["warnings"] is not empty.
+      results_usable: the first four together.
+    """
+    warnings = summary.get("warnings") or []
+    codes = {w.get("code") for w in warnings if isinstance(w, dict)}
+    solver = (_finite_number_or_none(summary.get("pressure_min_Pa")) is not None
+              and _finite_number_or_none(summary.get("pressure_max_Pa")) is not None)
+    mass = bool(summary["post_run_consistency"]["passed"] and summary["ledger"]["passed"])
+    nominal = nominal_termination(summary.get("burn_stop_reason"), summary.get("blowdown_stop_reason"))
+    domain = (not (summary.get("event_times") or {}).get(THROAT_EXCEEDS_EXIT_EVENT)
+              and "E_OUT_OF_VALIDATED_RANGE" not in codes)
+    summary.update({
+        "solver_completed": bool(solver),
+        "mass_consistency_passed": mass,
+        "nominal_termination_reached": bool(nominal),
+        "model_domain_passed": bool(domain),
+        "warnings_present": bool(warnings),
+        "results_usable": bool(solver and mass and nominal and domain),
     })
 
 

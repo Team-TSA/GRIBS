@@ -1,10 +1,10 @@
 """run_simulation: one simulation of a configuration file, without the command line (A-6 unit 10, U-39 (a)).
 
 run_simulation calls the functions that gribs.cli.main calls, in the same order: load_json_configuration, validate,
-initialize_thermochemistry, model_applicability_error, run_model, sample, summarize, the same summary warnings and
-verdict, backend.metadata() and the derived inputs. The blocks between the "same text as gribs.cli.main" markers are
-copies of lines of main; tests/test_a6_public_api.py fails if a block is no longer found in main. main itself is not
-changed and does not call run_simulation.
+initialize_thermochemistry, model_applicability_error, run_model, sample, summarize, the same summary warnings,
+verdict and run-state keys, backend.metadata() and the derived inputs. The blocks between the "same text as
+gribs.cli.main" markers are copies of lines of main; tests/test_a6_public_api.py fails if a block is no longer
+found in main. main itself is not changed and does not call run_simulation.
 
 Differences from main:
 - nothing is printed and no output file is written (no summary, history, figure); migration notes are in the
@@ -33,7 +33,7 @@ import gribs.simulation.postprocess
 import gribs.thermo
 from gribs.constants import PROGRAM_NAME, PROGRAM_VERSION, SCHEMA_VERSION
 from gribs.errors import GribsError
-from gribs.simulation.postprocess import append_run_verdict_warnings, run_verdict_passed
+from gribs.simulation.postprocess import add_run_state_keys, append_run_verdict_warnings, run_verdict_passed
 from gribs.simulation.result import Result
 
 
@@ -111,6 +111,7 @@ def _run(path: Path, backend_override: Optional[str]) -> Result:
             "context": dict(_cache_dur)})
     append_run_verdict_warnings(summ)
     run_passed = run_verdict_passed(summ)
+    add_run_state_keys(summ)
     # --- end: same text as gribs.cli.main ---
 
     # --- begin: same text as gribs.cli.main ---
