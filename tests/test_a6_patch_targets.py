@@ -184,6 +184,7 @@ UNRESOLVED = {
     ('tests/test_integration_boundary_restart.py', 'p_at_6e6'): 1,
     ('tests/test_integration_boundary_restart.py', 'p_down_6e6'): 2,
     ('tests/test_nonfinite_config_inputs.py', 'config'): 6,
+    ('tests/test_p5_1_cea_database_pin.py', 'backend'): 3,
 }
 
 
