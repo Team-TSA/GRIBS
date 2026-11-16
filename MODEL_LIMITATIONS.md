@@ -12,7 +12,7 @@ GRIBS is a lumped-parameter numerical model. Users must evaluate whether each as
 6. Nozzle flow is quasi-one-dimensional and nominally isentropic. Losses are represented by aggregate coefficients.
 7. The separation treatment is simplified and does not predict hysteresis, side loads, or unsteady asymmetric flow.
 8. Blowdown temperature remains tied to the pressure-dependent chamber-property table rather than an independent energy equation.
-9. With throat erosion enabled, exit area remains fixed and full nozzle-contour evolution is not modeled.
+9. With throat erosion enabled, exit area remains fixed and full nozzle-contour evolution is not modeled. If the eroding throat area becomes larger than the fixed exit area (At > Ae, compared on the radius as Rt > Rt0·√ε), the nozzle is computed with the exit as its smallest section, which is outside the model domain. The run then records the first such time in `event_times.throat_exceeds_exit_s` (an empty list when it does not occur) and reports the warning `W_THROAT_EXCEEDS_EXIT_AREA`; it continues, and the warning does not change the run verdict or the exit code.
 10. Numerical self-tests check selected identities and continuity properties, not experimental validity.
 11. Two-phase model B (homogeneous equilibrium): the conserved chamber mass is the total product mass (gas + condensed); condensed products move with the gas at the same velocity and temperature, and the equation of state acts on the gas phase only.
 12. The condensed-phase volume is neglected against the chamber free volume.
