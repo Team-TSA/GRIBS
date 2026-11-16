@@ -242,6 +242,7 @@ from gribs.errors import (  # noqa: E402, F401
     ThermochemistryInvariantError,
     GammaBelowUnityError,
     BackendUnavailableError,
+    CEADatabaseError,
 )
 from gribs.util import (  # noqa: E402, F401
     _report_value_text,
@@ -268,6 +269,12 @@ from gribs.thermo import (  # noqa: E402, F401
     ThermochemistryBackend,
     PressureTableBackend,
     CEALegacyExecutableBackend,
+    W_EXTERNAL_CEA_DATABASE_IGNORED,
+    E_CEA_DATABASE_ALREADY_INITIALIZED,
+    import_cea_without_auto_init,
+    _sha256_file,
+    _external_cea_database_files,
+    pin_bundled_cea_database,
     import_official_cea_module,
     _cea_package_metadata,
     _cea_database_identity,
@@ -356,6 +363,7 @@ from gribs.simulation.postprocess import (  # noqa: E402, F401
     model_applicability_error,
     append_model_applicability_warnings,
     append_thermal_efficiency_warning,
+    append_external_cea_database_warning,
     summarize,
     append_run_verdict_warnings,
     run_verdict_passed,

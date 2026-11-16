@@ -53,3 +53,18 @@ class GammaBelowUnityError(ThermochemistryError):
 
 class BackendUnavailableError(ThermochemistryError):
     """A selected thermochemistry backend cannot be initialized."""
+
+
+class CEADatabaseError(ThermochemistryError):
+    """The bundled NASA CEA database could not be pinned in this process.
+
+    Raised with ``code = "E_CEA_DATABASE_ALREADY_INITIALIZED"`` when the
+    ``cea`` module of this process was already initialized with a different
+    ``thermo.lib`` / ``trans.lib`` before GRIBS took it (P5-1).
+    """
+
+    def __init__(self, message: str, *, code: str,
+                 context: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.code = code
+        self.context = dict(context or {})

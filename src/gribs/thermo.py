@@ -53,6 +53,7 @@ from gribs.errors import (
     ThermochemistryInvariantError,
     GammaBelowUnityError,
     BackendUnavailableError,
+    CEADatabaseError,
 )
 from gribs.util import _report_value_text
 from gribs.config import Config, require_finite_config
@@ -319,6 +320,10 @@ class PressureTableBackend(ThermochemistryBackend):
     def option_signature(self) -> Dict[str, Any]:
         return {}
 
+    def _legacy_option_signature(self) -> Dict[str, Any]:
+        """Option signature of the frozen schema-3 key (the current one unless a backend overrides it)."""
+        return self.option_signature()
+
     def cache_key(self) -> str:
         payload = self.cache_key_payload()
         blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
@@ -348,7 +353,7 @@ class PressureTableBackend(ThermochemistryBackend):
                 + "(gas-phase M; total MW is diagnostic only since "
                 + "v0.5.0-alpha)"
             ),
-            "options": self.option_signature(),
+            "options": self._legacy_option_signature(),
         }
         blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
         return hashlib.sha256(blob).hexdigest()[:24]
@@ -1466,8 +1471,156 @@ class CEALegacyExecutableBackend(PressureTableBackend):
 # ------------------------------------------------------------------------------
 # 3.4 cea_python backend (official NASA CEA Python package)
 # ------------------------------------------------------------------------------
+W_EXTERNAL_CEA_DATABASE_IGNORED = "W_EXTERNAL_CEA_DATABASE_IGNORED"
+E_CEA_DATABASE_ALREADY_INITIALIZED = "E_CEA_DATABASE_ALREADY_INITIALIZED"
+
+
+def import_cea_without_auto_init():
+    """Import ``cea`` without letting the import load a database (P5-1).
+
+    ``import cea`` (3.3.x) initializes the library at import time from the first
+    ``thermo.lib`` / ``trans.lib`` it finds: the current working directory, then
+    ``CEA_DATA_DIR``, then the package data.  That choice is invisible to GRIBS,
+    and a damaged ``trans.lib`` found there ends the process inside the import,
+    even with transport off.  ``CEA_SKIP_INIT`` is read only by the first import
+    in a process, so it is set just for that import and restored afterwards
+    (child processes do not inherit it).  The database is then loaded
+    explicitly by :func:`pin_bundled_cea_database`.  When ``cea`` is already
+    imported, the existing module is returned unchanged.
+    """
+    if "cea" in sys.modules:
+        return importlib.import_module("cea")
+    previous = os.environ.get("CEA_SKIP_INIT")
+    os.environ["CEA_SKIP_INIT"] = "1"
+    try:
+        return importlib.import_module("cea")
+    finally:
+        if previous is None:
+            os.environ.pop("CEA_SKIP_INIT", None)
+        else:
+            os.environ["CEA_SKIP_INIT"] = previous
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _external_cea_database_files(bundled_dir: Path) -> List[Dict[str, str]]:
+    """Database files that ``import cea`` would have preferred to the package data.
+
+    Only their existence is checked; they are never opened.
+    """
+    places: List[Tuple[str, Path]] = [("cwd", Path.cwd())]
+    env_dir = os.environ.get("CEA_DATA_DIR")
+    if env_dir:
+        places.append(("CEA_DATA_DIR", Path(env_dir)))
+    try:
+        bundled_real = os.path.realpath(bundled_dir)
+    except OSError:                                # pragma: no cover - defensive
+        bundled_real = str(bundled_dir)
+    found: List[Dict[str, str]] = []
+    seen = set()
+    for location, directory in places:
+        for name in ("thermo.lib", "trans.lib"):
+            path = directory / name
+            try:
+                if not path.is_file():
+                    continue
+                real = os.path.realpath(path)
+            except OSError:
+                continue
+            if os.path.dirname(real) == bundled_real or real in seen:
+                continue
+            seen.add(real)
+            found.append({"location": location, "name": name, "path": str(path.absolute())})
+    return found
+
+
+def pin_bundled_cea_database(cea_module: Any, transport: bool) -> Dict[str, Any]:
+    """Load the database shipped inside the official package and return its provenance (P5-1).
+
+    * ``thermo.lib`` of the package is loaded with ``cea.init_thermo``;
+      ``trans.lib`` of the package only when ``transport`` is true (with
+      transport off no ``trans.lib`` is read at all).
+    * ``thermo.lib`` / ``trans.lib`` in the working directory or in
+      ``CEA_DATA_DIR`` are ignored and listed in ``ignored_external_files``
+      (reported as ``W_EXTERNAL_CEA_DATABASE_IGNORED``).
+    * When ``cea`` was already initialized before GRIBS took it, the same calls
+      are made: cea accepts them silently only if the loaded file is the
+      package file, and raises ``ValueError`` otherwise.  GRIBS then stops with
+      ``E_CEA_DATABASE_ALREADY_INITIALIZED`` instead of using the other
+      database.
+
+    The provenance holds absolute paths for display; the cache key uses only
+    the content digests (:meth:`CEAPythonBackend.option_signature`).
+    """
+    bundled_dir = Path(os.path.dirname(os.path.abspath(cea_module.__file__))) / "data"
+    thermo_path = bundled_dir / "thermo.lib"
+    trans_path = bundled_dir / "trans.lib"
+    needed = [thermo_path] + ([trans_path] if transport else [])
+    missing = [str(p) for p in needed if not p.is_file()]
+    if missing:
+        raise BackendUnavailableError(
+            "The database files of the official NASA CEA Python package are missing:\n"
+            + "\n".join(f"  {p}" for p in missing)
+            + f"\nReinstall the package:\n    {CEA_INSTALL_COMMAND}")
+    ignored = _external_cea_database_files(bundled_dir)
+    already = bool(cea_module.is_initialized())
+    loads = [("thermo.lib", cea_module.init_thermo, thermo_path)]
+    if transport:
+        loads.append(("trans.lib", cea_module.init_trans, trans_path))
+    for name, loader, path in loads:
+        try:
+            loader(str(path))
+        except ValueError as exc:
+            context = {"database_file": name, "required_path": str(path),
+                       "process_already_initialized": already,
+                       "ignored_external_files": ignored,
+                       "cea_error": f"{type(exc).__name__}: {exc}"}
+            if already:
+                raise CEADatabaseError(
+                    f"{E_CEA_DATABASE_ALREADY_INITIALIZED}: the 'cea' module of this process was "
+                    f"already initialized with a {name} other than the one of the official package "
+                    f"({path}); cea cannot load another database in the same process, and GRIBS does "
+                    f"not use a database it has not selected.\n"
+                    "This happens when 'cea' was imported before GRIBS while a thermo.lib / trans.lib "
+                    "was present in the working directory or in CEA_DATA_DIR (cea prints the loaded "
+                    "path on standard output). Run GRIBS in a new process, or import cea only "
+                    "through GRIBS.",
+                    code=E_CEA_DATABASE_ALREADY_INITIALIZED, context=context) from exc
+            raise BackendUnavailableError(
+                f"The official NASA CEA Python package could not load its own {name} "
+                f"({path}): {type(exc).__name__}: {exc}") from exc
+    thermo_sha = _sha256_file(thermo_path)
+    trans_sha = _sha256_file(trans_path) if transport else None
+    if ignored:
+        listing = ", ".join(f"{f['path']} ({f['location']})" for f in ignored)
+        print(f"WARNING [{W_EXTERNAL_CEA_DATABASE_IGNORED}]: ignored {listing}; using the database "
+              f"of the official CEA package ({thermo_path})", file=sys.stderr)
+    return {
+        "selection": "bundled",
+        "thermo_lib_path": str(thermo_path),
+        "thermo_lib_size_bytes": thermo_path.stat().st_size,
+        "thermo_lib_sha256": thermo_sha,
+        "trans_lib_loaded_by_gribs": bool(transport),
+        "trans_lib_path": str(trans_path) if transport else None,
+        "trans_lib_size_bytes": trans_path.stat().st_size if transport else None,
+        "trans_lib_sha256": trans_sha,
+        "process_already_initialized": already,
+        "ignored_external_files": ignored,
+    }
+
+
 def import_official_cea_module():
     """Import and validate the official NASA CEA Python package.
+
+    The module is imported without its automatic database initialization
+    (:func:`import_cea_without_auto_init`); the backend loads the package
+    database explicitly with :func:`pin_bundled_cea_database`.
 
     Raises
     ------
@@ -1477,7 +1630,7 @@ def import_official_cea_module():
         version is not supported.
     """
     try:
-        module = importlib.import_module("cea")
+        module = import_cea_without_auto_init()
     except Exception as exc:                      # ImportError, OSError, ...
         message = (f"{MISSING_CEA_PACKAGE_MESSAGE}\n\n"
                    f"Original import error: {type(exc).__name__}: {exc}")
@@ -1535,10 +1688,11 @@ def _cea_package_metadata() -> Dict[str, Any]:
 
 
 def _cea_database_identity(cea_module: Any) -> Dict[str, Any]:
-    """Identify the thermodynamic database that ships inside the official package.
+    """Pre-P5-1 identity of the package database (16-digit digest prefixes and paths).
 
-    The digest is part of the chamber-property cache key, so replacing or
-    upgrading the package database can never silently reuse stale properties.
+    Used only to recompute the frozen schema-3 cache key
+    (:meth:`CEAPythonBackend._legacy_option_signature`).  The current cache key
+    and provenance come from :func:`pin_bundled_cea_database`.
     """
     info: Dict[str, Any] = {
         "thermo_lib_path": None, "thermo_lib_size_bytes": None,
@@ -1621,7 +1775,7 @@ class CEAPythonBackend(PressureTableBackend):
         self.reactants = list(reactants)
         self.cea = import_official_cea_module()
         self.cea_metadata = _cea_package_metadata()
-        self.cea_database = _cea_database_identity(self.cea)
+        self.cea_database = pin_bundled_cea_database(self.cea, bool(c.cea_py_transport))
         self._check_gas_constant()
         self._check_option_consistency()
         super().__init__(c, reactants, packing_fraction, cache_root)
@@ -1662,6 +1816,34 @@ class CEAPythonBackend(PressureTableBackend):
                 "'products_from_reactants' is true.")
 
     def option_signature(self) -> Dict[str, Any]:
+        """Backend part of the cache key: content digests only, no absolute paths (P5-1)."""
+        c = self.c
+        return {
+            "cea_package_version": str(getattr(self.cea, "__version__", "unknown")),
+            "cea_library_version": str(self.cea.lib_version()),
+            "ions": bool(c.cea_py_ions),
+            "transport": bool(c.cea_py_transport),
+            "trace": float(c.cea_py_trace),
+            "products_from_reactants": bool(c.cea_py_products_from_reactants),
+            "product_species": list(c.cea_py_product_species),
+            "omit_species": list(c.cea_py_omit_species),
+            "insert_species": list(c.cea_py_insert_species),
+            "molecular_weight": str(c.cea_py_molecular_weight),
+            "smooth_truncation": bool(c.cea_py_smooth_truncation),
+            "truncation_width": float(c.cea_py_truncation_width),
+            "equilibrium_type": "HP",
+            "pressure_unit_for_api": "bar",
+            "enthalpy_convention": "h/R [K]",
+            "database": "official package thermo.lib (trans.lib only with transport)",
+            "database_identity": {
+                "selection": self.cea_database["selection"],
+                "thermo_lib_sha256": self.cea_database["thermo_lib_sha256"],
+                "trans_lib_sha256": self.cea_database["trans_lib_sha256"],
+            },
+        }
+
+    def _legacy_option_signature(self) -> Dict[str, Any]:
+        """The pre-P5-1 option signature, frozen for the schema-3 cache key."""
         c = self.c
         return {
             "cea_package_version": str(getattr(self.cea, "__version__", "unknown")),
@@ -1681,7 +1863,7 @@ class CEAPythonBackend(PressureTableBackend):
             "pressure_unit_for_api": "bar",
             "enthalpy_convention": "h/R [K]",
             "database": "package-internal thermo.lib / trans.lib",
-            "database_identity": dict(self.cea_database),
+            "database_identity": _cea_database_identity(self.cea),
         }
 
     # -- mixture construction -----------------------------------------------
@@ -2049,7 +2231,9 @@ class CEAPythonBackend(PressureTableBackend):
                                     "nozzle model is not replaced"),
             "finite_area_combustor": False,
             "external_files_required": False,
-            "database": "package-internal thermo.lib / trans.lib",
+            "database": ("thermo.lib of the official package, loaded explicitly; trans.lib of the "
+                         "package only with transport; thermo.lib / trans.lib in the working "
+                         "directory or CEA_DATA_DIR are ignored"),
             "database_identity": dict(self.cea_database),
         }
 

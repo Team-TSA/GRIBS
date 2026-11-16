@@ -272,6 +272,7 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
             "W_HIGH_CONDENSATE_G4B_UNVALIDATED",
             "W_TWO_PHASE_NOZZLE_APPROXIMATION",
             "W_THERMAL_EFFICIENCY_PARTIAL",
+            "W_EXTERNAL_CEA_DATABASE_IGNORED",
             "E_OUT_OF_VALIDATED_RANGE",
         }
     ]

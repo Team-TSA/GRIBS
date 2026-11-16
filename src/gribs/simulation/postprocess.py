@@ -932,6 +932,44 @@ def append_thermal_efficiency_warning(
     )
 
 
+def append_external_cea_database_warning(
+    summary: dict,
+    backend: ThermochemistryBackend,
+) -> None:
+    """Report thermo.lib / trans.lib files that GRIBS ignored (P5-1).
+
+    The cea_python backend always loads the database of the official package;
+    files in the working directory or in CEA_DATA_DIR, which a plain
+    ``import cea`` would have loaded instead, are listed here.
+    """
+    identity = getattr(backend, "cea_database", None)
+    if not isinstance(identity, dict):
+        return
+    ignored = identity.get("ignored_external_files") or []
+    if not ignored:
+        return
+    warnings = summary.setdefault("warnings", [])
+    code = "W_EXTERNAL_CEA_DATABASE_IGNORED"
+    if any(isinstance(w, dict) and w.get("code") == code for w in warnings):
+        return
+    warnings.append(
+        {
+            "code": code,
+            "severity": "warning",
+            "message": (
+                "CEA database files were found in the working directory or in "
+                "CEA_DATA_DIR and were ignored; the thermo.lib of the official "
+                "CEA package was used. Results do not depend on these files."
+            ),
+            "context": {
+                "ignored_files": [dict(f) for f in ignored],
+                "used_thermo_lib": identity.get("thermo_lib_path"),
+                "used_thermo_lib_sha256": identity.get("thermo_lib_sha256"),
+            },
+        }
+    )
+
+
 def summarize(res: dict, h: dict, c: Config,
               backend: Optional[ThermochemistryBackend] = None) -> dict:
     t = h["t"]
@@ -1184,6 +1222,7 @@ def summarize(res: dict, h: dict, c: Config,
     )
     append_model_applicability_warnings(s)
     append_thermal_efficiency_warning(s, c, backend)
+    append_external_cea_database_warning(s, backend)
     return s
 
 

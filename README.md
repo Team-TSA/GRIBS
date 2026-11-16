@@ -203,7 +203,9 @@ The `cea_python` backend:
 - performs HP equilibrium calculations through the Python API
 - does not launch an external executable
 - does not require `thermo.lib` or `trans.lib` beside the GRIBS script
-- records package, library, database, and cache provenance
+- always uses the `thermo.lib` of the official package (and its `trans.lib`, only when `transport` is true). A plain `import cea` would load a `thermo.lib` / `trans.lib` found in the working directory or in `CEA_DATA_DIR` instead; GRIBS imports `cea` without that automatic loading (`CEA_SKIP_INIT`) and loads the package files explicitly. Files found in those places are not read; the run reports them with the warning `W_EXTERNAL_CEA_DATABASE_IGNORED`. Selecting another database is not supported.
+- stops with `E_CEA_DATABASE_ALREADY_INITIALIZED` (exit code 3 on the command line) when `cea` was already loaded with another database in the same process, for example after `import cea` in a directory that contains a `thermo.lib`. cea cannot load a second database in a process; run GRIBS in a new process.
+- records package, library, database, and cache provenance: `summary.json` → `thermochemistry.database_identity` holds the full SHA-256 and the path of the `thermo.lib` used (and of `trans.lib` when it is used) and the ignored files
 
 Install the backend with:
 
@@ -550,7 +552,7 @@ GRIBS v0.6.2-alpha is alpha research software. **Its physical validity has not b
 - The external executable backend depends on the user's compatible executable and database files.
 - Theoretical CEA rocket diagnostics do not replace GRIBS results.
 - The chamber-property cache relies on the operating assumptions in [Chamber-property cache writes and concurrent runs](#chamber-property-cache-writes-and-concurrent-runs). Survival after a crash or power loss is not guaranteed (the parent of a newly created cache directory is not synced), and other users (UIDs), other file systems, other hosts, file systems without hard links, `security.*` / `trusted.*` extended attributes, SELinux and device files have not been tested. Publishing a new cache requires hard links or Linux `renameat2` (glibc 2.28 or later).
-- The `cea_python` cache key includes the path of the imported `cea` module (`cea_module_path`). After the virtual environment is moved or recreated at another path, the cache file name changes, the existing cache is not reused and the table is built again (GitHub Issue #10, item 3).
+- The `cea_python` cache key identifies the database by the SHA-256 of the package `thermo.lib` (and of `trans.lib` when `transport` is true) and contains no file paths, so moving or recreating the virtual environment does not invalidate the cache (GitHub Issue #10, item 3; changed by P5-1). Cache files written before this change have other keys and are not reused; the table is built again once.
 - Not included in this release and not approved for use: stopping at the property-table range with a dedicated exit code (M3), the safe output mode (output-directory locking and overwrite refusal), the Phase B physical extensions (B1: energy / equation-of-state closure), and the Phase B CEA comparison layers (B2-C, B2-D). None of them is connected to the program.
 - `MODEL_LIMITATIONS.md` summarises the model assumptions. It was written for the earlier v0.3 / v0.4 model and has been revised only minimally for v0.6.0-alpha, v0.6.1-alpha and v0.6.2-alpha; where it differs, this README and `CHANGELOG.md` take precedence.
 - Model outputs are not substitutes for static firing tests, material characterization, or independent review.

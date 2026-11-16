@@ -69,7 +69,8 @@ def environment_info() -> Dict[str, Any]:
         "matplotlib_version": matplotlib.__version__,
     }
     try:
-        import cea  # noqa: F401  (only for provenance)
+        # only for provenance; never lets the import load a database (P5-1)
+        cea = gribs.thermo.import_cea_without_auto_init()
         info["cea_python_version"] = getattr(cea, "__version__", None)
         info["cea_python_module_path"] = getattr(cea, "__file__", None)
         info["cea_library_version"] = str(cea.lib_version())
