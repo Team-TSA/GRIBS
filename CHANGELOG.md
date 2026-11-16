@@ -28,6 +28,7 @@ A-6 stage 1: the program code is split into a Python package and a Python interf
 - README: package layout, quick start, Python API; G0 approval of the v0.6.2-alpha release commit `3c0c98c`; G0 records in Release assets and in `docs/G0/`; the small margin of the total-mass-consistency check, the CI environment and the cache-key path (GitHub Issue #10, items 1–3; the issue stays open). The v0.6.2-alpha section no longer says "The README states that ...".
 - MODEL_LIMITATIONS.md: G4b has not been done because no usable public data was found.
 - MODEL_LIMITATIONS.md item 9 and README, "Known limitations": the At > Ae event `event_times.throat_exceeds_exit_s` and the warning `W_THROAT_EXCEEDS_EXIT_AREA` (P5-3).
+- README, "Run-state keys": the six run-state keys of P5-5. `summary.txt` prints them in a new `[ run state ]` section and lists every warning code of the run in a new `[ warning codes ]` section (display only; `summary.json` and all computed values are unchanged).
 - MODEL_LIMITATIONS.md item 5 describes the erosive-burning model as implemented (F-01, documentation only): one aft-end total mass flux, applied to the whole burning surface; not a port-average model; the unit of alpha.
 - `docs/G0/G0_APPROVAL_3c0c98c_2026-11-07.txt`: the G0 approval record of v0.6.2-alpha with an English summary.
 

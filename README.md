@@ -432,6 +432,19 @@ results/
 - `summary.json`: configuration, resolved runtime inputs, derived values, environment information, thermochemistry provenance, diagnostics, and results
 - `thermo_cache/`: reusable pressure-dependent chamber-property tables
 
+### Run-state keys
+
+The summary (`results` in `summary.json`, `Result.summary`) of a completed run has six run-state keys at its top level. `summary.txt` prints them in its `[ run state ]` section and lists every warning code of the run in its `[ warning codes ]` section. A run that stops with an error has no summary and no keys. The keys do not change `run_passed` or the exit code.
+
+| Key | Meaning |
+|---|---|
+| `solver_completed` | Both phases were integrated and the chamber pressure stayed finite. |
+| `mass_consistency_passed` | The post-run mass consistency check and the mass ledger both passed. |
+| `nominal_termination_reached` | The burn ended at burnout, and the blowdown ended at ambient pressure (or there was no blowdown). |
+| `model_domain_passed` | The throat area never exceeded the exit area (`event_times.throat_exceeds_exit_s` is empty) and there is no `E_OUT_OF_VALIDATED_RANGE`. Leaving the property-table range is a warning only. |
+| `warnings_present` | `warnings` is not empty. |
+| `results_usable` | The first four keys are all true. |
+
 ### Chamber-property cache writes and concurrent runs
 
 With caching enabled, a run writes the cache only when it builds the table: when no cache

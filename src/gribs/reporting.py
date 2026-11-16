@@ -17,6 +17,7 @@ import numpy as np
 
 from gribs.config import Config
 from gribs.constants import PROGRAM_VERSION, SCHEMA_VERSION
+from gribs.simulation.postprocess import RUN_STATE_KEYS
 
 
 #: v0.5.0-alpha column set.  MEANING CHANGES vs v0.4.3-alpha are RENAMED, not
@@ -285,6 +286,21 @@ def summary_text(s: dict, c: Config, thermo_md: Optional[dict] = None,
             )
             A(f"    {warning['message']}")
         A("")
+
+    # P5-5 (F-16) keys and every warning code of the run (display only).
+    if any(k in s for k in RUN_STATE_KEYS):
+        A("[ run state ]")
+        for key in RUN_STATE_KEYS:
+            A(f"  {key:<33}: {s.get(key, 'n/a')}")
+        A("")
+    all_warnings = [w for w in (s.get("warnings") or []) if isinstance(w, dict)]
+    A("[ warning codes ]")
+    if all_warnings:
+        for warning in all_warnings:
+            A(f"  [{warning.get('code')}] severity={warning.get('severity')}")
+    else:
+        A("  none")
+    A("")
 
     A("[ mass ledger ]")
     ledger = s["ledger"]
