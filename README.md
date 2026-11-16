@@ -445,6 +445,20 @@ The summary (`results` in `summary.json`, `Result.summary`) of a completed run h
 | `warnings_present` | `warnings` is not empty. |
 | `results_usable` | The first four keys are all true. |
 
+### Effective c* and Isp definitions
+
+`t_bo` is the end of the burning phase, `t_end` the end of the run (after the blowdown, if any), `m_out(t)` the product mass discharged through the nozzle up to `t`, `m_prop` the initial propellant mass, `I(t_end)` the total impulse and `g0 = 9.80665 m/s²`. The integrals are trapezoidal over the time-history samples.
+
+| Key | Definition |
+|---|---|
+| `cstar_burn_interval_m_s` | ∫ p0·At dt over the burning phase ÷ `m_out(t_bo)` (burning phase over burning phase). |
+| `cstar_eff_m_s` | ∫ p0·At dt over the burning phase ÷ `m_out(t_end)` (mixed definition, unchanged; `legacy_mixed_interval_cstar_m_s` has the same value). |
+| `cstar_full_interval_m_s` | ∫ p0·At dt over the whole run ÷ `m_out(t_end)`. |
+| `Isp_s` | `I(t_end)` ÷ (`m_prop`·g0): total impulse per initial propellant mass. |
+| `Isp_discharged_mass_s` | `I(t_end)` ÷ (`m_out(t_end)`·g0): total impulse per discharged product mass (gas and condensed; the `m_out` column of the time history). |
+
+Without a blowdown, `cstar_burn_interval_m_s` equals `cstar_eff_m_s`. With a blowdown, `cstar_burn_interval_m_s` is larger, because the mass discharged during the blowdown is not in its denominator (golden g3–g8: about +0.31 % to +0.40 %).
+
 ### Chamber-property cache writes and concurrent runs
 
 With caching enabled, a run writes the cache only when it builds the table: when no cache

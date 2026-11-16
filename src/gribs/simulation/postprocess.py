@@ -986,8 +986,14 @@ def summarize(res: dict, h: dict, c: Config,
     m_out_tot = float(h["m_out"][-1])
     m_gen_tot = float(h["m_gen"][burn][-1])
 
+    m_out_burn = float(h["m_out"][burn][-1])
     pAt_int = float(_TRAPZ(h["p0"][burn] * h["At"][burn], t[burn]))
+    # cstar_eff_m_s (and legacy_mixed_interval_cstar_m_s) keep the mixed definition: the burning-phase integral of
+    # p0*At divided by the mass discharged over the whole run (burn + blowdown).
     cstar_eff = pAt_int / m_out_tot if m_out_tot > 0 else float("nan")
+    # P5-6 (F-11): cstar_burn_interval_m_s is burn over burn: the burning-phase integral of p0*At divided by the mass
+    # discharged up to burnout.  Equal to cstar_eff_m_s when there is no blowdown.
+    cstar_burn = pAt_int / m_out_burn if m_out_burn > 0 else float("nan")
     CF_eff = I_burn / pAt_int if pAt_int > 0 else float("nan")
     p_mean = float(pAt_int / (At0 * (t_bo - t[0]))) if t_bo > t[0] else float("nan")
 
@@ -1064,10 +1070,13 @@ def summarize(res: dict, h: dict, c: Config,
         impulse_burn_Ns=I_burn,
         impulse_total_Ns=I_tot,
         impulse_blowdown_Ns=I_tot - I_burn,
+        # Isp_s: total impulse per initial propellant mass (unchanged).  P5-6 (F-12): the same impulse per mass
+        # discharged over the whole run is Isp_discharged_mass_s.
         Isp_s=I_tot / (m_prop * G0) if m_prop > 0 else float("nan"),
+        Isp_discharged_mass_s=I_tot / (m_out_tot * G0) if m_out_tot > 0 else float("nan"),
         cstar_eff_m_s=cstar_eff,
         local_model_cstar_m_s=cstar_local_median,
-        cstar_burn_interval_m_s=cstar_eff,
+        cstar_burn_interval_m_s=cstar_burn,
         cstar_full_interval_m_s=cstar_full,
         legacy_mixed_interval_cstar_m_s=cstar_eff,
         CF_eff=CF_eff,
