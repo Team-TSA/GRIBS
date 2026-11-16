@@ -56,7 +56,7 @@ from gribs.errors import (
     CEADatabaseError,
 )
 from gribs.util import _report_value_text
-from gribs.config import Config, require_finite_config
+from gribs.config import Config, reject_unsupported_cea_ions, require_finite_config
 
 #: The program directory: this file is <dir>/src/gribs/thermo.py and the entry is in <dir> (the entry puts <dir>/src
 #: on sys.path). A relative fcea2 executable path was resolved against the entry's directory before the move.
@@ -1792,6 +1792,8 @@ class CEAPythonBackend(PressureTableBackend):
 
     def _check_option_consistency(self) -> None:
         c = self.c
+        # P5-2 (F-19): also for a Config that did not pass validate(); before any Mixture / EqSolution
+        reject_unsupported_cea_ions(c)
         if c.cea_py_molecular_weight == "total_MW":
             raise ConfigurationError(
                 "thermochemistry.cea_python.molecular_weight = 'total_MW' is no "

@@ -257,6 +257,8 @@ from gribs.config import (  # noqa: E402, F401
     _is_nonfinite_number,
     require_finite_config,
     validate,
+    E_IONS_NOT_SUPPORTED,
+    reject_unsupported_cea_ions,
 )
 from gribs.thermo import (  # noqa: E402, F401
     _PROGRAM_DIR,

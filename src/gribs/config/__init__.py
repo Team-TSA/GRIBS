@@ -11,7 +11,8 @@ from typing import Any, Tuple
 
 import numpy as np
 
-from gribs.constants import KNOWN_BACKENDS, TWO_PHASE_HOMOGENEOUS
+from gribs.constants import BACKEND_CEA_PYTHON, KNOWN_BACKENDS, TWO_PHASE_HOMOGENEOUS
+from gribs.errors import ConfigurationError
 
 
 # ---- section 1: internal runtime configuration (field defaults are constructor fallbacks, not user input) ----
@@ -269,6 +270,24 @@ def require_finite_config(c: Config) -> None:
             raise ValueError(f"{field.name} must be a finite number, got {value!r}.")
 
 
+#: Error code of the rejection of thermochemistry.cea_python.ions = true (P5-2, F-19).
+E_IONS_NOT_SUPPORTED = "E_IONS_NOT_SUPPORTED"
+
+
+def reject_unsupported_cea_ions(c: Config) -> None:
+    """Reject ions = true for the cea_python backend (P5-2, F-19).
+
+    GRIBS builds the reactant Mixture without ions; with ions in the product Mixture and the solver, CEA reports
+    that the element lists differ and the process ends with SIGSEGV in EqSolution. The setting is therefore refused
+    as a configuration error (exit code 2) before any CEA call. Other backends do not read the option.
+    """
+    if c.thermo_backend == BACKEND_CEA_PYTHON and c.cea_py_ions:
+        raise ConfigurationError(
+            f"[{E_IONS_NOT_SUPPORTED}] thermochemistry.cea_python.ions = true is not supported: "
+            "ionized species are not included in the reactant mixture, and the official CEA package "
+            "ends the process when the product and reactant element lists differ. Set ions to false.")
+
+
 def validate(c: Config) -> None:
     # Every numeric Config field must be finite, also for Config objects built
     # or changed directly in Python (run_model() calls validate() first).
@@ -287,6 +306,7 @@ def validate(c: Config) -> None:
         raise ValueError("property_policy must be 'clamp' or 'extrapolate'.")
     if c.thermo_backend not in KNOWN_BACKENDS:
         raise ValueError("thermo_backend must be one of: " + ", ".join(KNOWN_BACKENDS) + ".")
+    reject_unsupported_cea_ions(c)
     if c.p_fit_min <= 0.0 or c.p_fit_max <= c.p_fit_min:
         raise ValueError("Require 0 < p_fit_min < p_fit_max.")
     if c.unchoked_policy not in ("switch", "stop"):
