@@ -15,6 +15,7 @@ import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from scipy.optimize import brentq
 
 import gribs.chamber.equilibrium
 import gribs.nozzle
@@ -1218,12 +1219,83 @@ def summarize(res: dict, h: dict, c: Config,
             if res["stop_burn"] == "time-limit"
             else []
         ),
-        event_times=res["t_events"],
+        event_times=dict(res["t_events"]),
     )
+    append_throat_exceeds_exit_area_warning(s, res, h, c)
     append_model_applicability_warnings(s)
     append_thermal_efficiency_warning(s, c, backend)
     append_external_cea_database_warning(s, backend)
     return s
+
+
+W_THROAT_EXCEEDS_EXIT_AREA = "W_THROAT_EXCEEDS_EXIT_AREA"
+THROAT_EXCEEDS_EXIT_EVENT = "throat_exceeds_exit_s"
+
+
+def throat_exceeds_exit_area_time(res: dict, h: dict, c: Config) -> Optional[float]:
+    """P5-3 (F-06): first time at which the eroding throat area exceeds the fixed exit area, or None.
+
+    Found after the integration, which is not changed: the first sample of the history with At > Ae
+    (gribs.nozzle.throat_exceeds_exit_area) and the sample before it bracket the crossing, and the crossing is
+    located on the dense solution of that phase.  If the first sample is already beyond Ae, its time is returned.
+    The throat radius does not decrease (the erosion rate is >= 0), so the first crossing is the only one.
+    """
+    t = np.asarray(h["t"], dtype=float)
+    over = np.flatnonzero(gribs.nozzle.throat_exceeds_exit_area(
+        np.asarray(h["Rt"], dtype=float), c.R_t0, c.eps_nozzle))
+    if over.size == 0:
+        return None
+    k = int(over[0])
+    if k == 0:
+        return float(t[0])
+    limit = gribs.nozzle.exit_area_throat_radius(c.R_t0, c.eps_nozzle)
+    t_burn_end = float(res["sol_burn"].t[-1])
+
+    def excess(s: float) -> float:
+        sol = res["sol_burn"] if (s <= t_burn_end or res["sol_blow"] is None) else res["sol_blow"]
+        return float(sol.sol(s)[IRT]) - limit
+
+    a, b = float(t[k - 1]), float(t[k])
+    if excess(a) >= 0.0:
+        return a
+    if not excess(b) > 0.0:
+        return b
+    return float(brentq(excess, a, b, xtol=np.finfo(float).tiny,
+                        rtol=4.0 * np.finfo(float).eps, maxiter=200))
+
+
+def append_throat_exceeds_exit_area_warning(summary: dict, res: dict, h: dict, c: Config) -> None:
+    """P5-3 (F-06): record when the throat area exceeds the fixed exit area.
+
+    Adds event_times["throat_exceeds_exit_s"] (empty when the run stays at At <= Ae, as the other events) and,
+    when the crossing occurs, the warning W_THROAT_EXCEEDS_EXIT_AREA.  Nothing else is changed: the run continues,
+    the nozzle model and all computed values are unchanged, and the warning does not change the run verdict.
+    """
+    t_cross = throat_exceeds_exit_area_time(res, h, c)
+    summary["event_times"][THROAT_EXCEEDS_EXIT_EVENT] = [] if t_cross is None else [t_cross]
+    if t_cross is None:
+        return
+    Rt = np.asarray(h["Rt"], dtype=float)
+    k = int(np.flatnonzero(gribs.nozzle.throat_exceeds_exit_area(Rt, c.R_t0, c.eps_nozzle))[0])
+    summary.setdefault("warnings", []).append({
+        "code": W_THROAT_EXCEEDS_EXIT_AREA,
+        "severity": "warning",
+        "message": (
+            f"The eroding throat area exceeded the fixed exit area (At > Ae) at t = {t_cross:.6f} s. "
+            "This is outside the model domain: the exit area is fixed, and from this time the nozzle is "
+            "computed with the exit as the smallest section. Thrust and mass flow after this time are not "
+            "validated; at an unchoking with At > Ae they change discontinuously by the factor At/Ae."
+        ),
+        "context": {
+            "time_s": t_cross,
+            "phase": str(h["phase"][k]),
+            "eps_nozzle": c.eps_nozzle,
+            "initial_throat_radius_m": c.R_t0,
+            "exit_area_throat_radius_m": gribs.nozzle.exit_area_throat_radius(c.R_t0, c.eps_nozzle),
+            "final_throat_radius_m": float(Rt[-1]),
+            "final_throat_to_exit_area_ratio": float((Rt[-1] / c.R_t0) ** 2 / c.eps_nozzle),
+        },
+    })
 
 
 def append_run_verdict_warnings(summary: dict) -> None:

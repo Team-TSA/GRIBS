@@ -112,6 +112,22 @@ def choke_margin(p0: float, At: float, Ae: float, c: Config) -> float:
     return p0 - choke_threshold_pressure(p0, At, Ae, c)
 
 
+def exit_area_throat_radius(R_t0: float, eps: float) -> float:
+    """Throat radius whose area equals the fixed exit area Ae = eps*pi*R_t0**2 [m]."""
+    return R_t0 * math.sqrt(eps)
+
+
+def throat_exceeds_exit_area(Rt, R_t0: float, eps: float):
+    """P5-3 (F-06): True where the throat area exceeds the fixed exit area (At > Ae).
+
+    Compared on the radius, Rt > R_t0*sqrt(eps), with no tolerance.  The integrator forms At as pi*Rt*Rt and Ae
+    as eps*(pi*R_t0**2); the two round differently (golden g1: At = Ae + 1 ulp at t = 0), so an area comparison
+    would call an uneroded nozzle with eps = 1 "At > Ae".  On the radius, sqrt(1) = 1 and R_t0*1 = R_t0 exactly,
+    and without erosion Rt stays equal to R_t0, so such a run is never flagged.  Rt may be a number or an array.
+    """
+    return Rt > exit_area_throat_radius(R_t0, eps)
+
+
 def choke_limit_pressure(c: Config, At: float, Ae: float) -> Optional[float]:
     """Solve p0 = p_threshold(p0) (the fixed point marking the choking limit)."""
     f = lambda p: choke_margin(p, At, Ae, c)
