@@ -371,6 +371,8 @@ from gribs.simulation.postprocess import (  # noqa: E402, F401
     phase_fraction_validation_error,
     model_applicability_error,
     append_model_applicability_warnings,
+    MIGRATION_MODEL_CHANGE_KEYWORD,
+    append_migration_model_change_warning,
     append_property_table_crossing_warning,
     append_thermal_efficiency_warning,
     append_external_cea_database_warning,

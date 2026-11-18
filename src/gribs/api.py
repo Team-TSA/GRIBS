@@ -86,21 +86,7 @@ def _run(path: Path, backend_override: Optional[str]) -> Result:
     # If migration from v0.4.3 changed the physical model, record it as a
     # machine-readable warning (previously this only appeared in stderr and
     # configuration_migration.notes, making it invisible to automated checks).
-    if loaded.migration_notes:
-        _model_change_keywords = ("THIS CHANGES THE PHYSICAL MODEL",)
-        for _note in loaded.migration_notes:
-            if any(kw in _note for kw in _model_change_keywords):
-                summ.setdefault("warnings", []).append({
-                    "code": "W_MIGRATION_MODEL_CHANGE",
-                    "severity": "warning",
-                    "message": (
-                        "Automatic configuration migration changed the physical "
-                        "model.  See configuration_migration.notes in the summary "
-                        "for details."
-                    ),
-                    "context": {"migration_note": _note},
-                })
-                break
+    gribs.simulation.postprocess.append_migration_model_change_warning(summ, loaded.migration_notes)
     _cache_dur = getattr(backend, "cache_write_durability", None)      # cache durability warning
     if _cache_dur:
         summ.setdefault("warnings", []).append({
