@@ -1427,7 +1427,8 @@ def append_run_state_warnings(summary: dict, h: dict) -> None:
                 + "; outside it the properties were "
                 + ("held at the nearest table limit" if policy == "clamp" else "extrapolated")
                 + f" (outside_range_policy = {policy!r}). This is reported as a warning; it is not a "
-                "model-domain violation and does not make the results unusable."
+                "model-domain violation and does not make the results unusable. To cover the run, widen the "
+                "table range (thermochemistry.pressure_range.minimum_Pa / maximum_Pa)."
             ),
             "context": {
                 "policy": policy,
@@ -1437,6 +1438,9 @@ def append_run_state_warnings(summary: dict, h: dict) -> None:
                 "property_range_max_Pa": summary.get("property_range_max_Pa"),
                 "pressure_min_Pa": summary.get("pressure_min_Pa"),
                 "pressure_max_Pa": summary.get("pressure_max_Pa"),
+                # added by the integration of A-9 (the only two A-9 keys without an equivalent above)
+                "points_total": int(np.asarray(h["extrap"]).size),
+                "basis": "sampled_history_all_phases",
             },
         })
 
