@@ -1,7 +1,7 @@
 {
   "schema_version": "0.5.0-alpha",
   "notes": [
-    "Wide-table variant of golden case g2: only thermochemistry.pressure_range.maximum_Pa is changed to 6e+07 Pa so that the run stays inside the property table (report 169).  Not a frozen golden case: no recorded output, values are not regression references.",
+    "Wide-table variant of golden case g2: only thermochemistry.pressure_range.maximum_Pa is changed to 6e+07 Pa so that the run stays inside the property table (report 174).  Not a frozen golden case: no recorded output, values are not regression references.",
     "A-8 golden case 2: single-phase CEA (AP/HTPB, no aluminum)"
   ],
   "propellant": {

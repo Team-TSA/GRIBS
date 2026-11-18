@@ -5260,7 +5260,7 @@ def append_property_table_extrapolation_warning(
     hence no W_PROPERTY_TABLE_RANGE_CROSSED).  Diagnostic only: no number other
     than one entry in ``warnings`` changes.
 
-    Merge note (A-9, report 167): another branch may emit the same code; the
+    Merge note (A-9, report 172): another branch may emit the same code; the
     dedupe guard below keeps only the first producer, so reconcile the
     conditions and the context keys explicitly when merging.
     """
