@@ -243,23 +243,30 @@ def test_summary_warns_for_g2_and_not_for_g1(tmp_path):
 
 @pytest.mark.fast
 def test_extrapolation_warning_helper():
-    c = SimpleNamespace(property_policy="clamp", p_fit_min=PMIN, p_fit_max=PMAX)
-    none = {"warnings": []}
-    g.append_property_table_extrapolation_warning(
-        none, {"extrap": [False, False], "p0": [2e6, 3e6]}, c)
-    assert none["warnings"] == []
-    summ = {"warnings": []}
-    h = {"extrap": [False, True, True, False], "p0": [2e6, 9e6, 1e7, 3e6]}
-    g.append_property_table_extrapolation_warning(summ, h, c)
-    g.append_property_table_extrapolation_warning(summ, h, c)  # no duplicate
+    """W_PROPERTY_TABLE_EXTRAPOLATED has one producer (P5-5 append_run_state_warnings); A-9 added points_total and
+    basis to its context and a hint to its message (report 178)."""
+    def hist(extrap):
+        n = len(extrap)
+        return {"t": np.linspace(0.0, 1.0, n), "phase": np.array(["burn"] * n, dtype=object),
+                "regime": np.array(["choked"] * n, dtype=object), "extrap": np.array(extrap, dtype=bool)}
+
+    base = {"burn_stop_reason": "burnout", "blowdown_stop_reason": "ambient", "property_policy": "clamp"}
+    none = dict(base, property_extrapolation=False)
+    g.append_run_state_warnings(none, hist([False, False]))
+    assert none.get("warnings", []) == []
+    h = hist([False, True, True, False])
+    summ = dict(base, property_extrapolation=True, property_extrapolation_points=2,
+                property_extrapolation_fraction=0.5, property_range_min_Pa=PMIN, property_range_max_Pa=PMAX,
+                pressure_min_Pa=2e6, pressure_max_Pa=1e7)
+    g.append_run_state_warnings(summ, h)
+    g.append_run_state_warnings(summ, h)  # no duplicate
     [w] = summ["warnings"]
     assert w["code"] == "W_PROPERTY_TABLE_EXTRAPOLATED" and w["severity"] == "warning"
     ctx = w["context"]
-    assert ctx["points_outside"] == 2 and ctx["fraction_outside"] == 0.5
-    assert ctx["history_max_Pa"] == 1e7 and ctx["table_max_Pa"] == PMAX
-    assert set(ctx) == {"basis", "property_policy", "points_outside", "points_total",
-                        "fraction_outside", "table_min_Pa", "table_max_Pa",
-                        "history_min_Pa", "history_max_Pa"}
+    assert ctx["points"] == 2 and ctx["fraction"] == 0.5 and ctx["points_total"] == 4
+    assert ctx["pressure_max_Pa"] == 1e7 and ctx["property_range_max_Pa"] == PMAX
+    assert set(ctx) == {"policy", "points", "fraction", "property_range_min_Pa", "property_range_max_Pa",
+                        "pressure_min_Pa", "pressure_max_Pa", "points_total", "basis"}
     assert ctx["basis"] == "sampled_history_all_phases"
     assert "pressure_range.minimum_Pa" in w["message"]
 

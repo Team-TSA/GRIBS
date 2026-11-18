@@ -1087,10 +1087,10 @@ def test_post_run_tolerance_is_linked_to_rtol_with_a_floor():
     assert gribs.post_run_mass_tolerance(1.0e-6) == pytest.approx(1.0e-4)
     result = {"m_total0": 1.0}
     history = {
-        "m_gen": gribs.np.array([0.0, 0.0]),
-        "m_out": gribs.np.array([0.0, 0.0]),
-        "m_total_eos": gribs.np.array([1.0, 1.0]),
-        "m_total_balance": gribs.np.array([1.0, 1.0 + 1.0e-5]),
+        "m_gen": np.array([0.0, 0.0]),
+        "m_out": np.array([0.0, 0.0]),
+        "m_total_eos": np.array([1.0, 1.0]),
+        "m_total_balance": np.array([1.0, 1.0 + 1.0e-5]),
     }
     tight = gribs.post_run_consistency_report(result, history, rtol=1.0e-10)
     loose = gribs.post_run_consistency_report(result, history, rtol=1.0e-6)

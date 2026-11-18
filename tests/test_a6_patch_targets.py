@@ -162,6 +162,7 @@ REGISTRATIONS = {
     ("tests/test_n6_homogeneous_equals_legacy_totals.py", "'gribs_entry'"): "entry",
     ("tests/test_nonfinite_config_inputs.py", "'gribs_nonfinite_inputs'"): "entry",
     ("tests/test_selftest_backend_modes.py", "'gribs_entry'"): "entry",
+    ("tests/test_wide_table_cases.py", "'gribs_wide_table'"): "entry",  # A-9: loads BODY = the entry GRIBS_v*.py
 }
 ENTRY_NAMES = frozenset(ast.literal_eval(k[1]) for k, v in REGISTRATIONS.items() if v == "entry")
 
