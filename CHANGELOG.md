@@ -4,6 +4,23 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- A run that crosses `p_fit_min` / `p_fit_max` (property_policy `clamp`) now also reports the warning `W_PROPERTY_TABLE_RANGE_CROSSED` in `summary.json` (`warnings`, with the restart records in `context`); previously only the stderr line existed. The summary schema and CSV format are unchanged.
+- A run whose sampled history used chamber pressures outside the property table now reports `W_PROPERTY_TABLE_EXTRAPOLATED` in `summary.json` (`warnings`; context: points, fraction, table range, history range). It also covers a run that starts outside the table and never crosses a limit. Measured: golden g2 spends 84 % of the burn above the 8 MPa table limit; g3-g6 stay inside. No other number changes.
+  Context keys: `basis` (`sampled_history_all_phases`), `property_policy`, `points_outside`, `points_total`, `fraction_outside`, `table_min_Pa`, `table_max_Pa`, `history_min_Pa`, `history_max_Pa`.
+- `append_migration_model_change_warning(summary, migration_notes)`: the logic that adds `W_MIGRATION_MODEL_CHANGE` is now a function; the command line calls it (output unchanged) and a library caller that runs `summarize()` on a migrated configuration can pass `LoadedConfiguration.migration_notes` to get the same warning.
+- New tests: `tests/test_v043_anchor.py` (the current program reproduces the published v0.4.3-alpha, taken from the git tag, for a condensed AP/Al/C7H8 case: all total quantities equal to 1e-9; measured difference 0) and `tests/test_wide_table_cases.py` with the non-frozen wide-table variants in `cases/wide_table/` (golden g2 / g5 with a larger `maximum_Pa`, runs entirely inside the table).
+
+### Changed
+
+- The post-run mass-consistency tolerance is now `max(1e-6, 100 * relative_tolerance)` instead of the fixed 1e-6 (the propellant ledger already used `max(1e-9, 100 * rtol)`). The default `relative_tolerance = 1e-10` gives the same tolerance as before; only a looser `relative_tolerance` widens it (measured: with rtol = 1e-6 golden g2-g6 exceeded the fixed 1e-6). `summary.json` `post_run_consistency` gains `tolerance_formula` and `rtol`.
+- **Breaking:** `temperature_efficiency` (`eta_T0`) must now lie in (0, 1]. Values above 1 (accepted up to 1.5 before) put T0 above the CEA adiabatic (HP equilibrium) temperature and are rejected with a configuration error (exit code 2); use `eta_T0 <= 1`, 1.0 being the standard model. All configurations in this repository use 1.0, so the golden cases are unaffected. `W_THERMAL_EFFICIENCY_PARTIAL` is unchanged for `eta_T0 < 1`.
+
+### Notes
+
+- Warning-code vocabulary: `W_MIGRATION_MODEL_CHANGE` is the implemented code for a configuration migration that changes the physical model (the command line adds it itself; library callers use `append_migration_model_change_warning`). `W_MASS_BASIS_CONFIG_MIGRATED` (improvement plan candidate) is not implemented and is covered by `W_MIGRATION_MODEL_CHANGE`; `W_DEPRECATED_MOLECULAR_WEIGHT_KEY` (review proposal) was not adopted: `gas_phase_M` is a frozen compatibility token accepted without a warning.
+
 ## [v0.6.0-alpha] "Keystone" - 2026-11-05
 
 **Consistent Thermochemistry Foundation.** First public release after
@@ -37,14 +54,6 @@ B2-C, B2-D) are not included.
 
 - The ODE integration no longer stalls at the property-table limits. With `property_policy = "clamp"` (table backends) dp/dt jumps at `p_fit_min` / `p_fit_max`; LSODA could shrink its step to ~1e-10 s there and, depending on its history, never finish (observed for g2 with a 1e-13 perturbation of the gamma_s table). The integration now ends a segment at each crossing of a table limit and continues with a fresh solver from the crossing state. Runs that never cross a limit, and the reference_constant backend, are integrated exactly as before. A run that restarts writes one diagnostic line `INTEGRATION_TABLE_RESTARTS {...}` to stderr; the summary and CSV formats are unchanged.
 - Safety limits for one run: 2,000,000 right-hand-side evaluations, 300 s of wall time and 10,000 restarts at the table limits. Exceeding one stops the run with `E_INTEGRATION_BUDGET_EXCEEDED` (exit code 4) instead of running without end.
-- A run that crosses `p_fit_min` / `p_fit_max` (property_policy `clamp`) now also reports the warning `W_PROPERTY_TABLE_RANGE_CROSSED` in `summary.json` (`warnings`, with the restart records in `context`); previously only the stderr line existed. The summary schema and CSV format are unchanged.
-- The post-run mass-consistency tolerance is now `max(1e-6, 100 * relative_tolerance)` instead of the fixed 1e-6 (the propellant ledger already used `max(1e-9, 100 * rtol)`). The default `relative_tolerance = 1e-10` gives the same tolerance as before; only a looser `relative_tolerance` widens it (measured: with rtol = 1e-6 golden g2-g6 exceeded the fixed 1e-6). `summary.json` `post_run_consistency` gains `tolerance_formula` and `rtol`.
-- A run whose sampled history used chamber pressures outside the property table now reports `W_PROPERTY_TABLE_EXTRAPOLATED` in `summary.json` (`warnings`; context: points, fraction, table range, history range). It also covers a run that starts outside the table and never crosses a limit. Measured: golden g2 spends 84 % of the burn above the 8 MPa table limit; g3-g6 stay inside. No other number changes.
-  Context keys: `basis` (`sampled_history_all_phases`), `property_policy`, `points_outside`, `points_total`, `fraction_outside`, `table_min_Pa`, `table_max_Pa`, `history_min_Pa`, `history_max_Pa`.
-- **Breaking:** `temperature_efficiency` (`eta_T0`) must now lie in (0, 1]. Values above 1 (accepted up to 1.5 before) put T0 above the CEA adiabatic (HP equilibrium) temperature and are rejected with a configuration error (exit code 2); use `eta_T0 <= 1`, 1.0 being the standard model. All configurations in this repository use 1.0, so the golden cases are unaffected. `W_THERMAL_EFFICIENCY_PARTIAL` is unchanged for `eta_T0 < 1`.
-- `append_migration_model_change_warning(summary, migration_notes)`: the logic that adds `W_MIGRATION_MODEL_CHANGE` is now a function; the command line calls it (output unchanged) and a library caller that runs `summarize()` on a migrated configuration can pass `LoadedConfiguration.migration_notes` to get the same warning.
-- New tests: `tests/test_v043_anchor.py` (the current program reproduces the published v0.4.3-alpha, taken from the git tag, for a condensed AP/Al/C7H8 case: all total quantities equal to 1e-9; measured difference 0) and `tests/test_wide_table_cases.py` with the non-frozen wide-table variants in `cases/wide_table/` (golden g2 / g5 with a larger `maximum_Pa`, runs entirely inside the table).
-- Warning-code vocabulary: `W_MIGRATION_MODEL_CHANGE` is the implemented code for a configuration migration that changes the physical model (CLI path only). `W_MASS_BASIS_CONFIG_MIGRATED` (improvement plan candidate) is not implemented and is covered by `W_MIGRATION_MODEL_CHANGE`; `W_DEPRECATED_MOLECULAR_WEIGHT_KEY` (review proposal) was not adopted: `gas_phase_M` is a frozen compatibility token accepted without a warning.
 - Run outputs are kept when the comparison-only CEA theoretical diagnostics
   fail or are incomplete. Previously a failed diagnostic raised `KeyError`
   after the simulation and before any output file was written. The status is
