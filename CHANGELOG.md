@@ -6,6 +6,14 @@ All notable changes to GRIBS are documented in this file.
 
 A-6 stage 1: the program code is split into a Python package and a Python interface is added. The program version stays `0.6.2-alpha`. G0 has not been decided for these changes.
 
+### Breaking
+
+Details of each item are under "Changed".
+
+- P5-1: the `cea_python` cache key no longer contains absolute paths (`cea_module_path` removed; it contains the database digests), so all `cea_python` cache keys change once. `thermo.lib` / `trans.lib` in the working directory or in `CEA_DATA_DIR` are ignored and only the database of the official CEA package is used. A run that used to pick up a different database from the working directory can give different numerical results; with the package database the results are unchanged.
+- P5-2: `thermochemistry.cea_python.ions = true` is rejected before any CEA call (`E_IONS_NOT_SUPPORTED`, exit code 2), also by `--validate-config`. Before, the configuration was accepted as valid and a run could end with SIGSEGV.
+- P5-6: `cstar_burn_interval_m_s` is now burning-phase p0·At integral / mass discharged up to burnout (before, a copy of `cstar_eff_m_s`). Runs with a blowdown get a larger value (golden g3–g8: about +0.31 % to +0.40 %). `cstar_eff_m_s` and `Isp_s` are unchanged. New key `Isp_discharged_mass_s`.
+
 ### Changed
 
 - The program code is moved from the single file `GRIBS_v0.6.2-alpha.py` into the package `gribs` under `src/gribs/` (22 modules). `GRIBS_v0.6.2-alpha.py` remains the program file: it adds `src/` to the import path and imports the moved names back, so existing callers of its names keep working. Command-line options, exit codes, outputs and numerical results are unchanged: after each step of the split, the golden cases g1–g8 gave byte-identical time histories, CEA caches and figures, and identical normalized summaries, compared with the v0.6.2-alpha G0 reproduction.
