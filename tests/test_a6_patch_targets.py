@@ -90,6 +90,7 @@ MODULE_UNIT = {
     "gribs.energy.provider": 1,
     "gribs.energy.recovery": 1,
     "gribs.energy.exceptions": 1,
+    "gribs.energy.initial": 1,
     "gribs.config": 2,
     "gribs.thermo": 3,
     "gribs.propellant": 4,
