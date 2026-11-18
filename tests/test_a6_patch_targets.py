@@ -85,6 +85,8 @@ MODULE_UNIT = {
     "gribs.energy.config_model": 1,
     "gribs.energy.energy_validation": 1,
     "gribs.energy.config_parse": 9,
+    "gribs.energy.balance": 1,
+    "gribs.energy.state": 1,
     "gribs.config": 2,
     "gribs.thermo": 3,
     "gribs.propellant": 4,
