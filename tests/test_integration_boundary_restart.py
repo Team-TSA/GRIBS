@@ -209,3 +209,81 @@ def test_cli_without_restart_writes_no_restart_line(tmp_path):
     p = subprocess.run([sys.executable, str(BODY), "--config", str(cfg_run)], capture_output=True, text=True, timeout=300)
     assert p.returncode == 0, p.stderr[-500:]
     assert "INTEGRATION_TABLE_RESTARTS" not in p.stderr
+
+
+@pytest.mark.fast
+def test_crossing_warning_helper_present_and_absent():
+    summ = {"warnings": []}
+    g.append_property_table_crossing_warning(summ, {"integration_budget": {"table_restarts_burn": [], "table_restarts_blowdown": []}})
+    assert summ["warnings"] == []
+    rs = [{"t_s": 0.1, "limit": "p_fit_max", "direction": "up", "p0_Pa": PMAX}]
+    res = {"integration_budget": {"table_restarts_burn": rs, "table_restarts_blowdown": []}}
+    g.append_property_table_crossing_warning(summ, res)
+    g.append_property_table_crossing_warning(summ, res)  # idempotent
+    [w] = summ["warnings"]
+    assert w["code"] == "W_PROPERTY_TABLE_RANGE_CROSSED" and w["severity"] == "warning"
+    assert w["context"]["restart_count"] == 1 and w["context"]["restarts_burn"] == rs
+
+
+@pytest.mark.integration
+def test_summary_warns_for_g2_and_not_for_g1(tmp_path):
+    for case, expected in (("g2", True), ("g1", False)):
+        sub = tmp_path / case
+        sub.mkdir()
+        c, res, h = run_doc(golden_doc(case, sub), sub)
+        codes = [w["code"] for w in g.summarize(res, h, c)["warnings"]]
+        assert ("W_PROPERTY_TABLE_RANGE_CROSSED" in codes) is expected
+
+
+@pytest.mark.fast
+def test_extrapolation_warning_helper():
+    c = SimpleNamespace(property_policy="clamp", p_fit_min=PMIN, p_fit_max=PMAX)
+    none = {"warnings": []}
+    g.append_property_table_extrapolation_warning(
+        none, {"extrap": [False, False], "p0": [2e6, 3e6]}, c)
+    assert none["warnings"] == []
+    summ = {"warnings": []}
+    h = {"extrap": [False, True, True, False], "p0": [2e6, 9e6, 1e7, 3e6]}
+    g.append_property_table_extrapolation_warning(summ, h, c)
+    g.append_property_table_extrapolation_warning(summ, h, c)  # no duplicate
+    [w] = summ["warnings"]
+    assert w["code"] == "W_PROPERTY_TABLE_EXTRAPOLATED" and w["severity"] == "warning"
+    ctx = w["context"]
+    assert ctx["points_outside"] == 2 and ctx["fraction_outside"] == 0.5
+    assert ctx["history_max_Pa"] == 1e7 and ctx["table_max_Pa"] == PMAX
+    assert set(ctx) == {"basis", "property_policy", "points_outside", "points_total",
+                        "fraction_outside", "table_min_Pa", "table_max_Pa",
+                        "history_min_Pa", "history_max_Pa"}
+    assert ctx["basis"] == "sampled_history_all_phases"
+    assert "pressure_range.minimum_Pa" in w["message"]
+
+
+@pytest.mark.integration
+def test_summary_extrapolation_warning_g2_yes_g3_no(tmp_path):
+    for case, expected in (("g2", True), ("g3", False)):
+        sub = tmp_path / case
+        sub.mkdir()
+        c, res, h = run_doc(golden_doc(case, sub), sub)
+        codes = [w["code"] for w in g.summarize(res, h, c)["warnings"]]
+        assert ("W_PROPERTY_TABLE_EXTRAPOLATED" in codes) is expected
+
+
+@pytest.mark.fast
+def test_recorded_golden_extrapolation_facts():
+    """The frozen golden outputs record which cases lie outside the property table.
+
+    g2 (table 0.1-8 MPa, MEOP about 44.5 MPa) is a clamped-table regression
+    reference; g3-g6 stay inside.  If g2 is ever regenerated with a wider
+    table, this test must be updated on purpose.
+    """
+    def results(case):
+        path = next(ROOT.glob(f"results_golden_{case}*/summary.json"))
+        return json.loads(path.read_text())["results"]
+
+    g2 = results("g2")
+    assert g2["property_extrapolation"] is True
+    assert g2["property_extrapolation_fraction"] > 0.5
+    for case in ("g3", "g4", "g5", "g6"):
+        r = results(case)
+        assert r["property_extrapolation"] is False
+        assert r["property_extrapolation_fraction"] == 0.0

@@ -4026,20 +4026,24 @@ def validate(c: Config) -> None:
         raise ValueError("unchoked_policy must be 'switch' or 'stop'.")
     if c.transition_policy not in ("jump", "shock"):
         raise ValueError("transition_policy must be 'jump' or 'shock'.")
-    # A-7: eta_T0 range check (review §3-E1)
-    # eta_T0 > 1 would produce temperatures above the adiabatic flame
-    # temperature, which is physically inconsistent with the current model.
-    if not (0.0 < c.eta_T0 <= 1.5):
+    # eta_T0 range (0, 1] (review §3-E1, applied in A-9).  eta_T0 > 1 would put
+    # T0 above the CEA adiabatic (HP equilibrium) temperature and, with the
+    # other empirical coefficients, would be a way to tune results; it was
+    # accepted up to 1.5 before.
+    if not (0.0 < c.eta_T0 <= 1.0):
         raise ValueError(
-            f"temperature_efficiency (eta_T0) must lie in (0, 1.5], got "
-            f"{c.eta_T0}.  Values above 1.0 are physically inconsistent "
-            f"with the current model (they exceed the adiabatic flame "
-            f"temperature).  Use eta_T0 = 1.0 for the standard model.")
+            f"temperature_efficiency (eta_T0) must lie in (0, 1], got "
+            f"{c.eta_T0}.  Values above 1.0 would raise T0 above the CEA "
+            f"adiabatic (HP equilibrium) temperature and are rejected "
+            f"(previously accepted up to 1.5).  Use eta_T0 <= 1.0; "
+            f"eta_T0 = 1.0 is the standard model.")
     # A-7: pressure range vs initial/ambient pressure (review §3-E2)
     # The blowdown terminal pressure approaches p_a; if p_a is too close to
     # p_fit_min, the tail of the blowdown is dominated by clamping.
-    # This is a warning, not an error, because the default config works
-    # adequately with the current margin.
+    # The default configuration keeps p_a only about 1 % above p_fit_min
+    # (measured: no extrapolated point in the blowdown tail of g3-g6), so only
+    # p_a < p_fit_min is rejected here; use of pressures outside the table is
+    # reported afterwards by W_PROPERTY_TABLE_EXTRAPOLATED.
     if c.p_a < c.p_fit_min:
         raise ValueError(
             f"ambient pressure p_a = {c.p_a:.0f} Pa is below the "
@@ -4344,7 +4348,21 @@ def nozzle_transition_diagnostics(
     return result
 
 
-def post_run_consistency_report(res: dict, h: dict) -> dict:
+def post_run_mass_tolerance(rtol: Optional[float] = None) -> float:
+    """Post-run mass-consistency tolerance: max(POST_RUN_MASS_TOLERANCE, 100*rtol).
+
+    The floor 1e-6 is the tolerance for the default solver tolerance
+    (rtol = 1e-10, where 100*rtol is far below the floor); only a looser
+    relative_tolerance widens it.  Without ``rtol`` the floor is returned.
+    """
+    if rtol is None:
+        return POST_RUN_MASS_TOLERANCE
+    return max(POST_RUN_MASS_TOLERANCE, 100.0 * float(rtol))
+
+
+def post_run_consistency_report(
+    res: dict, h: dict, rtol: Optional[float] = None
+) -> dict:
     """Return one authoritative post-simulation mass-consistency report.
 
     The invariant EOS-history metric uses one run-wide reference mass and
@@ -4355,6 +4373,7 @@ def post_run_consistency_report(res: dict, h: dict) -> dict:
     deprecated diagnostic for historical comparison, but it is not used as
     the post-run gate.
     """
+    tolerance = post_run_mass_tolerance(rtol)
     m_total0 = float(res["m_total0"])
     m_gen = np.asarray(h["m_gen"], dtype=float)
     m_out = np.asarray(h["m_out"], dtype=float)
@@ -4395,15 +4414,17 @@ def post_run_consistency_report(res: dict, h: dict) -> dict:
     )
 
     final_passed = bool(
-        final_relative_error < POST_RUN_MASS_TOLERANCE
+        final_relative_error < tolerance
     )
     eos_history_passed = bool(
-        invariant_relative_error < POST_RUN_MASS_TOLERANCE
+        invariant_relative_error < tolerance
     )
 
     return {
         "schema_version": "a5-1-2d-post-run-1",
-        "tolerance": POST_RUN_MASS_TOLERANCE,
+        "tolerance": tolerance,
+        "tolerance_formula": "max(1e-6, 100*rtol)",
+        "rtol": None if rtol is None else float(rtol),
         "final_total_mass": {
             "lhs_initial_plus_generated_kg": lhs,
             "rhs_discharged_plus_remaining_kg": rhs,
@@ -5053,7 +5074,7 @@ def summarize(res: dict, h: dict, c: Config,
 
     # One authoritative post-run consistency report.  The legacy metric is
     # retained under its existing field name for output compatibility.
-    post_run = post_run_consistency_report(res, h)
+    post_run = post_run_consistency_report(res, h, rtol=c.rtol)
     mass_err = post_run["eos_history"][
         "legacy_instantaneous_mass_relative_error"
     ]
@@ -5272,7 +5293,127 @@ def summarize(res: dict, h: dict, c: Config,
     )
     append_model_applicability_warnings(s)
     append_thermal_efficiency_warning(s, c, backend)
+    append_property_table_crossing_warning(s, res)
+    append_property_table_extrapolation_warning(s, h, c)
     return s
+
+
+def append_property_table_extrapolation_warning(
+    summary: dict, h: dict, c: Config
+) -> None:
+    """Warn when part of the history used chamber pressures outside the table.
+
+    This is based on the sampled history (``h["extrap"]``), so it also covers
+    a run that starts outside the table and never crosses a limit (no restart,
+    hence no W_PROPERTY_TABLE_RANGE_CROSSED).  Diagnostic only: no number other
+    than one entry in ``warnings`` changes.
+
+    Merge note (A-9, report 172): another branch may emit the same code; the
+    dedupe guard below keeps only the first producer, so reconcile the
+    conditions and the context keys explicitly when merging.
+    """
+    ex = np.asarray(h["extrap"], dtype=bool)
+    n_out = int(np.count_nonzero(ex))
+    if n_out == 0:
+        return
+    warnings = summary.setdefault("warnings", [])
+    code = "W_PROPERTY_TABLE_EXTRAPOLATED"
+    if any(isinstance(w, dict) and w.get("code") == code for w in warnings):
+        return
+    p0 = np.asarray(h["p0"], dtype=float)
+    policy = str(c.property_policy)
+    handling = ("held at the nearest table limit (clamp)" if policy == "clamp"
+                else f"handled by property_policy = {policy!r}")
+    warnings.append({
+        "code": code,
+        "severity": "warning",
+        "message": (
+            f"{100.0 * n_out / ex.size:.3g} % of the sampled history used a "
+            f"chamber pressure outside the property table "
+            f"[{c.p_fit_min:.6g}, {c.p_fit_max:.6g}] Pa; the properties there "
+            f"are {handling}.  Results in that pressure range are not "
+            f"supported by the table.  Widen the table range "
+            f"(thermochemistry.pressure_range.minimum_Pa / maximum_Pa) to "
+            f"cover the run."),
+        "context": {
+            "basis": "sampled_history_all_phases",
+            "property_policy": policy,
+            "points_outside": n_out,
+            "points_total": int(ex.size),
+            "fraction_outside": n_out / ex.size,
+            "table_min_Pa": float(c.p_fit_min),
+            "table_max_Pa": float(c.p_fit_max),
+            "history_min_Pa": float(np.min(p0)),
+            "history_max_Pa": float(np.max(p0)),
+        },
+    })
+
+
+MIGRATION_MODEL_CHANGE_KEYWORD = "THIS CHANGES THE PHYSICAL MODEL"
+
+
+def append_migration_model_change_warning(summary: dict, migration_notes) -> None:
+    """Add W_MIGRATION_MODEL_CHANGE when an automatic configuration migration changed the model.
+
+    ``migration_notes`` is ``LoadedConfiguration.migration_notes`` (the notes of
+    ``configuration_from_document``).  The command line calls this itself; a
+    library caller that runs ``summarize()`` on a migrated configuration calls it
+    with the same notes to get the same machine-readable warning.  At most one
+    warning is added.
+    """
+    if not migration_notes:
+        return
+    warnings = summary.setdefault("warnings", [])
+    code = "W_MIGRATION_MODEL_CHANGE"
+    if any(isinstance(w, dict) and w.get("code") == code for w in warnings):
+        return
+    for note in migration_notes:
+        if MIGRATION_MODEL_CHANGE_KEYWORD in note:
+            warnings.append({
+                "code": code,
+                "severity": "warning",
+                "message": (
+                    "Automatic configuration migration changed the physical "
+                    "model.  See configuration_migration.notes in the summary "
+                    "for details."
+                ),
+                "context": {"migration_note": note},
+            })
+            return
+
+
+def append_property_table_crossing_warning(summary: dict, res: dict) -> None:
+    """Warn when the run crossed p_fit_min / p_fit_max (property policy "clamp").
+
+    Outside the table the chamber properties are held at the nearest limit and
+    their pressure derivative is zero, so the results there rest on a clamped
+    property model.  Diagnostic only: histories and the summary schema are
+    unchanged apart from one entry in ``warnings``.
+    """
+    budget = (res.get("integration_budget") if isinstance(res, dict) else None) or {}
+    burn = list(budget.get("table_restarts_burn") or [])
+    blow = list(budget.get("table_restarts_blowdown") or [])
+    if not (burn or blow):
+        return
+    warnings = summary.setdefault("warnings", [])
+    if any(isinstance(w, dict) and w.get("code") == "W_PROPERTY_TABLE_RANGE_CROSSED"
+           for w in warnings):
+        return
+    warnings.append({
+        "code": "W_PROPERTY_TABLE_RANGE_CROSSED",
+        "severity": "warning",
+        "message": (
+            "The chamber pressure crossed the property-table limit "
+            "(p_fit_min / p_fit_max) during the run.  With property_policy "
+            "'clamp' the properties outside the table are held at the nearest "
+            "limit and their pressure dependence is suppressed; results in "
+            "that pressure range are not validated by the table."),
+        "context": {
+            "restarts_burn": burn,
+            "restarts_blowdown": blow,
+            "restart_count": len(burn) + len(blow),
+        },
+    })
 
 
 def append_run_verdict_warnings(summary: dict) -> None:
@@ -6102,7 +6243,7 @@ def self_tests_post_run(
 ) -> bool:
     """Display and return the structured post-run consistency verdict."""
     report = (
-        post_run_consistency_report(res, h)
+        post_run_consistency_report(res, h, rtol=c.rtol)
         if report is None
         else report
     )
@@ -7803,7 +7944,7 @@ def configuration_from_document(doc: dict) -> Configuration:
         cea_legacy_trace=float(lg_trace),
         p_fit_min=float(pmin), p_fit_max=float(pmax),
         eta_T0=float(_number(th, "temperature_efficiency", "thermochemistry",
-                             exclusive_minimum=0.0, maximum=1.5)),
+                             exclusive_minimum=0.0, maximum=1.0)),
         property_policy=str(_choice(th, "outside_range_policy", "thermochemistry",
                                     ("clamp", "extrapolate"))),
         two_phase_mode=two_phase_mode,
@@ -8219,21 +8360,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # If migration from v0.4.3 changed the physical model, record it as a
     # machine-readable warning (previously this only appeared in stderr and
     # configuration_migration.notes, making it invisible to automated checks).
-    if loaded.migration_notes:
-        _model_change_keywords = ("THIS CHANGES THE PHYSICAL MODEL",)
-        for _note in loaded.migration_notes:
-            if any(kw in _note for kw in _model_change_keywords):
-                summ.setdefault("warnings", []).append({
-                    "code": "W_MIGRATION_MODEL_CHANGE",
-                    "severity": "warning",
-                    "message": (
-                        "Automatic configuration migration changed the physical "
-                        "model.  See configuration_migration.notes in the summary "
-                        "for details."
-                    ),
-                    "context": {"migration_note": _note},
-                })
-                break
+    append_migration_model_change_warning(summ, loaded.migration_notes)
     _cache_dur = getattr(backend, "cache_write_durability", None)      # cache durability warning
     if _cache_dur:
         summ.setdefault("warnings", []).append({
