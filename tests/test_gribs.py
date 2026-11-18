@@ -2336,6 +2336,44 @@ def test_main_reports_thermochemistry_error_as_structured_stderr(
     assert record["context"] == context
 
 
+def _golden_g1_document():
+    path = next((ROOT / "cases" / "golden").glob("g1_*.json"))
+    return json.loads(path.read_text())
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("value", [1.0, 0.98, 0.5])
+def test_eta_T0_accepts_values_up_to_one(value):
+    import dataclasses
+    base = gribs.configuration_from_document(_golden_g1_document()).config
+    gribs.validate(dataclasses.replace(base, eta_T0=value))
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("value", [1.0000001, 1.02, 1.5, 0.0, -0.1])
+def test_eta_T0_rejects_values_outside_zero_one(value):
+    import dataclasses
+    base = gribs.configuration_from_document(_golden_g1_document()).config
+    with pytest.raises(ValueError, match=r"\(0, 1\]"):
+        gribs.validate(dataclasses.replace(base, eta_T0=value))
+
+
+@pytest.mark.fast
+def test_eta_T0_nan_is_rejected_by_the_finiteness_check():
+    import dataclasses
+    base = gribs.configuration_from_document(_golden_g1_document()).config
+    with pytest.raises(ValueError, match="finite"):
+        gribs.validate(dataclasses.replace(base, eta_T0=float("nan")))
+
+
+@pytest.mark.fast
+def test_eta_T0_above_one_is_rejected_in_a_configuration_document():
+    doc = _golden_g1_document()
+    doc["thermochemistry"]["temperature_efficiency"] = 1.02
+    with pytest.raises(Exception, match="temperature_efficiency"):
+        gribs.configuration_from_document(doc)
+
+
 @pytest.mark.fast
 def test_corrected_mass_basis_metadata_contract():
     backend = gribs.PressureTableBackend.__new__(

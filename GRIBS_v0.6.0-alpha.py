@@ -4021,15 +4021,17 @@ def validate(c: Config) -> None:
         raise ValueError("unchoked_policy must be 'switch' or 'stop'.")
     if c.transition_policy not in ("jump", "shock"):
         raise ValueError("transition_policy must be 'jump' or 'shock'.")
-    # A-7: eta_T0 range check (review §3-E1)
-    # eta_T0 > 1 would produce temperatures above the adiabatic flame
-    # temperature, which is physically inconsistent with the current model.
-    if not (0.0 < c.eta_T0 <= 1.5):
+    # eta_T0 range (0, 1] (review §3-E1, applied in A-9).  eta_T0 > 1 would put
+    # T0 above the CEA adiabatic (HP equilibrium) temperature and, with the
+    # other empirical coefficients, would be a way to tune results; it was
+    # accepted up to 1.5 before.
+    if not (0.0 < c.eta_T0 <= 1.0):
         raise ValueError(
-            f"temperature_efficiency (eta_T0) must lie in (0, 1.5], got "
-            f"{c.eta_T0}.  Values above 1.0 are physically inconsistent "
-            f"with the current model (they exceed the adiabatic flame "
-            f"temperature).  Use eta_T0 = 1.0 for the standard model.")
+            f"temperature_efficiency (eta_T0) must lie in (0, 1], got "
+            f"{c.eta_T0}.  Values above 1.0 would raise T0 above the CEA "
+            f"adiabatic (HP equilibrium) temperature and are rejected "
+            f"(previously accepted up to 1.5).  Use eta_T0 <= 1.0; "
+            f"eta_T0 = 1.0 is the standard model.")
     # A-7: pressure range vs initial/ambient pressure (review §3-E2)
     # The blowdown terminal pressure approaches p_a; if p_a is too close to
     # p_fit_min, the tail of the blowdown is dominated by clamping.
@@ -7860,7 +7862,7 @@ def configuration_from_document(doc: dict) -> Configuration:
         cea_legacy_trace=float(lg_trace),
         p_fit_min=float(pmin), p_fit_max=float(pmax),
         eta_T0=float(_number(th, "temperature_efficiency", "thermochemistry",
-                             exclusive_minimum=0.0, maximum=1.5)),
+                             exclusive_minimum=0.0, maximum=1.0)),
         property_policy=str(_choice(th, "outside_range_policy", "thermochemistry",
                                     ("clamp", "extrapolate"))),
         two_phase_mode=two_phase_mode,
