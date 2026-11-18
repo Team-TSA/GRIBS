@@ -1263,10 +1263,10 @@ def append_migration_model_change_warning(summary: dict, migration_notes) -> Non
     """Add W_MIGRATION_MODEL_CHANGE when an automatic configuration migration changed the model.
 
     ``migration_notes`` is ``LoadedConfiguration.migration_notes`` (the notes of
-    ``configuration_from_document``).  The command line calls this itself; a
-    library caller that runs ``summarize()`` on a migrated configuration calls it
-    with the same notes to get the same machine-readable warning.  At most one
-    warning is added.
+    ``configuration_from_document``).  ``gribs.cli.main`` and ``gribs.run_simulation``
+    call this; a caller that runs ``summarize()`` itself on a migrated
+    configuration calls it with the same notes to get the same machine-readable
+    warning.  At most one warning is added.
     """
     if not migration_notes:
         return
@@ -1311,8 +1311,9 @@ def append_property_table_crossing_warning(summary: dict, res: dict) -> None:
         "severity": "warning",
         "message": (
             "The chamber pressure crossed the property-table limit "
-            "(p_fit_min / p_fit_max) during the run.  With property_policy "
-            "'clamp' the properties outside the table are held at the nearest "
+            "(p_fit_min / p_fit_max) during the run.  With "
+            "thermochemistry.outside_range_policy = 'clamp' the properties "
+            "outside the table are held at the nearest "
             "limit and their pressure dependence is suppressed; results in "
             "that pressure range are not validated by the table."),
         "context": {
