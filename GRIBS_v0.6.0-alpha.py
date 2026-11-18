@@ -4033,8 +4033,10 @@ def validate(c: Config) -> None:
     # A-7: pressure range vs initial/ambient pressure (review §3-E2)
     # The blowdown terminal pressure approaches p_a; if p_a is too close to
     # p_fit_min, the tail of the blowdown is dominated by clamping.
-    # This is a warning, not an error, because the default config works
-    # adequately with the current margin.
+    # The default configuration keeps p_a only about 1 % above p_fit_min
+    # (measured: no extrapolated point in the blowdown tail of g3-g6), so only
+    # p_a < p_fit_min is rejected here; use of pressures outside the table is
+    # reported afterwards by W_PROPERTY_TABLE_EXTRAPOLATED.
     if c.p_a < c.p_fit_min:
         raise ValueError(
             f"ambient pressure p_a = {c.p_a:.0f} Pa is below the "
@@ -5242,7 +5244,53 @@ def summarize(res: dict, h: dict, c: Config,
     append_model_applicability_warnings(s)
     append_thermal_efficiency_warning(s, c, backend)
     append_property_table_crossing_warning(s, res)
+    append_property_table_extrapolation_warning(s, h, c)
     return s
+
+
+def append_property_table_extrapolation_warning(
+    summary: dict, h: dict, c: Config
+) -> None:
+    """Warn when part of the history used chamber pressures outside the table.
+
+    This is based on the sampled history (``h["extrap"]``), so it also covers
+    a run that starts outside the table and never crosses a limit (no restart,
+    hence no W_PROPERTY_TABLE_RANGE_CROSSED).  Diagnostic only: no number other
+    than one entry in ``warnings`` changes.
+    """
+    ex = np.asarray(h["extrap"], dtype=bool)
+    n_out = int(np.count_nonzero(ex))
+    if n_out == 0:
+        return
+    warnings = summary.setdefault("warnings", [])
+    code = "W_PROPERTY_TABLE_EXTRAPOLATED"
+    if any(isinstance(w, dict) and w.get("code") == code for w in warnings):
+        return
+    p0 = np.asarray(h["p0"], dtype=float)
+    policy = str(c.property_policy)
+    handling = ("held at the nearest table limit (clamp)" if policy == "clamp"
+                else f"handled by property_policy = {policy!r}")
+    warnings.append({
+        "code": code,
+        "severity": "warning",
+        "message": (
+            f"{100.0 * n_out / ex.size:.3g} % of the sampled history used a "
+            f"chamber pressure outside the property table "
+            f"[{c.p_fit_min:.6g}, {c.p_fit_max:.6g}] Pa; the properties there "
+            f"are {handling}.  Results in that pressure range are not "
+            f"supported by the table.  Widen the table range "
+            f"(pressure_min_Pa / pressure_max_Pa) to cover the run."),
+        "context": {
+            "property_policy": policy,
+            "points_outside": n_out,
+            "points_total": int(ex.size),
+            "fraction_outside": n_out / ex.size,
+            "table_min_Pa": float(c.p_fit_min),
+            "table_max_Pa": float(c.p_fit_max),
+            "history_min_Pa": float(np.min(p0)),
+            "history_max_Pa": float(np.max(p0)),
+        },
+    })
 
 
 def append_property_table_crossing_warning(summary: dict, res: dict) -> None:

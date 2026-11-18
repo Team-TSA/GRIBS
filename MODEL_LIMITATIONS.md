@@ -20,7 +20,7 @@ GRIBS is a lumped-parameter numerical model. Users must evaluate whether each as
 
 ## Property and input limitations
 
-The chamber-property tables have a configured pressure range. With the default `property_policy = "clamp"`, properties outside that range are held at the nearest table limit and the run is not stopped. A run that crosses the table limit reports `W_PROPERTY_TABLE_RANGE_CROSSED` in the summary warnings. Clamping improves numerical robustness outside that interval but suppresses pressure dependence there. Extrapolation remains smooth but may be physically unreliable. Combustion coefficients, efficiencies, flow coefficients, and erosion parameters require independent evidence for the intended formulation and operating range.
+The chamber-property tables have a configured pressure range. With the default `property_policy = "clamp"`, properties outside that range are held at the nearest table limit and the run is not stopped. A run that crosses the table limit reports `W_PROPERTY_TABLE_RANGE_CROSSED` in the summary warnings. A run that spends part of its history outside the table reports `W_PROPERTY_TABLE_EXTRAPOLATED` with the fraction of sampled points outside. Clamping improves numerical robustness outside that interval but suppresses pressure dependence there. Extrapolation remains smooth but may be physically unreliable. Combustion coefficients, efficiencies, flow coefficients, and erosion parameters require independent evidence for the intended formulation and operating range.
 
 ## Interpretation limits
 

@@ -233,3 +233,31 @@ def test_summary_warns_for_g2_and_not_for_g1(tmp_path):
         c, res, h = run_doc(golden_doc(case, sub), sub)
         codes = [w["code"] for w in g.summarize(res, h, c)["warnings"]]
         assert ("W_PROPERTY_TABLE_RANGE_CROSSED" in codes) is expected
+
+
+@pytest.mark.fast
+def test_extrapolation_warning_helper():
+    c = SimpleNamespace(property_policy="clamp", p_fit_min=PMIN, p_fit_max=PMAX)
+    none = {"warnings": []}
+    g.append_property_table_extrapolation_warning(
+        none, {"extrap": [False, False], "p0": [2e6, 3e6]}, c)
+    assert none["warnings"] == []
+    summ = {"warnings": []}
+    h = {"extrap": [False, True, True, False], "p0": [2e6, 9e6, 1e7, 3e6]}
+    g.append_property_table_extrapolation_warning(summ, h, c)
+    g.append_property_table_extrapolation_warning(summ, h, c)  # no duplicate
+    [w] = summ["warnings"]
+    assert w["code"] == "W_PROPERTY_TABLE_EXTRAPOLATED" and w["severity"] == "warning"
+    ctx = w["context"]
+    assert ctx["points_outside"] == 2 and ctx["fraction_outside"] == 0.5
+    assert ctx["history_max_Pa"] == 1e7 and ctx["table_max_Pa"] == PMAX
+
+
+@pytest.mark.integration
+def test_summary_extrapolation_warning_g2_yes_g3_no(tmp_path):
+    for case, expected in (("g2", True), ("g3", False)):
+        sub = tmp_path / case
+        sub.mkdir()
+        c, res, h = run_doc(golden_doc(case, sub), sub)
+        codes = [w["code"] for w in g.summarize(res, h, c)["warnings"]]
+        assert ("W_PROPERTY_TABLE_EXTRAPOLATED" in codes) is expected
