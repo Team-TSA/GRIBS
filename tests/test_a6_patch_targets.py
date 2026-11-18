@@ -92,6 +92,7 @@ MODULE_UNIT = {
     "gribs.energy.exceptions": 1,
     "gribs.energy.initial": 1,
     "gribs.energy.cea_tp": 3,
+    "gribs.energy.nozzle_from_state": 4,
     "gribs.config": 2,
     "gribs.thermo": 3,
     "gribs.propellant": 4,
