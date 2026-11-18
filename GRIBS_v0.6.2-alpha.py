@@ -321,6 +321,7 @@ from gribs.nozzle import (  # noqa: E402, F401
     exit_area_throat_radius,
     throat_exceeds_exit_area,
     choke_limit_pressure,
+    _nozzle_flow,
     nozzle_state,
 )
 from gribs.chamber.equilibrium import (  # noqa: E402, F401

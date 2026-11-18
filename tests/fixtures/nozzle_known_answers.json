@@ -1,0 +1,258 @@
+{
+ "generated_from": "nozzle_state of c7bb092 (unrefactored); config cases/golden/g1_reference_constant.json (reference_constant, use_separation true)",
+ "p_a": 101325.0,
+ "cases": [
+  {
+   "regime": "no-flow",
+   "p0": 50662.5,
+   "At": 1.2566370614359172e-05,
+   "Ae": 1.2566370614359172e-05,
+   "result": {
+    "mdot": 0.0,
+    "mdot_total": 0.0,
+    "mdot_gas": 0.0,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.0,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 0.0,
+    "Me": 0.0,
+    "pe": 50662.5,
+    "ve": 0.0,
+    "regime": "no-flow",
+    "A_eff": 1.2566370614359172e-05
+   }
+  },
+  {
+   "regime": "no-flow",
+   "p0": 101325.0,
+   "At": 1.2566370614359172e-05,
+   "Ae": 0.00010053096491487337,
+   "result": {
+    "mdot": 0.0,
+    "mdot_total": 0.0,
+    "mdot_gas": 0.0,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.0,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 0.0,
+    "Me": 0.0,
+    "pe": 101325.0,
+    "ve": 0.0,
+    "regime": "no-flow",
+    "A_eff": 0.00010053096491487337
+   }
+  },
+  {
+   "regime": "no-flow",
+   "p0": 91192.5,
+   "At": 1.2566370614359172e-05,
+   "Ae": 3.7699111843077517e-05,
+   "result": {
+    "mdot": 0.0,
+    "mdot_total": 0.0,
+    "mdot_gas": 0.0,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.0,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 0.0,
+    "Me": 0.0,
+    "pe": 91192.5,
+    "ve": 0.0,
+    "regime": "no-flow",
+    "A_eff": 3.7699111843077517e-05
+   }
+  },
+  {
+   "regime": "subsonic",
+   "p0": 121590.0,
+   "At": 1.2566370614359172e-05,
+   "Ae": 1.2566370614359172e-05,
+   "result": {
+    "mdot": 0.0007875126553207164,
+    "mdot_total": 0.0007875126553207164,
+    "mdot_gas": 0.0007875126553207164,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.0007875126553207164,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 0.47142177474396385,
+    "Me": 0.5554576571300872,
+    "pe": 101325.0,
+    "ve": 598.6212050801599,
+    "regime": "subsonic",
+    "A_eff": 1.2566370614359172e-05
+   }
+  },
+  {
+   "regime": "subsonic",
+   "p0": 131722.5,
+   "At": 1.2566370614359172e-05,
+   "Ae": 1.2566370614359172e-05,
+   "result": {
+    "mdot": 0.0009542124547126234,
+    "mdot_total": 0.0009542124547126234,
+    "mdot_gas": 0.0009542124547126234,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.0009542124547126234,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 0.6829533387792127,
+    "Me": 0.6685619486874587,
+    "pe": 101325.0,
+    "ve": 715.7246118579485,
+    "regime": "subsonic",
+    "A_eff": 1.2566370614359172e-05
+   }
+  },
+  {
+   "regime": "subsonic",
+   "p0": 104364.75,
+   "At": 1.2566370614359172e-05,
+   "Ae": 2.5132741228718343e-05,
+   "result": {
+    "mdot": 0.0006221724916461042,
+    "mdot_total": 0.0006221724916461042,
+    "mdot_gas": 0.0006221724916461042,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.0006221724916461042,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 0.15091885708545308,
+    "Me": 0.2222301066731707,
+    "pe": 101325.0,
+    "ve": 242.56755017593534,
+    "regime": "subsonic",
+    "A_eff": 2.5132741228718343e-05
+   }
+  },
+  {
+   "regime": "choked",
+   "p0": 5000000.0,
+   "At": 1.2566370614359172e-05,
+   "Ae": 1.2566370614359172e-05,
+   "result": {
+    "mdot": 0.040794514602121336,
+    "mdot_total": 0.040794514602121336,
+    "mdot_gas": 0.040794514602121336,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.040794514602121336,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 76.75398717669589,
+    "Me": 1.0,
+    "pe": 2822369.6502688853,
+    "ve": 1043.2856490216595,
+    "regime": "choked",
+    "A_eff": 1.2566370614359172e-05
+   }
+  },
+  {
+   "regime": "choked",
+   "p0": 2000000.0,
+   "At": 1.2566370614359172e-05,
+   "Ae": 1.2566370614359172e-05,
+   "result": {
+    "mdot": 0.016317805840848534,
+    "mdot_total": 0.016317805840848534,
+    "mdot_gas": 0.016317805840848534,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.016317805840848534,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 29.937622369178385,
+    "Me": 1.0,
+    "pe": 1128947.8601075541,
+    "ve": 1043.2856490216595,
+    "regime": "choked",
+    "A_eff": 1.2566370614359172e-05
+   }
+  },
+  {
+   "regime": "choked",
+   "p0": 8000000.0,
+   "At": 1.8849555921538758e-05,
+   "Ae": 1.2566370614359172e-05,
+   "result": {
+    "mdot": 0.09790683504509122,
+    "mdot_total": 0.09790683504509122,
+    "mdot_gas": 0.09790683504509122,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.09790683504509122,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 157.61861729877154,
+    "Me": 1.0,
+    "pe": 4515791.4404302165,
+    "ve": 1043.2856490216595,
+    "regime": "choked",
+    "A_eff": 1.2566370614359172e-05
+   }
+  },
+  {
+   "regime": "separated",
+   "p0": 500000.0,
+   "At": 1.2566370614359172e-05,
+   "Ae": 0.00010053096491487337,
+   "result": {
+    "mdot": 0.004079451460212134,
+    "mdot_total": 0.004079451460212134,
+    "mdot_gas": 0.004079451460212134,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.004079451460212134,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 6.272149995774378,
+    "Me": 2.2805195159587113,
+    "pe": 40530.0,
+    "ve": 2023.953758015704,
+    "regime": "separated",
+    "A_eff": 3.264201197079726e-05
+   }
+  },
+  {
+   "regime": "separated",
+   "p0": 300000.0,
+   "At": 1.2566370614359172e-05,
+   "Ae": 0.0001256637061435917,
+   "result": {
+    "mdot": 0.00244767087612728,
+    "mdot_total": 0.00244767087612728,
+    "mdot_gas": 0.00244767087612728,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.00244767087612728,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 3.0870741336658636,
+    "Me": 1.9900181388495517,
+    "pe": 40530.0,
+    "ve": 1842.940115331121,
+    "regime": "separated",
+    "A_eff": 2.3420293002331964e-05
+   }
+  },
+  {
+   "regime": "separated",
+   "p0": 800000.0,
+   "At": 1.2566370614359172e-05,
+   "Ae": 7.539822368615503e-05,
+   "result": {
+    "mdot": 0.006527122336339414,
+    "mdot_total": 0.006527122336339414,
+    "mdot_gas": 0.006527122336339414,
+    "mdot_condensed": 0.0,
+    "mdot_total_reference": 0.006527122336339414,
+    "gas_mass_fraction": 1.0,
+    "condensed_mass_fraction": 0.0,
+    "F": 11.391272423371811,
+    "Me": 2.5375943137744326,
+    "pe": 40530.0,
+    "ve": 2165.6037090091404,
+    "regime": "separated",
+    "A_eff": 4.513344711507903e-05
+   }
+  }
+ ]
+}

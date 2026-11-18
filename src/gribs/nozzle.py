@@ -140,42 +140,14 @@ def choke_limit_pressure(c: Config, At: float, Ae: float) -> Optional[float]:
         return None
 
 
-def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
-    """Nozzle mass flow, thrust, exit conditions and flow regime.
+def _nozzle_flow(p0: float, At: float, Ae: float, c: Config, split_model, Yg: float, Yc: float,
+                 R: float, T0: float, g: float, eps: float, sq: float, p_thr: float) -> dict:
+    """Mass flow, thrust and exit state of the choked or subsonic nozzle, from the chamber state it is given.
 
-    MASS BASIS (v0.5.0-alpha): the returned ``mdot_total`` is the TOTAL product
-    mass flow (gas + condensed) and is the quantity that must be fed to the
-    pressure ODE, which conserves the total product mass.  ``mdot_gas`` and
-    ``mdot_condensed`` decompose it with the chamber equilibrium phase split.
-    ``mdot`` is retained as a backward-compatible ALIAS of ``mdot_total`` (it is
-    NOT the gas-only flow); prefer the explicit names in new code.
-
-    The isentropic reference flow is evaluated with the effective gas
-    constant R_eff(p0) = Ru / M_CEA(p0) = Yg(p0) * R_gas(p0), so it returns
-    the TOTAL-mixture flow directly with no additional Yg factor (complete
-    entrainment, see ``NozzleTwoPhaseModel``).  In the single-phase legacy
-    mode Yg := 1, so R_eff is the gas constant itself and the total flow
-    equals the gas reference flow.
+    The part of nozzle_state after the property lookups, moved without change (A-6 stage 2, C2): the caller passes
+    the phase split model, Yg and Yc, the chamber R, T0 and gamma, eps = Ae/At, sq = sqrt(gamma/(R*T0)) and the
+    choke threshold p_thr, in the order nozzle_state evaluated them.  p0 is the chamber (stagnation) pressure.
     """
-    split_model = NozzleTwoPhaseModel(c.two_phase_mode)
-    Yg, Yc = gribs.thermo.phase_fractions(p0, c)
-
-    if p0 <= c.p_a:
-        return dict(mdot=0.0,                   # alias of mdot_total (documented)
-                    mdot_total=0.0,
-                    mdot_gas=0.0,
-                    mdot_condensed=0.0,
-                    mdot_total_reference=0.0,
-                    gas_mass_fraction=Yg,
-                    condensed_mass_fraction=Yc,
-                    F=0.0, Me=0.0, pe=p0, ve=0.0,
-                    regime="no-flow", A_eff=Ae)
-
-    R, T0, g = gribs.thermo.gas_props(p0, c)
-    eps = Ae / At
-    sq = math.sqrt(g / (R * T0))
-    p_thr = choke_threshold_pressure(p0, At, Ae, c)
-
     if p0 >= p_thr:                                   # ---- choked ----
         mdot_ref = c.Cd * At * p0 * sq \
             * (2.0 / (g + 1.0)) ** ((g + 1.0) / (2.0 * (g - 1.0)))
@@ -231,3 +203,42 @@ def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
                 condensed_mass_fraction=Yc,
                 F=F, Me=Me, pe=c.p_a, ve=ve,
                 regime="subsonic", A_eff=Ae)
+
+
+def nozzle_state(p0: float, At: float, Ae: float, c: Config) -> dict:
+    """Nozzle mass flow, thrust, exit conditions and flow regime.
+
+    MASS BASIS (v0.5.0-alpha): the returned ``mdot_total`` is the TOTAL product
+    mass flow (gas + condensed) and is the quantity that must be fed to the
+    pressure ODE, which conserves the total product mass.  ``mdot_gas`` and
+    ``mdot_condensed`` decompose it with the chamber equilibrium phase split.
+    ``mdot`` is retained as a backward-compatible ALIAS of ``mdot_total`` (it is
+    NOT the gas-only flow); prefer the explicit names in new code.
+
+    The isentropic reference flow is evaluated with the effective gas
+    constant R_eff(p0) = Ru / M_CEA(p0) = Yg(p0) * R_gas(p0), so it returns
+    the TOTAL-mixture flow directly with no additional Yg factor (complete
+    entrainment, see ``NozzleTwoPhaseModel``).  In the single-phase legacy
+    mode Yg := 1, so R_eff is the gas constant itself and the total flow
+    equals the gas reference flow.
+    """
+    split_model = NozzleTwoPhaseModel(c.two_phase_mode)
+    Yg, Yc = gribs.thermo.phase_fractions(p0, c)
+
+    if p0 <= c.p_a:
+        return dict(mdot=0.0,                   # alias of mdot_total (documented)
+                    mdot_total=0.0,
+                    mdot_gas=0.0,
+                    mdot_condensed=0.0,
+                    mdot_total_reference=0.0,
+                    gas_mass_fraction=Yg,
+                    condensed_mass_fraction=Yc,
+                    F=0.0, Me=0.0, pe=p0, ve=0.0,
+                    regime="no-flow", A_eff=Ae)
+
+    R, T0, g = gribs.thermo.gas_props(p0, c)
+    eps = Ae / At
+    sq = math.sqrt(g / (R * T0))
+    p_thr = choke_threshold_pressure(p0, At, Ae, c)
+
+    return _nozzle_flow(p0, At, Ae, c, split_model, Yg, Yc, R, T0, g, eps, sq, p_thr)
