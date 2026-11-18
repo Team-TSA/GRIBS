@@ -872,7 +872,7 @@ def configuration_from_document(doc: dict) -> Configuration:
         cea_legacy_trace=float(lg_trace),
         p_fit_min=float(pmin), p_fit_max=float(pmax),
         eta_T0=float(_number(th, "temperature_efficiency", "thermochemistry",
-                             exclusive_minimum=0.0, maximum=1.5)),
+                             exclusive_minimum=0.0, maximum=1.0)),
         property_policy=str(_choice(th, "outside_range_policy", "thermochemistry",
                                     ("clamp", "extrapolate"))),
         two_phase_mode=two_phase_mode,
