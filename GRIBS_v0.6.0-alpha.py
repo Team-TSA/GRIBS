@@ -5301,6 +5301,39 @@ def append_property_table_extrapolation_warning(
     })
 
 
+MIGRATION_MODEL_CHANGE_KEYWORD = "THIS CHANGES THE PHYSICAL MODEL"
+
+
+def append_migration_model_change_warning(summary: dict, migration_notes) -> None:
+    """Add W_MIGRATION_MODEL_CHANGE when an automatic configuration migration changed the model.
+
+    ``migration_notes`` is ``LoadedConfiguration.migration_notes`` (the notes of
+    ``configuration_from_document``).  The command line calls this itself; a
+    library caller that runs ``summarize()`` on a migrated configuration calls it
+    with the same notes to get the same machine-readable warning.  At most one
+    warning is added.
+    """
+    if not migration_notes:
+        return
+    warnings = summary.setdefault("warnings", [])
+    code = "W_MIGRATION_MODEL_CHANGE"
+    if any(isinstance(w, dict) and w.get("code") == code for w in warnings):
+        return
+    for note in migration_notes:
+        if MIGRATION_MODEL_CHANGE_KEYWORD in note:
+            warnings.append({
+                "code": code,
+                "severity": "warning",
+                "message": (
+                    "Automatic configuration migration changed the physical "
+                    "model.  See configuration_migration.notes in the summary "
+                    "for details."
+                ),
+                "context": {"migration_note": note},
+            })
+            return
+
+
 def append_property_table_crossing_warning(summary: dict, res: dict) -> None:
     """Warn when the run crossed p_fit_min / p_fit_max (property policy "clamp").
 
@@ -8278,21 +8311,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # If migration from v0.4.3 changed the physical model, record it as a
     # machine-readable warning (previously this only appeared in stderr and
     # configuration_migration.notes, making it invisible to automated checks).
-    if loaded.migration_notes:
-        _model_change_keywords = ("THIS CHANGES THE PHYSICAL MODEL",)
-        for _note in loaded.migration_notes:
-            if any(kw in _note for kw in _model_change_keywords):
-                summ.setdefault("warnings", []).append({
-                    "code": "W_MIGRATION_MODEL_CHANGE",
-                    "severity": "warning",
-                    "message": (
-                        "Automatic configuration migration changed the physical "
-                        "model.  See configuration_migration.notes in the summary "
-                        "for details."
-                    ),
-                    "context": {"migration_note": _note},
-                })
-                break
+    append_migration_model_change_warning(summ, loaded.migration_notes)
     _cache_dur = getattr(backend, "cache_write_durability", None)      # cache durability warning
     if _cache_dur:
         summ.setdefault("warnings", []).append({

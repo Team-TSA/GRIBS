@@ -2336,6 +2336,19 @@ def test_main_reports_thermochemistry_error_as_structured_stderr(
     assert record["context"] == context
 
 
+@pytest.mark.fast
+def test_migration_model_change_warning_helper():
+    note = "two_phase_model added.  THIS CHANGES THE PHYSICAL MODEL (details)."
+    summ = {"warnings": []}
+    gribs.append_migration_model_change_warning(summ, [])
+    gribs.append_migration_model_change_warning(summ, ["unrelated note"])
+    assert summ["warnings"] == []
+    gribs.append_migration_model_change_warning(summ, ["unrelated note", note])
+    gribs.append_migration_model_change_warning(summ, [note])     # no duplicate
+    [w] = summ["warnings"]
+    assert w["code"] == "W_MIGRATION_MODEL_CHANGE" and w["context"]["migration_note"] == note
+
+
 def _golden_g1_document():
     path = next((ROOT / "cases" / "golden").glob("g1_*.json"))
     return json.loads(path.read_text())
