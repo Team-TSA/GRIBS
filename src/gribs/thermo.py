@@ -1112,7 +1112,11 @@ class PressureTableBackend(ThermochemistryBackend):
         return y
 
     def props(self, p: float) -> Tuple[float, float, float]:
-        """GAS-PHASE properties: Rg [J/(kg K)], T0 [K], gamma_s [-]."""
+        """Chamber properties at p: R_eff [J/(kg-total K)], T0 [K], gamma_s [-].
+
+        The first value is R_eff = Ru / M_CEA = Yg * R_gas (total-mass basis, F-21), not the
+        gas-phase R_gas = R_eff / Yg.  Only the docstring says so; the stored column names are unchanged.
+        """
         pe, _ = self._clamp_flags(p)
         z = math.log(pe)
         R = float(self.Ri(z))
@@ -3021,7 +3025,10 @@ def thermochemistry() -> ThermochemistryBackend:
 
 
 def gas_props(p0: float, c: Config) -> Tuple[float, float, float]:
-    """Return GAS-PHASE chamber Rg [J/(kg K)], equilibrium T0 [K], gamma_s [-]."""
+    """Return chamber R_eff [J/(kg-total K)], equilibrium T0 [K], gamma_s [-].
+
+    R_eff = Ru / M_CEA = Yg * R_gas is the total-mass-basis gas constant (F-21), not the gas-phase R_gas.
+    """
     return thermochemistry().props(p0)
 
 

@@ -80,6 +80,8 @@ MODULE_UNIT = {
     "gribs.constants": 1,
     "gribs.errors": 1,
     "gribs.util": 1,
+    "gribs.energy": 1,
+    "gribs.energy.relations": 1,
     "gribs.config": 2,
     "gribs.thermo": 3,
     "gribs.propellant": 4,
