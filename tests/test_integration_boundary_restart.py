@@ -209,3 +209,27 @@ def test_cli_without_restart_writes_no_restart_line(tmp_path):
     p = subprocess.run([sys.executable, str(BODY), "--config", str(cfg_run)], capture_output=True, text=True, timeout=300)
     assert p.returncode == 0, p.stderr[-500:]
     assert "INTEGRATION_TABLE_RESTARTS" not in p.stderr
+
+
+@pytest.mark.fast
+def test_crossing_warning_helper_present_and_absent():
+    summ = {"warnings": []}
+    g.append_property_table_crossing_warning(summ, {"integration_budget": {"table_restarts_burn": [], "table_restarts_blowdown": []}})
+    assert summ["warnings"] == []
+    rs = [{"t_s": 0.1, "limit": "p_fit_max", "direction": "up", "p0_Pa": PMAX}]
+    res = {"integration_budget": {"table_restarts_burn": rs, "table_restarts_blowdown": []}}
+    g.append_property_table_crossing_warning(summ, res)
+    g.append_property_table_crossing_warning(summ, res)  # idempotent
+    [w] = summ["warnings"]
+    assert w["code"] == "W_PROPERTY_TABLE_RANGE_CROSSED" and w["severity"] == "warning"
+    assert w["context"]["restart_count"] == 1 and w["context"]["restarts_burn"] == rs
+
+
+@pytest.mark.integration
+def test_summary_warns_for_g2_and_not_for_g1(tmp_path):
+    for case, expected in (("g2", True), ("g1", False)):
+        sub = tmp_path / case
+        sub.mkdir()
+        c, res, h = run_doc(golden_doc(case, sub), sub)
+        codes = [w["code"] for w in g.summarize(res, h, c)["warnings"]]
+        assert ("W_PROPERTY_TABLE_RANGE_CROSSED" in codes) is expected

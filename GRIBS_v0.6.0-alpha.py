@@ -5224,7 +5224,42 @@ def summarize(res: dict, h: dict, c: Config,
     )
     append_model_applicability_warnings(s)
     append_thermal_efficiency_warning(s, c, backend)
+    append_property_table_crossing_warning(s, res)
     return s
+
+
+def append_property_table_crossing_warning(summary: dict, res: dict) -> None:
+    """Warn when the run crossed p_fit_min / p_fit_max (property policy "clamp").
+
+    Outside the table the chamber properties are held at the nearest limit and
+    their pressure derivative is zero, so the results there rest on a clamped
+    property model.  Diagnostic only: histories and the summary schema are
+    unchanged apart from one entry in ``warnings``.
+    """
+    budget = (res.get("integration_budget") if isinstance(res, dict) else None) or {}
+    burn = list(budget.get("table_restarts_burn") or [])
+    blow = list(budget.get("table_restarts_blowdown") or [])
+    if not (burn or blow):
+        return
+    warnings = summary.setdefault("warnings", [])
+    if any(isinstance(w, dict) and w.get("code") == "W_PROPERTY_TABLE_RANGE_CROSSED"
+           for w in warnings):
+        return
+    warnings.append({
+        "code": "W_PROPERTY_TABLE_RANGE_CROSSED",
+        "severity": "warning",
+        "message": (
+            "The chamber pressure crossed the property-table limit "
+            "(p_fit_min / p_fit_max) during the run.  With property_policy "
+            "'clamp' the properties outside the table are held at the nearest "
+            "limit and their pressure dependence is suppressed; results in "
+            "that pressure range are not validated by the table."),
+        "context": {
+            "restarts_burn": burn,
+            "restarts_blowdown": blow,
+            "restart_count": len(burn) + len(blow),
+        },
+    })
 
 
 def append_run_verdict_warnings(summary: dict) -> None:
