@@ -5257,6 +5257,10 @@ def append_property_table_extrapolation_warning(
     a run that starts outside the table and never crosses a limit (no restart,
     hence no W_PROPERTY_TABLE_RANGE_CROSSED).  Diagnostic only: no number other
     than one entry in ``warnings`` changes.
+
+    Merge note (A-9, report 167): another branch may emit the same code; the
+    dedupe guard below keeps only the first producer, so reconcile the
+    conditions and the context keys explicitly when merging.
     """
     ex = np.asarray(h["extrap"], dtype=bool)
     n_out = int(np.count_nonzero(ex))
@@ -5279,8 +5283,10 @@ def append_property_table_extrapolation_warning(
             f"[{c.p_fit_min:.6g}, {c.p_fit_max:.6g}] Pa; the properties there "
             f"are {handling}.  Results in that pressure range are not "
             f"supported by the table.  Widen the table range "
-            f"(pressure_min_Pa / pressure_max_Pa) to cover the run."),
+            f"(thermochemistry.pressure_range.minimum_Pa / maximum_Pa) to "
+            f"cover the run."),
         "context": {
+            "basis": "sampled_history_all_phases",
             "property_policy": policy,
             "points_outside": n_out,
             "points_total": int(ex.size),

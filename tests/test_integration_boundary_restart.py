@@ -251,6 +251,11 @@ def test_extrapolation_warning_helper():
     ctx = w["context"]
     assert ctx["points_outside"] == 2 and ctx["fraction_outside"] == 0.5
     assert ctx["history_max_Pa"] == 1e7 and ctx["table_max_Pa"] == PMAX
+    assert set(ctx) == {"basis", "property_policy", "points_outside", "points_total",
+                        "fraction_outside", "table_min_Pa", "table_max_Pa",
+                        "history_min_Pa", "history_max_Pa"}
+    assert ctx["basis"] == "sampled_history_all_phases"
+    assert "pressure_range.minimum_Pa" in w["message"]
 
 
 @pytest.mark.integration
@@ -261,3 +266,24 @@ def test_summary_extrapolation_warning_g2_yes_g3_no(tmp_path):
         c, res, h = run_doc(golden_doc(case, sub), sub)
         codes = [w["code"] for w in g.summarize(res, h, c)["warnings"]]
         assert ("W_PROPERTY_TABLE_EXTRAPOLATED" in codes) is expected
+
+
+@pytest.mark.fast
+def test_recorded_golden_extrapolation_facts():
+    """The frozen golden outputs record which cases lie outside the property table.
+
+    g2 (table 0.1-8 MPa, MEOP about 44.5 MPa) is a clamped-table regression
+    reference; g3-g6 stay inside.  If g2 is ever regenerated with a wider
+    table, this test must be updated on purpose.
+    """
+    def results(case):
+        path = next(ROOT.glob(f"results_golden_{case}*/summary.json"))
+        return json.loads(path.read_text())["results"]
+
+    g2 = results("g2")
+    assert g2["property_extrapolation"] is True
+    assert g2["property_extrapolation_fraction"] > 0.5
+    for case in ("g3", "g4", "g5", "g6"):
+        r = results(case)
+        assert r["property_extrapolation"] is False
+        assert r["property_extrapolation_fraction"] == 0.0
