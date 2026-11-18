@@ -1070,6 +1070,26 @@ def test_post_run_consistency_uses_time_invariant_reference_mass():
 
 
 @pytest.mark.fast
+def test_post_run_tolerance_is_linked_to_rtol_with_a_floor():
+    assert gribs.post_run_mass_tolerance() == 1.0e-6
+    assert gribs.post_run_mass_tolerance(1.0e-10) == 1.0e-6   # default rtol: unchanged
+    assert gribs.post_run_mass_tolerance(1.0e-8) == 1.0e-6    # 100*rtol == floor
+    assert gribs.post_run_mass_tolerance(1.0e-6) == pytest.approx(1.0e-4)
+    result = {"m_total0": 1.0}
+    history = {
+        "m_gen": gribs.np.array([0.0, 0.0]),
+        "m_out": gribs.np.array([0.0, 0.0]),
+        "m_total_eos": gribs.np.array([1.0, 1.0]),
+        "m_total_balance": gribs.np.array([1.0, 1.0 + 1.0e-5]),
+    }
+    tight = gribs.post_run_consistency_report(result, history, rtol=1.0e-10)
+    loose = gribs.post_run_consistency_report(result, history, rtol=1.0e-6)
+    assert tight["eos_history"]["passed"] is False and tight["tolerance"] == 1.0e-6
+    assert loose["eos_history"]["passed"] is True and loose["tolerance"] == pytest.approx(1.0e-4)
+    assert loose["rtol"] == 1.0e-6 and loose["tolerance_formula"] == "max(1e-6, 100*rtol)"
+
+
+@pytest.mark.fast
 def test_post_run_consistency_rejects_mismatched_history_shapes():
     result = {
         "m_total0": 1.0,
