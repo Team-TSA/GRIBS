@@ -10,7 +10,6 @@ are skipped when git, the tag or the ``cea`` package is not available.  The conf
 document; the current program migrates it automatically (the migration warning goes to stderr).
 epsilon = 1 is used because v0.4.3-alpha stops its own checks for epsilon > 1 (known, fixed in v0.5.0).
 """
-import copy
 import json
 import subprocess
 import sys
