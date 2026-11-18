@@ -355,6 +355,7 @@ from gribs.simulation.postprocess import (  # noqa: E402, F401
     _masked_trapezoid,
     nozzle_transition_diagnostics,
     post_run_consistency_report,
+    post_run_mass_tolerance,
     model_status_from_yg,
     _finite_number_or_none,
     _validation_range_fields,

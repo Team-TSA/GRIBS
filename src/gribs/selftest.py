@@ -540,7 +540,7 @@ def self_tests_post_run(
 ) -> bool:
     """Display and return the structured post-run consistency verdict."""
     report = (
-        post_run_consistency_report(res, h)
+        post_run_consistency_report(res, h, rtol=c.rtol)
         if report is None
         else report
     )

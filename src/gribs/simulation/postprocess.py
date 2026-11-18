@@ -325,7 +325,21 @@ def nozzle_transition_diagnostics(
     return result
 
 
-def post_run_consistency_report(res: dict, h: dict) -> dict:
+def post_run_mass_tolerance(rtol: Optional[float] = None) -> float:
+    """Post-run mass-consistency tolerance: max(POST_RUN_MASS_TOLERANCE, 100*rtol).
+
+    The floor 1e-6 is the tolerance for the default solver tolerance
+    (rtol = 1e-10, where 100*rtol is far below the floor); only a looser
+    relative_tolerance widens it.  Without ``rtol`` the floor is returned.
+    """
+    if rtol is None:
+        return POST_RUN_MASS_TOLERANCE
+    return max(POST_RUN_MASS_TOLERANCE, 100.0 * float(rtol))
+
+
+def post_run_consistency_report(
+    res: dict, h: dict, rtol: Optional[float] = None
+) -> dict:
     """Return one authoritative post-simulation mass-consistency report.
 
     The invariant EOS-history metric uses one run-wide reference mass and
@@ -336,6 +350,7 @@ def post_run_consistency_report(res: dict, h: dict) -> dict:
     deprecated diagnostic for historical comparison, but it is not used as
     the post-run gate.
     """
+    tolerance = post_run_mass_tolerance(rtol)
     m_total0 = float(res["m_total0"])
     m_gen = np.asarray(h["m_gen"], dtype=float)
     m_out = np.asarray(h["m_out"], dtype=float)
@@ -376,15 +391,17 @@ def post_run_consistency_report(res: dict, h: dict) -> dict:
     )
 
     final_passed = bool(
-        final_relative_error < POST_RUN_MASS_TOLERANCE
+        final_relative_error < tolerance
     )
     eos_history_passed = bool(
-        invariant_relative_error < POST_RUN_MASS_TOLERANCE
+        invariant_relative_error < tolerance
     )
 
     return {
         "schema_version": "a5-1-2d-post-run-1",
-        "tolerance": POST_RUN_MASS_TOLERANCE,
+        "tolerance": tolerance,
+        "tolerance_formula": "max(1e-6, 100*rtol)",
+        "rtol": None if rtol is None else float(rtol),
         "final_total_mass": {
             "lhs_initial_plus_generated_kg": lhs,
             "rhs_discharged_plus_remaining_kg": rhs,
@@ -1010,7 +1027,7 @@ def summarize(res: dict, h: dict, c: Config,
 
     # One authoritative post-run consistency report.  The legacy metric is
     # retained under its existing field name for output compatibility.
-    post_run = post_run_consistency_report(res, h)
+    post_run = post_run_consistency_report(res, h, rtol=c.rtol)
     mass_err = post_run["eos_history"][
         "legacy_instantaneous_mass_relative_error"
     ]
