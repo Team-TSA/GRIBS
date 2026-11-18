@@ -220,7 +220,10 @@ def _segmented_solve(fun, t_span, y0, c: Config, budget: _IntegrationBudget, eve
 def run_model(c: Config) -> dict:
     """Integrate the burning phase and (optionally) the blowdown phase."""
     gribs.config.validate(c)
-
+    if getattr(c, "energy", None) is not None:
+        raise NotImplementedError(
+            "energy_model is valid configuration syntax but energy mode is not implemented yet (A-6 stage 2, "
+            "contract 164). Remove the energy_model section to run the current model.")
 
     require_implemented_transition_policy(c)
 

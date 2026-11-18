@@ -414,7 +414,7 @@ class Configuration:
 
 _ROOT_KEYS = ("schema_version", "notes", "propellant", "grain", "nozzle",
               "environment", "igniter", "thermochemistry", "two_phase_model",
-              "solver", "output")
+              "solver", "output", "energy_model")
 _TWO_PHASE_KEYS = ("mode", "condensed_volume", "nozzle_entrainment")
 _THERMO_ROOT_KEYS = ("backend", "temperature_efficiency", "outside_range_policy",
                      "pressure_range", "pressure_points", "cea_python",
@@ -904,6 +904,11 @@ def configuration_from_document(doc: dict) -> Configuration:
     c.original_configuration = copy.deepcopy(doc)  # type: ignore[attr-defined]
     c.reactants_spec_list = reactants               # type: ignore[attr-defined]
     c.packing_fraction = packing                    # type: ignore[attr-defined]
+    # A-6 stage 2: the optional energy_model section; its settings are an attribute, not a Config field, so that
+    # dataclasses.asdict(c) (resolved_configuration) is the same for every legacy configuration.
+    if "energy_model" in root:
+        from gribs.energy.config_parse import parse_energy_model
+        c.energy = parse_energy_model(root["energy_model"])  # type: ignore[attr-defined]
 
     output_dir = _resolve_from_script(str(_get(out, "directory", "output"))).resolve()
     names = {k: str(_get(out, k, "output")) for k in

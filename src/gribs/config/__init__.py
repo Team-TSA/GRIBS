@@ -334,3 +334,8 @@ def validate(c: Config) -> None:
             f"ambient pressure p_a = {c.p_a:.0f} Pa is below the "
             f"property table lower limit p_fit_min = {c.p_fit_min:.0f} Pa.  "
             f"Require p_a >= p_fit_min.")
+    # A-6 stage 2 (energy mode): the extra checks run only for a configuration that carries energy settings, and the
+    # module is imported only then (a legacy run never imports gribs.energy).
+    if getattr(c, "energy", None) is not None:
+        from gribs.energy.energy_validation import validate_energy_mode
+        validate_energy_mode(c)
