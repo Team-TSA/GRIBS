@@ -124,7 +124,10 @@ def test_e03_the_energy_closure_residual_is_small_along_the_run():
 
 @pytest.mark.fast
 def test_e04_the_volume_closure_residual_is_small_along_the_run():
-    assert worst("R_V_normalised") <= CLOSURE_TOL and worst("R_V") <= CLOSURE_TOL * geometry(0.0, config())[3] * 100.0
+    c, run = config(), base_run()
+    v_free_max = max(geometry(min(max(float(x), 0.0), run["model"].xw), c)[3] for x in run["sol_burn"].y[ei.IX])
+    # PRE_REGISTRATION_C10_REV4: the normalised value is R_V / V_free (<= 1e-9, C10), so the absolute value is <= 1e-9 * max V_free
+    assert worst("R_V_normalised") <= CLOSURE_TOL and worst("R_V") <= CLOSURE_TOL * v_free_max
 
 
 @pytest.mark.fast
