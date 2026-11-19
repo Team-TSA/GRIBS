@@ -25,6 +25,8 @@ GRIBS is a JSON-configured transient internal-ballistics simulator for solid roc
 
 The program code has been moved from the single file `GRIBS_v0.6.2-alpha.py` into the Python package `gribs` under `src/gribs/`. `GRIBS_v0.6.2-alpha.py` remains the program file and the command line: it imports the package from the `src/` directory next to it. Command-line options, exit codes, outputs and numerical results are unchanged; the program version is still 0.6.2-alpha. A Python interface (`gribs.run_simulation`, `gribs.Result`, `gribs.__version__`) is added; see [Python API](#python-api) and [Repository files](#repository-files). These changes are not part of a release yet, and G0 has not been decided for them (see [Validation status](#validation-status)).
 
+**Energy mode (opt-in).** A configuration with an `energy_model` section is run with a chamber energy balance. Without that section nothing changes. Energy mode is verified on synthetic fixtures only; the number of cases qualified with a real propellant is 0. See [Energy mode](#energy-mode-opt-in-synthetic-fixtures-only) and `MODEL_LIMITATIONS.md`. The program version is still 0.6.2-alpha.
+
 ## What changed in v0.6.2-alpha
 
 v0.6.2-alpha is a patch release of v0.6.0-alpha "Keystone". The program version is 0.6.2-alpha and the program file is `GRIBS_v0.6.2-alpha.py`; the configuration schema is unchanged at `0.5.0-alpha`. Numerical results are unchanged. See `CHANGELOG.md` for the full list.
@@ -134,6 +136,8 @@ Validate the configuration without initializing CEA:
 ```bash
 python GRIBS_v0.6.2-alpha.py --config gribs_config.json --validate-config
 ```
+
+For an `energy_model` configuration, `--validate-config` checks the configuration file only (its keys and values and the rules applied when it is loaded). The energy-mode checks made when the run starts, including the presence of `propellant_formulas`, the explicit `reference_constant` values, the construction of the thermochemistry backend and the element check at t = 0, are not made, so a valid result does not guarantee that the run starts.
 
 Run the numerical self-tests:
 
@@ -343,6 +347,18 @@ These values are for comparison only. They are not fed back into the GRIBS unste
 | 4 | Simulation/integration failed, including an integration that exceeds a safety limit (`E_INTEGRATION_BUDGET_EXCEEDED`: more than 2,000,000 right-hand-side evaluations, more than 300 s of wall time, or more than 10,000 solver restarts at the property-table limits). |
 | 5 | Mass-ledger verification failed while the other run-verification gates passed. |
 
+Energy mode uses the codes above as follows; no code has a new meaning, and code 5 is not used.
+
+| Code | Energy mode |
+|---:|---|
+| 0 | the run completed, `gamma_s > 1` held and the closure residuals are within the threshold (an exit-code decision, not a statement that the results are physically valid) |
+| 1 | a normalised closure residual exceeds the threshold (`W_ENERGY_CLOSURE_FAILED`; the files are written first). This is the energy closure gate, not the mass-ledger gate of code 5 |
+| 2 | invalid configuration, including the rejected items above (except a non-unique reactant basis, which stops the run with code 4); also `--selftest`, `--dump-thermo`, `--no-cache` or `--allow-verification-failure` with an `energy_model` section |
+| 3 | the thermochemistry backend could not be initialised (for example the `cea` package is missing for `cea_python`) |
+| 4 | the simulation failed (a failed state recovery, `gamma_s` not above 1, a non-unique reactant basis, an integration failure) |
+
+`--allow-verification-failure` is rejected with an `energy_model` section (code 2): it applies only to the legacy mass-ledger gate (code 5), and the energy closure failure (code 1) is never downgraded; `--no-cache` is rejected for the same reason (it concerns the legacy chamber-property cache).
+
 `--allow-verification-failure` applies only when the mass ledger is the sole
 failed run-verification gate. It does not override post-run consistency or
 model-applicability failures. In a failed normal run, the CSV, text summary,
@@ -412,6 +428,49 @@ Limits of this interface:
 - Nothing is printed and no output file is written (no `summary.json`, `time_history.csv` or figure). The chamber-property cache is still read and written, in the same directory as by the command line.
 - Errors are raised instead of being turned into exit codes: `gribs.errors.ConfigurationError` (command line: exit code 2), `gribs.errors.ThermochemistryError` (3), `gribs.api.ModelApplicabilityError` (1, raised before the simulation) and the errors of the simulation (4).
 - A `Result` does not contain the `summary.json` sections `environment`, `cea_theoretical_diagnostics` and `output_files`, which only the command line computes. There is no input hash, no uncertainty summary and no dedicated warning type (warnings are dictionaries as in `summary.json`).
+
+## Energy mode (opt-in; synthetic fixtures only)
+
+Energy mode is selected only by an `energy_model` section in the configuration file. Without it the program runs the model described above, with the same outputs and exit codes. **Energy mode is verified on synthetic fixtures only: the number of cases qualified with a real propellant is 0, and its results are not compared with measured data or, for a condensed volume, with the legacy model.** The program version stays 0.6.2-alpha, and the schema version is unchanged; the section is optional.
+
+Required keys (there are no defaults):
+
+| Key under `energy_model` | Meaning |
+|---|---|
+| `initial_fill.temperature_K`, `.composition`, `.element_tolerance` | temperature of the initial charge; `main_propellant_products` is the only composition; tolerance of the element check at t = 0 |
+| `wall.adiabatic`, `wall.heat_rate_W` | `adiabatic` is declared explicitly; `heat_rate_W` is required unless the wall is adiabatic, and is rejected when it is given together with an adiabatic wall |
+| `burn_surface.form`, `.grain_far_temperature_K`, `.solid_enthalpy` (`reference_J_kg`, `reference_temperature_K`, `cp_J_kgK`) | form `a` only; the temperature at which `h_s` is evaluated; the enthalpy of the solid on the absolute basis of the products (formation enthalpy included) |
+| `condensed.volume`, `.phases`, `.transitions` | `external_density` only; constant density, heat capacity and enthalpy of each condensed species; melting temperatures |
+| `recovery.phase_fraction_tolerance`, `.root_tolerance`, `.plateau_edge_tolerance`, `.temperature_search_K`, `.start_temperatures_K` | tolerances of the state recovery; the searched temperature range `[T_lo, T_hi]` and the start temperatures inside it |
+| `propellant_formulas` | formula of each reactant, `{element symbol: atoms}` (case-sensitive: `Cl`, `Co`); required to run; never inferred from species names |
+
+There is no key for the density of the solid propellant: `Config.rho_p` (the bulk density computed from the reactants and the packing fraction) is the only one. The isentropic exponent of the nozzle flow is the equilibrium `gamma_s` of the CEA TP solution (the configured `reference_gamma` for `reference_constant`); a state with `gamma_s` not finite or not above 1 stops the run.
+
+Rejected in energy mode (the same list as item 9 of "Energy mode" in `MODEL_LIMITATIONS.md`):
+
+- an igniter (`E_ENERGY_MODE_IGNITER_REJECTED`);
+- `equilibrium_pressure_diagnostic` other than `off` (for example `sampled`);
+- `temperature_efficiency` (`eta_T0`) other than 1;
+- `two_phase_model.mode` other than `homogeneous_equilibrium`;
+- an initial fill other than the products of the main propellant (an air fill), and an initial state given by the pressure only (the fill temperature is required);
+- a non-adiabatic wall without `heat_rate_W`, and `heat_rate_W` together with an adiabatic wall;
+- `burn_surface.form` other than `a`, and `condensed.volume` other than `external_density`;
+- unknown keys; `propellant_formulas` missing, or an element symbol that is not in the atomic-mass table (symbols are case-sensitive);
+- a reactant basis whose weights are not unique or not non-negative (found when the run starts; exit code 4);
+- a thermochemistry backend other than `cea_python` and `reference_constant`;
+- the backend `reference_constant` when `temperature_K`, `gamma` or `molecular_weight_kg_kmol` is not stated in `thermochemistry.reference_constant` of the file (in energy mode these three values have no defaults; for example `--backend reference_constant` on a file written for `cea_python` is rejected);
+- `--selftest`, `--dump-thermo`, `--no-cache` or `--allow-verification-failure` together with an `energy_model` section (energy mode does not build the legacy thermochemistry table or use the legacy chamber-property cache, and has no mass-ledger gate for the last flag to relax).
+
+Outputs of an energy run, in the output directory:
+
+- `energy_time_history.csv`: columns with units, including the four closure residuals (mass, element inventory, energy, volume; absolute and normalised);
+- `summary.txt` and `summary.json` (under their configured names): `summary.json` has the top-level keys `model_mode = "energy"` and `energy_model` (scope, interpretation of the burn-surface term, definition of `H0_out`, held items adopted, `gamma_s` range, provenance, settings, the closure threshold and `legacy_outputs_not_produced`).
+
+The legacy figure, the legacy `time_history.csv`, the CEA theoretical rocket diagnostics, the equilibrium pressure diagnostic, the legacy post-run self-test, the legacy mass and energy ledger and the legacy model-applicability check are **not produced** in energy mode; the command line prints a line saying so and the summary lists them. A run ends with exit code 0 when it completes, `gamma_s > 1` in every state and the normalised closure residuals are within a threshold of `1e-6`; that is an exit-code rule, not a statement that the results are physically valid. The threshold is provisional (held item H-09), a pass/fail threshold and not a claim of accuracy.
+
+The analytic backend `reference_constant`, used in energy mode, has no enthalpy; energy mode gives it the convention `h(T_ref) = h_s(T_grain,inf)`. That convention is for tests only and is not a property of any propellant. The values of `reference_constant` (`temperature_K`, `gamma`, `molecular_weight_kg_kmol`) must be stated in the file; energy mode does not accept the defaults that the legacy loader supplies for `--backend reference_constant`.
+
+The effect of the simplifications of energy mode (quasi-steady burn surface, the kinetic energy at the nozzle inlet plane not included (a departure from the model definition, held item H-18), adiabatic nozzle, constant condensed-phase properties, linear phase fraction on a plateau, an atomic-mass table not audited against CEA) on results has not been evaluated; see `MODEL_LIMITATIONS.md`.
 
 ## Outputs
 
