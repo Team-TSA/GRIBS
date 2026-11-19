@@ -1,5 +1,5 @@
 """Parser of the optional energy_model section (A-6 stage 2, C3). Reads a JSON object; every key is required (no
-defaults) and unknown keys are rejected, with the messages of the other sections (ConfigurationError).
+defaults) except propellant_formulas (C9, optional), and unknown keys are rejected, with the messages of the other sections (ConfigurationError).
 
 Imported lazily by gribs.config.loader.configuration_from_document, only when the section is present.
 """
@@ -15,9 +15,10 @@ from gribs.energy.config_model import (
     BurnSurface, CondensedData, CondensedPhaseSpec, EnergyModeSettings, InitialFill, PhaseTransitionSpec,
     RecoverySettings, SolidEnthalpy, WallHeat,
 )
+from gribs.energy.elements import check_formulas
 from gribs.errors import ConfigurationError
 
-_KEYS = ("initial_fill", "wall", "burn_surface", "condensed", "recovery")
+_KEYS = ("initial_fill", "wall", "burn_surface", "condensed", "recovery", "propellant_formulas")
 _FILL_KEYS = ("temperature_K", "composition", "element_tolerance")
 _WALL_KEYS = ("adiabatic", "heat_rate_W")
 _SURFACE_KEYS = ("form", "grain_far_temperature_K", "solid_density_kg_m3", "solid_enthalpy")
@@ -103,5 +104,11 @@ def parse_energy_model(node: Any, path: str = "energy_model") -> EnergyModeSetti
         plateau_edge_tolerance=float(_number(rec, "plateau_edge_tolerance", f"{path}.recovery",
                                              exclusive_minimum=0.0)))
 
+    formulas = None
+    if "propellant_formulas" in root:
+        table = _mapping(root["propellant_formulas"], f"{path}.propellant_formulas")
+        check_formulas(table, f"{path}.propellant_formulas")
+        formulas = {str(name): {str(e): float(n) for e, n in formula.items()} for name, formula in table.items()}
+
     return EnergyModeSettings(initial_fill=initial_fill, wall=wall_heat, burn_surface=burn_surface,
-                              condensed=condensed, recovery=recovery)
+                              condensed=condensed, recovery=recovery, propellant_formulas=formulas)

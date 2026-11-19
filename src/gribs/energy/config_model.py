@@ -8,7 +8,7 @@ returns the fields only, so a legacy summary never shows an "energy" key (tests/
 The values the tests use for these inputs are assumed inputs, not data (PRE_REGISTRATION_C3.md, held items H-01..H-08).
 """
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Mapping, Optional, Tuple
 
 #: The only initial fill energy mode accepts: the equilibrium products of the main propellant (contract 2b-FIX-2).
 INITIAL_FILL_COMPOSITIONS = ("main_propellant_products",)
@@ -85,3 +85,6 @@ class EnergyModeSettings:
     burn_surface: BurnSurface
     condensed: CondensedData
     recovery: RecoverySettings
+    #: Explicit formulas of the reactants, reactant name -> {element symbol: atoms} (C9; optional, None when not given).
+    #: Never inferred from species names; energy mode will require it at run time (the wiring, C11).
+    propellant_formulas: Optional[Mapping[str, Mapping[str, float]]] = None
