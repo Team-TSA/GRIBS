@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+import gribs.api
 import gribs.config
 import gribs.config.loader
 import gribs.simulation.integrator
@@ -172,6 +173,17 @@ def test_c13_a_two_phase_mode_other_than_homogeneous_equilibrium_is_rejected():
 
 
 @pytest.mark.fast
-def test_c14_run_model_is_not_implemented_for_an_energy_configuration():
-    with pytest.raises(NotImplementedError, match="energy mode is not implemented"):
-        gribs.simulation.integrator.run_model(load(document()))
+def test_c14_the_energy_features_not_implemented_yet_raise_not_implemented_error(tmp_path):
+    """C10 rewrite of the C3 test (B-13): list what is NOT implemented at C10 and check that each raises NotImplementedError.
+    The integrator core (simulation/energy_integrator.py) is implemented and is tested in test_energy_integrator.py, so it is
+    not in the list.  What is left: the wiring from the configuration to the equilibrium provider, through run_model and
+    through the API (C11)."""
+    path = tmp_path / "energy_case.json"
+    path.write_text(json.dumps(document()), encoding="utf-8")
+    not_implemented = (
+        ("run_model: the wiring of the configuration to the provider", lambda: gribs.simulation.integrator.run_model(load(document()))),
+        ("run_simulation (API): the same wiring", lambda: gribs.api.run_simulation(path)),
+    )
+    for what, call in not_implemented:
+        with pytest.raises(NotImplementedError, match="wiring"):
+            call()

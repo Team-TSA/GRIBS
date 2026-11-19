@@ -8,6 +8,9 @@ from gribs.constants import TWO_PHASE_HOMOGENEOUS
 from gribs.energy.config_model import INITIAL_FILL_COMPOSITIONS
 from gribs.errors import ConfigurationError
 
+#: The error code of the rejection of an igniter in energy mode (a ConfigurationError, exit code 2 of the CLI).
+IGNITER_REJECTED_CODE = "E_ENERGY_MODE_IGNITER_REJECTED"
+
 
 def validate_energy_mode(c) -> None:
     e = c.energy
@@ -29,6 +32,11 @@ def validate_energy_mode(c) -> None:
             "energy_model.wall: heat_rate_W is required unless adiabatic is declared true (no default heat loss).")
     if e.wall.adiabatic is True and e.wall.heat_rate_W is not None:
         raise ConfigurationError("energy_model.wall: heat_rate_W must not be given when adiabatic is true.")
+    if c.ign_mdot > 0.0 and c.ign_time > 0.0:
+        raise ConfigurationError(
+            f"{IGNITER_REJECTED_CODE}: an igniter (igniter.mass_flow_kg_s = {c.ign_mdot:g}, igniter.duration_s = "
+            f"{c.ign_time:g}) is not supported in energy mode: the stagnation enthalpy of the igniter flow is not an input of "
+            f"energy_model. Remove the igniter (a zero mass flow or a zero duration) or remove the energy_model section.")
     if e.initial_fill.composition not in INITIAL_FILL_COMPOSITIONS:
         raise ConfigurationError(
             f"energy_model.initial_fill.composition: {e.initial_fill.composition!r} is not supported; the initial fill "
