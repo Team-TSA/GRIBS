@@ -145,7 +145,7 @@ def test_x04_an_energy_run_whose_tp_cache_cannot_be_written_ends_with_exit_code_
         "wall": {"adiabatic": True},
         "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0,
                          "solid_enthalpy": {"reference_J_kg": -1.4e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}},
-        "condensed": {"volume": "external_density",
+        "condensed": {"volume": "external_density", "latent_heat_check_tolerance_rel": 0.5,
                       "transitions": [{"solid_species": "AL2O3(a)", "liquid_species": "AL2O3(L)", "melting_temperature_K": 2327.0}],
                       "phases": [{"species": "AL2O3(a)", "phase": "solid", "density_kg_m3": 3990.0, "cp_J_kgK": 1300.0,
                                   "enthalpy_reference_J_kg": -1.6e7, "reference_temperature_K": 298.15},

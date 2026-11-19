@@ -32,7 +32,8 @@ CONDENSED = {
          "enthalpy_reference_J_kg": -1.6e7, "reference_temperature_K": 298.15},
         {"species": "Al2O3(L)", "phase": "liquid", "density_kg_m3": 3000.0, "cp_J_kgK": 1300.0,
          "enthalpy_reference_J_kg": -1.5e7, "reference_temperature_K": 298.15}],
-    "transitions": [{"solid_species": "Al2O3(a)", "liquid_species": "Al2O3(L)", "melting_temperature_K": 2327.0}]}
+    "transitions": [{"solid_species": "Al2O3(a)", "liquid_species": "Al2O3(L)", "melting_temperature_K": 2327.0}],
+    "latent_heat_check_tolerance_rel": 1.0e-3}
 RECOVERY = {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6, "temperature_search_K": [200.0, 8000.0], "start_temperatures_K": [600.0, 3000.0]}
 ENERGY = {"initial_fill": FILL, "wall": WALL, "burn_surface": SURFACE, "condensed": CONDENSED, "recovery": RECOVERY}
 

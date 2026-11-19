@@ -21,7 +21,7 @@ from typing import Dict, Mapping, NamedTuple, Optional, Sequence, Tuple
 from scipy.optimize import brentq
 
 from gribs.energy.config_model import CondensedData, CondensedPhaseSpec, PhaseTransitionSpec, RecoverySettings
-from gribs.energy.exceptions import NoRootOutsidePlateauError, StateRecoveryError
+from gribs.energy.exceptions import LatentHeatMismatchError, NoRootOutsidePlateauError, StateRecoveryError
 from gribs.energy.provider import EquilibriumProvider, TPState
 from gribs.energy.state import RecoveredState
 
@@ -31,7 +31,6 @@ _MAX_DOUBLINGS = 200
 #: Start points agree when T and ln p differ by less than this factor times root_tolerance.
 _AGREE_FACTOR = 1.0e4
 _VOLUME_RESIDUAL_TOL = 1.0e-8
-_LATENT_HEAT_RTOL = 1.0e-6
 
 
 class PlateauBounds(NamedTuple):
@@ -44,9 +43,12 @@ class PlateauBounds(NamedTuple):
 
 
 def latent_heat(transition: PhaseTransitionSpec, phases: Sequence[CondensedPhaseSpec]) -> float:
-    """L [J/kg] = h_liquid(T_m) - h_solid(T_m) from the constant-cp data of the two phases (the one source of L)."""
+    """L_input [J/kg] = h_liquid(T_m) - h_solid(T_m) from the constant-cp data of the two phases of the configuration.  No equation
+    of the model uses L: the plateau is the provider's own jump of the energy.  L_input is compared at t = 0 with the L_calc that
+    the provider's plateau gives (latent_heat_from_provider, latent_heat_check)."""
     by_species = {p.species: p for p in phases}
-    missing = [s for s in (transition.solid_species, transition.liquid_species) if s not in by_species]
+    missing = [s for s in (transition.solid_species, transition.liquid_species) if s not in by_species
+               or None in (by_species[s].cp_J_kgK, by_species[s].enthalpy_reference_J_kg, by_species[s].reference_temperature_K)]
     if missing:
         raise StateRecoveryError(
             f"phase transition {transition.solid_species!r} -> {transition.liquid_species!r}: the data of {missing} is "
@@ -150,9 +152,9 @@ class _Solver:
                     f"E_cv = {self.E:.10g} J is out of the searched range")
             a, delta = b, delta * 1.5
 
-    def plateau_bounds(self, transition: PhaseTransitionSpec) -> PlateauBounds:
+    def plateau_bounds(self, transition: PhaseTransitionSpec, d_relative: Optional[float] = None) -> PlateauBounds:
         Tm = transition.melting_temperature_K
-        d = max(1.0e-9, 10.0 * self.rec.root_tolerance) * Tm
+        d = (max(1.0e-9, 10.0 * self.rec.root_tolerance) if d_relative is None else d_relative) * Tm
         p_minus, s_minus = self.pressure(Tm - d)
         p_plus, s_plus = self.pressure(Tm + d)
         return PlateauBounds(self.M * s_minus.u_J_per_kg, self.M * s_plus.u_J_per_kg, p_minus, p_plus, s_minus, s_plus)
@@ -210,21 +212,63 @@ def plateau_bounds(V_free: float, B_e: Mapping[str, float], transition: PhaseTra
     return _Solver(0.0, V_free, B_e, provider, condensed, recovery).plateau_bounds(transition)
 
 
+def latent_heat_from_provider(transition: PhaseTransitionSpec, V_free: float, B_e: Mapping[str, float],
+                              provider: EquilibriumProvider, condensed: CondensedData, recovery: RecoverySettings, *,
+                              d_relative: Optional[float] = None) -> float:
+    """L_calc [J/kg of liquid] = (E+ - E-) / (M (y_liq(T_m + d) - y_liq(T_m - d))): the width of the provider's plateau per kg of
+    liquid, at the given V_free and B_e (E+-, y_liq at T_m +- d, d = d_relative T_m; the default d_relative is the one of
+    plateau_bounds, max(1e-9, 10 root_tolerance)).  It is the width between T_m - d and T_m + d, so it includes the sensible heat
+    of the mixture between them (about 2 c_mix d / dy_liq, c_mix the specific heat of the mixture) and the pressure dependence of
+    the gas energy that the change of the condensed volume at fixed V_free causes (Yg dU/dp (p+ - p-) / dy_liq); it is an
+    approximation of the L of the data (contract 164 2b-FIX-1 (d)-5), not an equation of the model.  Raises StateRecoveryError
+    when the liquid does not increase across T_m (dy_liq <= 0) or the provider fails."""
+    solver = _Solver(0.0, V_free, B_e, provider, condensed, recovery)
+    b = solver.plateau_bounds(transition, d_relative)
+    liquid = transition.liquid_species
+    dy = b.state_plus.condensed_mass_fraction.get(liquid, 0.0) - b.state_minus.condensed_mass_fraction.get(liquid, 0.0)
+    if not dy > 0.0:
+        raise StateRecoveryError(
+            f"the plateau of {transition.solid_species!r} -> {liquid!r} at T_m = {transition.melting_temperature_K:g} K has no liquid "
+            f"increase in the provider's states (y_liq(T_m + d) - y_liq(T_m - d) = {dy!r}), so L_calc is undefined")
+    return (b.E_plus - b.E_minus) / (solver.M * dy)
+
+
+def latent_heat_check(M0: float, V_free0: float, B_e: Mapping[str, float], provider: EquilibriumProvider,
+                      condensed: CondensedData, recovery: RecoverySettings) -> list:
+    """The check at t = 0 (once, never in the right-hand side): for each declared transition, L_calc against L_input,
+    |L_calc - L_input| <= tol max(|L_input|, |L_calc|) with tol = condensed.latent_heat_check_tolerance_rel.  Returns one record
+    per transition (the values the summary shows); raises LatentHeatMismatchError (E_ENERGY_LATENT_HEAT_MISMATCH) when one is
+    outside, StateRecoveryError when L_calc cannot be computed.  M0 is the mass of the contents at t = 0 (B_e already holds it)."""
+    records = []
+    tol = condensed.latent_heat_check_tolerance_rel
+    for tr in condensed.transitions:
+        L_input = latent_heat(tr, condensed.phases)
+        L_calc = latent_heat_from_provider(tr, V_free0, B_e, provider, condensed, recovery)
+        scale = max(abs(L_input), abs(L_calc))
+        rel = abs(L_calc - L_input) / scale if scale > 0.0 else 0.0
+        if tol is None:
+            raise StateRecoveryError("latent_heat_check_tolerance_rel is not set although a transition is declared")
+        if not abs(L_calc - L_input) <= tol * scale:
+            raise LatentHeatMismatchError(
+                f"{LatentHeatMismatchError.code}: the latent heat of the phase data, L_input = {L_input!r} J/kg, differs from "
+                f"the L_calc = {L_calc!r} J/kg that the provider's plateau gives (relative difference {rel:.6g}, tolerance "
+                f"latent_heat_check_tolerance_rel = {tol!r}) for {tr.solid_species!r} -> {tr.liquid_species!r} at T_m = "
+                f"{tr.melting_temperature_K:g} K (at t = 0, mass {M0!r} kg)")
+        records.append({"solid_species": tr.solid_species, "liquid_species": tr.liquid_species,
+                        "melting_temperature_K": tr.melting_temperature_K, "L_calc_J_per_kg": L_calc, "L_input_J_per_kg": L_input,
+                        "relative_difference": rel, "tolerance_rel": tol, "accepted": True})
+    return records
+
+
 def recover_state(E_cv: float, V_free: float, B_e: Mapping[str, float], provider: EquilibriumProvider,
                   condensed: CondensedData, recovery: RecoverySettings, *, T_search_K: Tuple[float, float],
-                  starts_K: Sequence[float], latent_heat_J_per_kg: Optional[float] = None) -> RecoveredState:
+                  starts_K: Sequence[float]) -> RecoveredState:
     """Recover (p, T, phase fraction) from (E_cv, V_free, B_e); see the module docstring.
 
     T_search_K = (T_lo, T_hi) is the searched temperature range, starts_K the temperatures the search starts from (every
-    start must give the same state).  latent_heat_J_per_kg, if given, is only checked against the L the two phases' data
-    give (L is never defined twice)."""
+    start must give the same state)."""
     for tr in condensed.transitions:
-        L = latent_heat(tr, condensed.phases)                       # raises when a phase's data is missing
-        if latent_heat_J_per_kg is not None and \
-                abs(L - latent_heat_J_per_kg) > _LATENT_HEAT_RTOL * max(abs(L), abs(latent_heat_J_per_kg), 1.0):
-            raise StateRecoveryError(
-                f"latent heat {latent_heat_J_per_kg!r} J/kg does not match the {L!r} J/kg that the data of the two phases "
-                f"of {tr.solid_species!r} -> {tr.liquid_species!r} give")
+        latent_heat(tr, condensed.phases)                           # raises when a phase's data is missing
     T_lo, T_hi = T_search_K
     if not (0.0 < T_lo < T_hi):
         raise StateRecoveryError(f"T_search_K must satisfy 0 < T_lo < T_hi, got {T_search_K!r}")

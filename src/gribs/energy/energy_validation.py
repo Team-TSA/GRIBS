@@ -15,6 +15,11 @@ IGNITER_REJECTED_CODE = "E_ENERGY_MODE_IGNITER_REJECTED"
 #: The error code of a phase table that does not match the declared phase transitions (a ConfigurationError, exit code 2).
 UNDECLARED_PHASE_TRANSITION_CODE = "E_ENERGY_UNDECLARED_PHASE_TRANSITION"
 
+#: The error code of a missing or unused phase datum or latent-heat tolerance (a ConfigurationError, exit code 2).
+PHASE_DATA_CODE = "E_ENERGY_PHASE_DATA"
+#: The error code of a missing, unused or non-positive latent_heat_check_tolerance_rel (a ConfigurationError, exit code 2).
+LATENT_HEAT_TOLERANCE_CODE = "E_ENERGY_LATENT_HEAT_TOLERANCE"
+
 #: A species name is split into its base and a phase mark in brackets: "AL2O3(a)" -> ("AL2O3", "a").  A name without a mark has
 #: no mark.  Two names are the same species only when their bases are equal as strings (the case is significant: CO and Co differ).
 _SPECIES_MARK = re.compile(r"^(?P<base>.+)\((?P<mark>[A-Za-z]{1,3})\)$")
@@ -71,6 +76,37 @@ def _check_phase_transitions(condensed) -> None:
                                 f"of the phases table")
 
 
+def _check_phase_data(condensed) -> None:
+    """cp, enthalpy_reference and reference_temperature_K (the three inputs of h = enthalpy_reference + cp (T - reference_temperature))
+    are required for the two phases of a declared transition and rejected for any other phase; latent_heat_check_tolerance_rel
+    is required when a transition is declared and rejected when none is (C16; decided from the configuration alone)."""
+    in_transition = {s for t in condensed.transitions for s in (t.solid_species, t.liquid_species)}
+    keys = ("cp_J_kgK", "enthalpy_reference_J_kg", "reference_temperature_K")
+    for p in condensed.phases:
+        given = [k for k in keys if getattr(p, k) is not None]
+        if p.species in in_transition and len(given) != len(keys):
+            missing = [k for k in keys if getattr(p, k) is None]
+            raise ConfigurationError(
+                f"{PHASE_DATA_CODE}: energy_model.condensed.phases: the phase {p.species!r} belongs to a declared transition, so "
+                f"{missing} must be given (the latent heat L_input = h_liquid(T_m) - h_solid(T_m) uses all three of both phases)")
+        if p.species not in in_transition and given:
+            raise ConfigurationError(
+                f"{PHASE_DATA_CODE}: energy_model.condensed.phases: {given} of the phase {p.species!r} must not be given: the phase "
+                f"belongs to no declared transition, and no number uses these inputs (only density_kg_m3 is used, for the volume)")
+    tol = condensed.latent_heat_check_tolerance_rel
+    if condensed.transitions and tol is None:
+        raise ConfigurationError(
+            f"{LATENT_HEAT_TOLERANCE_CODE}: energy_model.condensed.latent_heat_check_tolerance_rel is required when a phase "
+            f"transition is declared (no default): the t = 0 check |L_calc - L_input| <= tol max(|L_input|, |L_calc|) uses it")
+    if not condensed.transitions and tol is not None:
+        raise ConfigurationError(
+            f"{LATENT_HEAT_TOLERANCE_CODE}: energy_model.condensed.latent_heat_check_tolerance_rel must not be given when no phase "
+            f"transition is declared (no number uses it)")
+    if tol is not None and not tol > 0.0:
+        raise ConfigurationError(
+            f"{LATENT_HEAT_TOLERANCE_CODE}: energy_model.condensed.latent_heat_check_tolerance_rel must be > 0, got {tol!r}")
+
+
 def validate_energy_mode(c) -> None:
     e = c.energy
     if c.eta_T0 != 1.0:
@@ -101,3 +137,4 @@ def validate_energy_mode(c) -> None:
             f"energy_model.initial_fill.composition: {e.initial_fill.composition!r} is not supported; the initial fill "
             f"is limited to {list(INITIAL_FILL_COMPOSITIONS)}.")
     _check_phase_transitions(e.condensed)
+    _check_phase_data(e.condensed)

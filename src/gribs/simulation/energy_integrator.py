@@ -43,7 +43,7 @@ from gribs.energy.initial import initial_state_from_fill
 from gribs.energy.ledger import closure_residuals
 from gribs.energy.nozzle_from_state import _choke_threshold_pressure, nozzle_state_from_chamber
 from gribs.energy.exceptions import StateRecoveryError
-from gribs.energy.recovery import recover_state
+from gribs.energy.recovery import latent_heat_check, recover_state
 from gribs.energy.state import RecoveredState
 from gribs.energy.wiring import EnergyRunInputs, build_energy_inputs
 
@@ -200,6 +200,7 @@ def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None, *, wal
     start = initial_state_from_fill(e.initial_fill.temperature_K, c.p0_init, dict(inputs.element_fractions), V_free0,
                                     inputs.provider, e.condensed)
     M0, E0 = start.mass_kg, start.E_cv
+    latent_records = latent_heat_check(M0, V_free0, model.B_e(M0), inputs.provider, e.condensed, e.recovery)   # once, at t = 0
     y0 = np.array([M0, E0, 0.0, c.R_t0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     init_regime = model.terms(y0, False)["nz"]["regime"]
     if c.unchoked_policy == "stop" and init_regime != "choked":
@@ -244,7 +245,7 @@ def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None, *, wal
 
     return dict(sol_burn=sol1, sol_blow=sol2, stop_burn=stop1, stop_blow=stop2,
                 integration_budget={"rhs_calls": calls1["calls"] + calls2["calls"]},
-                Ae=Ae, At0=At0, M0=M0, E0=E0, init_regime=init_regime,
+                Ae=Ae, At0=At0, M0=M0, E0=E0, init_regime=init_regime, latent_heat_check=latent_records,
                 t_events={nm: [float(v) for v in te] for nm, te in zip(names, sol1.t_events)},
                 model=model, provenance=dict(inputs.provenance, gamma_s_min=model.gamma_range[0],
                                              gamma_s_max=model.gamma_range[1]))

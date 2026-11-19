@@ -119,6 +119,10 @@ class EnergyOutcome:
                  f"{e['gamma_s']['max']:.9g}",
                  f"  closure residuals (normalised, max over the history; tolerance {CLOSURE_TOLERANCE:g}): "
                  + ", ".join(f"{k} = {v:.3g}" for k, v in r["closure"]["max_normalised"].items()),
+                 *[f"  latent heat check at t = 0 ({c['solid_species']} -> {c['liquid_species']}, T_m = "
+                   f"{c['melting_temperature_K']:.9g} K): L_calc = {c['L_calc_J_per_kg']:.9g} J/kg, L_input = "
+                   f"{c['L_input_J_per_kg']:.9g} J/kg, relative difference {c['relative_difference']:.3g} "
+                   f"(tolerance {c['tolerance_rel']:g})" for c in e.get("latent_heat_check", [])],
                  f"  run passed: {self.run_passed}",
                  "  legacy outputs NOT produced in energy mode: " + "; ".join(LEGACY_OUTPUTS_NOT_PRODUCED)]
         return "\n".join(lines) + "\n"
@@ -267,6 +271,7 @@ def _run_energy_case(loaded) -> EnergyOutcome:
         "gamma_s": {"definition": run["provenance"]["gamma_s_definition"], "min": gamma_min, "max": gamma_max},
         "provenance": json.loads(json.dumps(run["provenance"], default=str)),
         "settings": json.loads(json.dumps(asdict(cfg.energy), default=str)),
+        "latent_heat_check": run["latent_heat_check"],
         "closure_tolerance_normalised": CLOSURE_TOLERANCE,
         "closure_tolerance_status": CLOSURE_TOLERANCE_STATUS,
         "legacy_outputs_not_produced": list(LEGACY_OUTPUTS_NOT_PRODUCED),

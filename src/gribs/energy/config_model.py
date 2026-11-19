@@ -52,10 +52,12 @@ class BurnSurface:
 class CondensedPhaseSpec:
     species: str
     phase: str                      # one of CONDENSED_PHASES
-    density_kg_m3: float            # constant rho_c (D-10)
-    cp_J_kgK: float                 # constant cp (D-10)
-    enthalpy_reference_J_kg: float  # h at reference_temperature_K, same basis as the products
-    reference_temperature_K: float
+    density_kg_m3: float            # constant rho_c (D-10); required for every phase (it gives the volume)
+    #: The three values of h = enthalpy_reference + cp (T - reference_temperature_K) (D-10) are required for the two phases of a
+    #: declared transition and rejected for any other phase (an input that no number uses; C16, energy_validation).
+    cp_J_kgK: Optional[float]
+    enthalpy_reference_J_kg: Optional[float]   # h at reference_temperature_K, same basis as the products
+    reference_temperature_K: Optional[float]
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,9 @@ class CondensedData:
     volume: str                     # one of CONDENSED_VOLUME_CHOICES (key energy_model.condensed.volume, D-07)
     phases: Tuple[CondensedPhaseSpec, ...]
     transitions: Tuple[PhaseTransitionSpec, ...]
+    #: energy_model.condensed.latent_heat_check_tolerance_rel: required (no default) when a transition is declared, rejected when
+    #: none is.  The t = 0 check |L_calc - L_input| <= tol max(|L_input|, |L_calc|) uses it (C16).
+    latent_heat_check_tolerance_rel: Optional[float] = None
 
 
 @dataclass(frozen=True)

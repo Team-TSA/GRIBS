@@ -163,13 +163,23 @@ def test_p09_a_cea_equilibrium_that_does_not_converge_is_an_error():
             provider().tp(5.0, 2.0e6, B_E)                           # 5 K: no equilibrium is found (last_error = 8)
 
 
-@pytest.mark.integration
-def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma_above_one(tmp_path):
-    """C12 smoke run (B-18 (3)): the energy case of the golden g5 propellant with the CEA provider, through run_energy_case.
-    It passes on completion, gamma_s > 1 in every state and the closure residuals only; nothing is compared with the legacy
-    model.  Synthetic condensed-phase and solid data (assumed inputs, not data of a propellant)."""
-    import gribs.config.loader
-    from gribs.simulation.energy_postprocess import CLOSURE_TOLERANCE, run_energy_case
+_AL2O3_S = {"species": "AL2O3(a)", "phase": "solid", "density_kg_m3": 3990.0, "cp_J_kgK": 1300.0,
+            "enthalpy_reference_J_kg": -1.6e7, "reference_temperature_K": 298.15}
+_AL2O3_L = {"species": "AL2O3(L)", "phase": "liquid", "density_kg_m3": 3000.0, "cp_J_kgK": 1300.0,
+            "enthalpy_reference_J_kg": -1.5e7, "reference_temperature_K": 298.15}
+
+
+def write_g5_energy_case(tmp_path, *, with_transition):
+    """The g5 energy case of p10/p11 (assumed condensed-phase and solid data).  with_transition=False: the one condensed phase
+    AL2O3(L) and no transition (F-1 R-3); True: AL2O3(a), AL2O3(L), the declared transition at 2327 K and the tolerance 0.5."""
+    import gribs.config.loader  # noqa: F401
+    if with_transition:
+        condensed = {"volume": "external_density", "latent_heat_check_tolerance_rel": 0.5,
+                     "transitions": [{"solid_species": "AL2O3(a)", "liquid_species": "AL2O3(L)", "melting_temperature_K": 2327.0}],
+                     "phases": [dict(_AL2O3_S), dict(_AL2O3_L)]}
+    else:
+        condensed = {"volume": "external_density", "transitions": [], "phases": [{k: v for k, v in _AL2O3_L.items()
+                                                               if k not in ("cp_J_kgK", "enthalpy_reference_J_kg", "reference_temperature_K")}]}
     root = Path(__file__).resolve().parents[1]
     doc = json.loads((root / "cases" / "golden" / "g5_high_condensed_ap_al.json").read_text(encoding="utf-8"))
     doc["output"]["directory"] = str(tmp_path / "g5_energy_out")
@@ -180,12 +190,7 @@ def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma
         "wall": {"adiabatic": True},
         "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0,
                          "solid_enthalpy": {"reference_J_kg": -1.4e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}},
-        "condensed": {"volume": "external_density",
-                      "transitions": [{"solid_species": "AL2O3(a)", "liquid_species": "AL2O3(L)", "melting_temperature_K": 2327.0}],
-                      "phases": [{"species": "AL2O3(a)", "phase": "solid", "density_kg_m3": 3990.0, "cp_J_kgK": 1300.0,
-                                  "enthalpy_reference_J_kg": -1.6e7, "reference_temperature_K": 298.15},
-                                 {"species": "AL2O3(L)", "phase": "liquid", "density_kg_m3": 3000.0, "cp_J_kgK": 1300.0,
-                                  "enthalpy_reference_J_kg": -1.5e7, "reference_temperature_K": 298.15}]},
+        "condensed": condensed,
         "recovery": {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6,
                      "temperature_search_K": [500.0, 5000.0], "start_temperatures_K": [3000.0]},
         "propellant_formulas": {"NH4CLO4(I)": {"N": 1, "H": 4, "Cl": 1, "O": 4}, "AL(cr)": {"Al": 1},
@@ -193,6 +198,21 @@ def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma
     }
     path = tmp_path / "g5_energy.json"
     path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.integration
+def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma_above_one(tmp_path):
+    """C12 smoke run (B-18 (3)), in the range above T_m where Al2O3 is liquid: the energy case of the golden g5 propellant with the
+    CEA provider, through run_energy_case, with ONE condensed phase (AL2O3(L)) and no transition.  It passes on completion,
+    gamma_s > 1 in every state and the closure residuals only; nothing is compared with the legacy model.  The run stays at
+    T = 3000-3245 K (above T_m = 2327 K), where liquid Al2O3 is present and the CEA gamma_s is above 1.  If T fell below T_m a solid
+    would appear and the run would stop with exit code 4 (a condensed species not in the phases, the gap of 191 section 6).
+    Synthetic condensed-phase and solid data (assumed inputs, not data of a propellant).  The melting plateau is NOT run with CEA
+    (p11 fixes that limit, report 196)."""
+    import gribs.config.loader
+    from gribs.simulation.energy_postprocess import CLOSURE_TOLERANCE, run_energy_case
+    path = write_g5_energy_case(tmp_path, with_transition=False)
     outcome = run_energy_case(gribs.config.loader.load_json_configuration(path))
     assert outcome.error is None
     gamma = outcome.energy_model["gamma_s"]
@@ -210,3 +230,20 @@ def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma
     broken = sub(**{**asdict(c), "cea_py_products_from_reactants": False, "cea_py_product_species": ("NO_SUCH_SPECIES(zz)",)})
     with pytest.raises(ThermochemistryError):
         build_energy_inputs(broken)
+
+
+@pytest.mark.integration
+def test_p11_the_cea_path_stops_at_t0_with_exit_code_4_when_a_melting_plateau_is_declared(tmp_path):
+    """A KNOWN LIMIT (new H number, C17), fixed by this test: with the transition AL2O3(a) -> AL2O3(L) declared the t = 0 latent
+    heat check needs states at T_m +- d, and the CEA path does not run them (report 196, measured at T_m +- d, 2200 K and 2500 K):
+    the CEA gamma_s of the states there is at most 1 (rejected by the provider), or the TP solve of the solid side raises
+    CEA_FORTRAN_ABORT.  (Above T_m, at 3000-3245 K, gamma_s is above 1 and p10 runs; the boundary temperature is not measured.)
+    The run stops at t = 0 with exit code 4 and one of those two messages.  The known limit is fixed by this test: when it is
+    resolved this test fails and has to be rewritten."""
+    import gribs.config.loader
+    from gribs.simulation.energy_postprocess import run_energy_case
+    outcome = run_energy_case(gribs.config.loader.load_json_configuration(write_g5_energy_case(tmp_path, with_transition=True)))
+    assert isinstance(outcome.error, StateRecoveryError) and outcome.unexpected is False
+    text = str(outcome.error)
+    assert ("CEA returned an isentropic exponent gamma_s" in text) or ("CEA TP solve raised" in text), text
+    assert outcome.write_and_report(tmp_path / "out", {}, {}) == 4

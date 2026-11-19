@@ -68,7 +68,8 @@ ENERGY = {"initial_fill": {"temperature_K": 300.0, "composition": "main_propella
                            "solid_enthalpy": {"reference_J_kg": H_SURFACE, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}},
           "condensed": {"volume": "external_density",
                         "phases": [phase_data("OX(s)", "solid", 3990.0, H_SOLID_REF), phase_data("OX(L)", "liquid", 3000.0, H_LIQUID_REF)],
-                        "transitions": [{"solid_species": "OX(s)", "liquid_species": "OX(L)", "melting_temperature_K": T_M}]},
+                        "transitions": [{"solid_species": "OX(s)", "liquid_species": "OX(L)", "melting_temperature_K": T_M}],
+                        "latent_heat_check_tolerance_rel": 1.0e-3},
           "recovery": {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6,
                        "temperature_search_K": [200.0, 8000.0], "start_temperatures_K": [600.0, 3000.0]}}
 FRACTIONS = {"C": 0.3, "H": 0.7}

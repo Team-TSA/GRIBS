@@ -32,10 +32,16 @@ def transition(solid, liquid):
 
 
 def document(phases, transitions):
+    """The cp, enthalpy_reference and reference_temperature_K of a phase are kept only for the phases of a declared transition
+    (C16: they are rejected for any other phase), and the latent-heat tolerance is given when a transition is declared."""
+    used = {s for t in transitions for s in (t["solid_species"], t["liquid_species"])}
+    keys = ("cp_J_kgK", "enthalpy_reference_J_kg", "reference_temperature_K")
+    phases = [p if p["species"] in used else {k: v for k, v in p.items() if k not in keys} for p in phases]
     energy = {"initial_fill": {"temperature_K": 300.0, "composition": "main_propellant_products", "element_tolerance": 1.0e-6},
               "wall": {"adiabatic": True},
               "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0, "solid_enthalpy": SOLID_H},
-              "condensed": {"volume": "external_density", "phases": phases, "transitions": transitions},
+              "condensed": {"volume": "external_density", "phases": phases, "transitions": transitions,
+                            **({"latent_heat_check_tolerance_rel": 1.0e-3} if transitions else {})},
               "recovery": RECOVERY}
     return {**G1, "two_phase_model": {**G1["two_phase_model"], "mode": "homogeneous_equilibrium"}, "energy_model": energy}
 

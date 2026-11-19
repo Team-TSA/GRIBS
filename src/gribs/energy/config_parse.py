@@ -23,7 +23,7 @@ _FILL_KEYS = ("temperature_K", "composition", "element_tolerance")
 _WALL_KEYS = ("adiabatic", "heat_rate_W")
 _SURFACE_KEYS = ("form", "grain_far_temperature_K", "solid_enthalpy")
 _SOLID_H_KEYS = ("reference_J_kg", "reference_temperature_K", "cp_J_kgK")
-_CONDENSED_KEYS = ("volume", "phases", "transitions")
+_CONDENSED_KEYS = ("volume", "phases", "transitions", "latent_heat_check_tolerance_rel")
 _PHASE_KEYS = ("species", "phase", "density_kg_m3", "cp_J_kgK", "enthalpy_reference_J_kg", "reference_temperature_K")
 _TRANSITION_KEYS = ("solid_species", "liquid_species", "melting_temperature_K")
 _RECOVERY_KEYS = ("phase_fraction_tolerance", "root_tolerance", "plateau_edge_tolerance", "temperature_search_K",
@@ -35,6 +35,12 @@ def _array_of_objects(node: dict, key: str, path: str) -> List[dict]:
     if not isinstance(value, list):
         raise ConfigurationError(f"{path}.{key}: expected a JSON array, got {type(value).__name__}")
     return [_mapping(item, f"{path}.{key}[{i}]") for i, item in enumerate(value)]
+
+
+def _optional_number(node: dict, key: str, path: str, **limits):
+    """A number that may be absent (None); whether it is required is decided by energy_validation (it depends on the transitions)."""
+    value = _number(node, key, path, required=False, **limits)
+    return None if value is None else float(value)
 
 
 def _numbers(node: dict, key: str, path: str) -> List[float]:
@@ -103,9 +109,9 @@ def parse_energy_model(node: Any, path: str = "energy_model") -> EnergyModeSetti
             species=str(_string(p, "species", pp, allow_empty=False)),
             phase=str(_choice(p, "phase", pp, CONDENSED_PHASES)),
             density_kg_m3=float(_number(p, "density_kg_m3", pp, exclusive_minimum=0.0)),
-            cp_J_kgK=float(_number(p, "cp_J_kgK", pp, exclusive_minimum=0.0)),
-            enthalpy_reference_J_kg=float(_number(p, "enthalpy_reference_J_kg", pp)),
-            reference_temperature_K=float(_number(p, "reference_temperature_K", pp, exclusive_minimum=0.0))))
+            cp_J_kgK=_optional_number(p, "cp_J_kgK", pp, exclusive_minimum=0.0),
+            enthalpy_reference_J_kg=_optional_number(p, "enthalpy_reference_J_kg", pp),
+            reference_temperature_K=_optional_number(p, "reference_temperature_K", pp, exclusive_minimum=0.0)))
     transitions = []
     for i, t in enumerate(_array_of_objects(cond, "transitions", f"{path}.condensed")):
         tp = f"{path}.condensed.transitions[{i}]"
@@ -116,7 +122,9 @@ def parse_energy_model(node: Any, path: str = "energy_model") -> EnergyModeSetti
             melting_temperature_K=float(_number(t, "melting_temperature_K", tp, exclusive_minimum=0.0))))
     condensed = CondensedData(
         volume=str(_choice(cond, "volume", f"{path}.condensed", CONDENSED_VOLUME_CHOICES)),
-        phases=tuple(phases), transitions=tuple(transitions))
+        phases=tuple(phases), transitions=tuple(transitions),
+        latent_heat_check_tolerance_rel=_optional_number(cond, "latent_heat_check_tolerance_rel", f"{path}.condensed",
+                                                         exclusive_minimum=0.0))
 
     rec = _section(root, "recovery", path)
     _reject_unknown(rec, _RECOVERY_KEYS, f"{path}.recovery")

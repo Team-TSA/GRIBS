@@ -214,14 +214,6 @@ def test_r10_a_transition_without_its_data_is_rejected_and_an_undeclared_jump_is
 
 
 @pytest.mark.fast
-def test_r11_an_independent_latent_heat_must_match_the_two_phases():
-    L = latent_heat(TRANSITION, CONDENSED.phases)
-    assert recover(center_energy(), latent_heat_J_per_kg=L).on_plateau            # consistent: accepted
-    with pytest.raises(StateRecoveryError, match="latent heat"):
-        recover(center_energy(), latent_heat_J_per_kg=1.2 * L)
-
-
-@pytest.mark.fast
 def test_r12_a_mixture_condensation_is_continuous_and_makes_no_plateau():
     energies = [energy(Gradual(), T) for T in (900.0, 1000.0, 1100.0, 1200.0, 1300.0, 1400.0, 1500.0, 1600.0)]
     assert energies == sorted(energies)                                # continuous and increasing: no jump
