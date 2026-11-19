@@ -107,6 +107,7 @@ MODULE_UNIT = {
     "gribs.simulation.integrator": 5,
     "gribs.simulation.energy_integrator": 5,
     "gribs.simulation.postprocess": 6,
+    "gribs.simulation.energy_postprocess": 6,
     "gribs.plotting": 7,
     "gribs.reporting": 7,
     "gribs.selftest": 8,

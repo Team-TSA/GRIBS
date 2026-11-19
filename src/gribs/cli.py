@@ -231,6 +231,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               f"(schema {SCHEMA_VERSION}, backend {cfg.thermo_backend}).")
         return 0
 
+    if getattr(cfg, "energy", None) is not None and (args.selftest or args.dump_thermo is not None):
+        print("Configuration error:\n--selftest and --dump-thermo are not available for a configuration with an "
+              "energy_model section (energy mode does not build the legacy thermochemistry table).", file=sys.stderr)
+        return 2
+
+    # A-6 stage 2 (energy mode): the same branch as in gribs.api._run; run_energy_case writes nothing.
+    _energy = None
+    if getattr(cfg, "energy", None) is not None:
+        from gribs.simulation import energy_postprocess as _energy_postprocess
+        _energy = _energy_postprocess.run_energy_case(loaded)
+    if _energy is not None:
+        return _energy.write_and_report(loaded.output_dir, loaded.output_names, environment_info())
+
     cache_dir = loaded.output_dir / "thermo_cache"
     try:
         backend = gribs.thermo.initialize_thermochemistry(cfg, cache_dir)

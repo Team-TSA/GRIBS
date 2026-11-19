@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-import gribs.api
 import gribs.config
 import gribs.config.loader
 import gribs.simulation.integrator
@@ -174,17 +173,15 @@ def test_c13_a_two_phase_mode_other_than_homogeneous_equilibrium_is_rejected():
 
 
 @pytest.mark.fast
-def test_c14_the_energy_features_not_implemented_yet_raise_not_implemented_error(tmp_path):
-    """C10 rewrite of the C3 test (B-13): list what is NOT implemented at C10 and check that each raises NotImplementedError.
-    The integrator core (simulation/energy_integrator.py) is implemented and is tested in test_energy_integrator.py, so it is
-    not in the list.  What is left: the output, the CLI and the API of an energy run, through run_model and the API
-    (the next commit; the wiring of the configuration to the provider exists since C11)."""
-    path = tmp_path / "energy_case.json"
-    path.write_text(json.dumps(document()), encoding="utf-8")
+def test_c14_the_energy_features_not_implemented_yet_raise_not_implemented_error():
+    """C12 rewrite of the test (B-13): list what is NOT implemented and check that each raises NotImplementedError.  The
+    integrator core, the wiring, the output, the command line and the API of an energy run are implemented (the API and the
+    command line run an energy configuration through energy_postprocess.run_energy_case: tests/test_energy_run_outputs.py).
+    What is left is run_model, which is the legacy model only (B-17): it still raises NotImplementedError for an energy
+    configuration."""
     not_implemented = (
-        ("run_model: the output of an energy run", lambda: gribs.simulation.integrator.run_model(load(document()))),
-        ("run_simulation (API): the output, CLI and API of an energy run", lambda: gribs.api.run_simulation(path)),
+        ("run_model: the legacy model only", lambda: gribs.simulation.integrator.run_model(load(document()))),
     )
     for what, call in not_implemented:
-        with pytest.raises(NotImplementedError, match="output"):
+        with pytest.raises(NotImplementedError, match="legacy model only"):
             call()

@@ -102,7 +102,7 @@ def test_api_blocks_are_the_text_of_main():
             blocks.append("".join(block)); block = None
         elif block is not None:
             block.append(line)
-    assert len(blocks) == 3 and all(b.strip() for b in blocks), blocks
+    assert len(blocks) == 4 and all(b.strip() for b in blocks), blocks      # C12: + the energy-mode branch
     for b in blocks:
         assert b in main_text, b
 

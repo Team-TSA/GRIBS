@@ -9,6 +9,7 @@ import json
 import math
 import os
 import warnings
+from pathlib import Path
 
 import pytest
 
@@ -160,3 +161,41 @@ def test_p09_a_cea_equilibrium_that_does_not_converge_is_an_error():
         warnings.simplefilter("ignore")                              # CEA warns "CEA_NOT_CONVERGED"
         with pytest.raises(StateRecoveryError, match="did not converge"):
             provider().tp(5.0, 2.0e6, B_E)                           # 5 K: no equilibrium is found (last_error = 8)
+
+
+@pytest.mark.integration
+def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma_above_one(tmp_path):
+    """C12 smoke run (B-18 (3)): the energy case of the golden g5 propellant with the CEA provider, through run_energy_case.
+    It passes on completion, gamma_s > 1 in every state and the closure residuals only; nothing is compared with the legacy
+    model.  Synthetic condensed-phase and solid data (assumed inputs, not data of a propellant)."""
+    import gribs.config.loader
+    from gribs.simulation.energy_postprocess import CLOSURE_TOLERANCE, run_energy_case
+    root = Path(__file__).resolve().parents[1]
+    doc = json.loads((root / "cases" / "golden" / "g5_high_condensed_ap_al.json").read_text(encoding="utf-8"))
+    doc["output"]["directory"] = str(tmp_path / "g5_energy_out")
+    doc["solver"].update(burning_time_limit_s=0.002, relative_tolerance=1.0e-7)
+    doc["two_phase_model"]["mode"] = "homogeneous_equilibrium"
+    doc["energy_model"] = {
+        "initial_fill": {"temperature_K": 3000.0, "composition": "main_propellant_products", "element_tolerance": 1.0e-6},
+        "wall": {"adiabatic": True},
+        "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0,
+                         "solid_enthalpy": {"reference_J_kg": -1.4e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}},
+        "condensed": {"volume": "external_density", "transitions": [],
+                      "phases": [{"species": "AL2O3(a)", "phase": "solid", "density_kg_m3": 3990.0, "cp_J_kgK": 1300.0,
+                                  "enthalpy_reference_J_kg": -1.6e7, "reference_temperature_K": 298.15},
+                                 {"species": "AL2O3(L)", "phase": "liquid", "density_kg_m3": 3000.0, "cp_J_kgK": 1300.0,
+                                  "enthalpy_reference_J_kg": -1.5e7, "reference_temperature_K": 298.15}]},
+        "recovery": {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6,
+                     "temperature_search_K": [500.0, 5000.0], "start_temperatures_K": [3000.0]},
+        "propellant_formulas": {"NH4CLO4(I)": {"N": 1, "H": 4, "Cl": 1, "O": 4}, "AL(cr)": {"Al": 1},
+                                "C4H6,butadiene": {"C": 4, "H": 6}},
+    }
+    path = tmp_path / "g5_energy.json"
+    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    outcome = run_energy_case(gribs.config.loader.load_json_configuration(path))
+    assert outcome.error is None
+    gamma = outcome.energy_model["gamma_s"]
+    assert 1.0 < gamma["min"] <= gamma["max"] and outcome.energy_model["provenance"]["provider"] == "CEATPProvider"
+    assert all(g > 1.0 for g in outcome.history["gamma_s"])
+    assert outcome.results["closure"]["passed"] is True and outcome.run_passed is True
+    assert all(v <= CLOSURE_TOLERANCE for v in outcome.results["closure"]["max_normalised"].values())

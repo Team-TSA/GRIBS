@@ -4,7 +4,9 @@ run_simulation calls the functions that gribs.cli.main calls, in the same order:
 initialize_thermochemistry, model_applicability_error, run_model, sample, summarize, the same summary warnings,
 verdict and run-state keys, backend.metadata() and the derived inputs. The blocks between the "same text as
 gribs.cli.main" markers are copies of lines of main; tests/test_a6_public_api.py fails if a block is no longer
-found in main. main itself is not changed and does not call run_simulation.
+found in main. main itself does not call run_simulation.
+A configuration with an energy_model section takes the energy-mode branch (the fourth block, the same text as in main): it is run by
+gribs.simulation.energy_postprocess.run_energy_case and returns a Result whose summary also holds model_mode and energy_model.
 
 Differences from main:
 - nothing is printed and no output file is written (no summary, history, figure); migration notes are in the
@@ -71,6 +73,22 @@ def _run(path: Path, backend_override: Optional[str]) -> Result:
 
     cfg = loaded.config
     gribs.config.validate(cfg)
+
+    # --- begin: same text as gribs.cli.main ---
+    _energy = None
+    if getattr(cfg, "energy", None) is not None:
+        from gribs.simulation import energy_postprocess as _energy_postprocess
+        _energy = _energy_postprocess.run_energy_case(loaded)
+    # --- end: same text as gribs.cli.main ---
+    if _energy is not None:
+        if _energy.error is not None:
+            raise _energy.error
+        return Result(
+            program=_energy.program, configuration_source=cfg.configuration_source,
+            configuration_migration=_energy.source["configuration_migration"], original_configuration=loaded.document,
+            resolved_configuration=asdict(cfg), derived_inputs=_energy.derived_inputs,
+            two_phase_model=_energy.two_phase_model, thermochemistry=_energy.thermochemistry, summary=_energy.summary,
+            history=_energy.history, integration_budget=_energy.integration_budget, run_passed=_energy.run_passed)
 
     cache_dir = loaded.output_dir / "thermo_cache"
     backend = gribs.thermo.initialize_thermochemistry(cfg, cache_dir)
