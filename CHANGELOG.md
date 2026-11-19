@@ -4,7 +4,7 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
-A-6 stage 1: the program code is split into a Python package and a Python interface is added. The program version stays `0.6.2-alpha`. G0 has not been decided for these changes.
+A-6 stage 1 (package split and Python interface): G0 was approved for revision ea3f4a7 on 2026-11-10. The later items (P5 and A-9 integration, A-6 stage 2 energy mode) have not been through G0. The program version stays `0.6.2-alpha`.
 
 ### Breaking
 
@@ -17,7 +17,7 @@ Details of each item are under "Changed".
 
 ### Changed
 
-- The program code is moved from the single file `GRIBS_v0.6.2-alpha.py` into the package `gribs` under `src/gribs/` (22 modules). `GRIBS_v0.6.2-alpha.py` remains the program file: it adds `src/` to the import path and imports the moved names back, so existing callers of its names keep working. Command-line options, exit codes, outputs and numerical results are unchanged: after each step of the split, the golden cases g1–g8 gave byte-identical time histories, CEA caches and figures, and identical normalized summaries, compared with the v0.6.2-alpha G0 reproduction.
+- At the end of stage 1, the program code was moved from the single file `GRIBS_v0.6.2-alpha.py` into the package `gribs` under `src/gribs/` (22 modules at that time; stage 2, below, adds the package `gribs.energy` and two modules under `gribs.simulation`). `GRIBS_v0.6.2-alpha.py` remains the program file: it adds `src/` to the import path and imports the moved names back, so existing callers of its names keep working. At the end of stage 1, command-line options, exit codes, outputs and numerical results were unchanged by the split: after each step of the split, the golden cases g1–g8 gave byte-identical time histories, CEA caches and figures, and identical normalized summaries, compared with the v0.6.2-alpha G0 reproduction. The items of P5, A-9 and stage 2 below change outputs where they say so.
 - The program file now needs `src/gribs/` next to it; copying the program file alone no longer works.
 - New `pyproject.toml` (package `gribs`, placeholder version `0.7.0.dev0`, not used in any output); `pytest.ini` adds `src` to the import path.
 - `tools/a5_1_g4a_cea_comparison.py` records the identity of the executed code as the entry file hash combined with a digest of the package files (`body_composite_v1`), instead of the hash of the program file alone.
