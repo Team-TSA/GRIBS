@@ -145,9 +145,10 @@ def test_p08_a_tp_cache_round_trip_returns_the_same_state(tmp_path):
     b = provider(cache=second_cache).tp(3300.0, 2.0e6, B_E)          # a new provider reads the file the first one wrote
     assert second_cache.hits == 1 and second_cache.stores == 0
     assert a == b                                                    # identical, bit for bit (JSON floats round-trip)
+    assert a.gamma_s > 1.0 and b.gamma_s == a.gamma_s                # the equilibrium gamma_s is part of the state (C11, B-14)
     (path,) = list(tmp_path.glob(TP_CACHE_PREFIX + "*.json"))
     doc = json.loads(path.read_text(encoding="utf-8"))
-    assert doc["schema"] == "gribs-energy-tp-cache-1" and doc["key"].startswith(path.stem[len(TP_CACHE_PREFIX):])
+    assert doc["schema"] == "gribs-energy-tp-cache-2" and doc["key"].startswith(path.stem[len(TP_CACHE_PREFIX):])
     path.write_text(path.read_text(encoding="utf-8").replace('"Yg":', '"Yg":0.5,"Yg_":', 1), encoding="utf-8")   # corrupt the file
     with pytest.raises(StateRecoveryError):
         provider(cache=TPCache(tmp_path)).tp(3300.0, 2.0e6, B_E)

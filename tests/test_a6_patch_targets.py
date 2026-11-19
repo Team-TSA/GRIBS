@@ -93,6 +93,7 @@ MODULE_UNIT = {
     "gribs.energy.initial": 1,
     "gribs.energy.elements": 1,
     "gribs.energy.ledger": 1,
+    "gribs.energy.wiring": 3,
     "gribs.energy.cea_tp": 3,
     "gribs.energy.nozzle_from_state": 4,
     "gribs.config": 2,

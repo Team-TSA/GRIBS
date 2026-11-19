@@ -161,7 +161,7 @@ class _Solver:
         v_c = self._v_condensed(st)
         return RecoveredState(p_Pa=p, T_K=T, phi=phi, on_plateau=on_plateau, m_total_kg=self.M,
                               V_gas_m3=self._v_gas(st, T, p), V_condensed_m3=v_c, n_gas_kmol=self.M * st.n_gas_per_kg,
-                              Yg=st.Yg, condensed_mass_fraction=dict(st.condensed_mass_fraction))
+                              Yg=st.Yg, condensed_mass_fraction=dict(st.condensed_mass_fraction), gamma_s=st.gamma_s)
 
     def on_plateau(self, transition: PhaseTransitionSpec) -> RecoveredState:
         b = self.plateau_bounds(transition)
@@ -178,7 +178,9 @@ class _Solver:
         cond: Dict[str, float] = {k: (1.0 - phi) * sm.condensed_mass_fraction.get(k, 0.0)
                                   + phi * sp.condensed_mass_fraction.get(k, 0.0)
                                   for k in set(sm.condensed_mass_fraction) | set(sp.condensed_mass_fraction)}
-        interpolated = TPState(u_J_per_kg=self.E / self.M, n_gas_per_kg=n, Yg=yg, condensed_mass_fraction=cond)
+        # gamma_s on the plateau: the phase-fraction interpolation of the two sides (an approximation, like phi itself)
+        gamma = None if sm.gamma_s is None or sp.gamma_s is None else (1.0 - phi) * sm.gamma_s + phi * sp.gamma_s
+        interpolated = TPState(u_J_per_kg=self.E / self.M, n_gas_per_kg=n, Yg=yg, condensed_mass_fraction=cond, gamma_s=gamma)
         v_c = self._v_condensed(interpolated)
         if not self.V - v_c > 0.0:
             raise StateRecoveryError("V_free is not larger than the condensed volume on the plateau")

@@ -221,10 +221,13 @@ def run_model(c: Config) -> dict:
     """Integrate the burning phase and (optionally) the blowdown phase."""
     gribs.config.validate(c)
     if getattr(c, "energy", None) is not None:
-        # A-6 stage 2 (C10): the energy-mode integrator core; imported only for an energy configuration.  Without the
-        # wiring from the configuration to the equilibrium provider it raises NotImplementedError (C11).
-        from gribs.simulation import energy_integrator as _energy_integrator
-        return _energy_integrator.run_model_energy(c)
+        # A-6 stage 2: the energy-mode integrator core and its wiring exist (energy_integrator.run_model_energy), but the
+        # output, CLI and API of an energy run are not implemented yet (the next commit), and the result of an energy run is
+        # not what the legacy post-processing reads: run_model stays closed for an energy configuration until then.
+        raise NotImplementedError(
+            "energy mode: the output, the CLI and the API of an energy run are not implemented yet (A-6 stage 2, contract "
+            "164); run gribs.simulation.energy_integrator.run_model_energy for the integration. Remove the energy_model "
+            "section to run the current model.")
 
     require_implemented_transition_policy(c)
 

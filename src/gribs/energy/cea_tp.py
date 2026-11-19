@@ -30,7 +30,7 @@ from gribs.energy.balance import ABSOLUTE_ENTHALPY_BASIS
 from gribs.energy.exceptions import StateRecoveryError
 from gribs.energy.provider import TPState
 
-TP_CACHE_SCHEMA = "gribs-energy-tp-cache-1"
+TP_CACHE_SCHEMA = "gribs-energy-tp-cache-2"        # 2: the state carries gamma_s (C11); schema-1 files are not read
 TP_CACHE_PREFIX = "thermo_cea_tp_"
 _KJ = 1000.0                      # EqSolution energy, enthalpy, cp and cv are kJ-based; J = 1000 * kJ
 _INVARIANT_TOL = 1.0e-10
@@ -48,6 +48,7 @@ class CEATPDetail:
     Yg: float
     condensed_mass_fraction: Dict[str, float]
     cea_version: str
+    gamma_s: float                  # EqSolution.gamma_s: equilibrium isentropic exponent (the legacy gamma_s), > 1
 
 
 def _canonical(obj) -> str:
@@ -79,7 +80,8 @@ class TPCache:
             ok = (doc["schema"] == TP_CACHE_SCHEMA and doc["key"] == self.key(identity, T, p)
                   and doc["state_sha256"] == hashlib.sha256(_canonical(state).encode()).hexdigest())
             restored = TPState(u_J_per_kg=state["u_J_per_kg"], n_gas_per_kg=state["n_gas_per_kg"], Yg=state["Yg"],
-                               condensed_mass_fraction=dict(state["condensed_mass_fraction"]), converged=True)
+                               condensed_mass_fraction=dict(state["condensed_mass_fraction"]), converged=True,
+                               gamma_s=state["gamma_s"])
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise StateRecoveryError(f"the TP cache file {path} is unreadable or malformed: {type(exc).__name__}: {exc}") from exc
         if not ok:
@@ -89,7 +91,7 @@ class TPCache:
 
     def store(self, identity: Mapping, T: float, p: float, state: TPState) -> None:
         body = {"u_J_per_kg": state.u_J_per_kg, "n_gas_per_kg": state.n_gas_per_kg, "Yg": state.Yg,
-                "condensed_mass_fraction": dict(state.condensed_mass_fraction)}
+                "condensed_mass_fraction": dict(state.condensed_mass_fraction), "gamma_s": state.gamma_s}
         doc = {"schema": TP_CACHE_SCHEMA, "key": self.key(identity, T, p), "identity": identity, "T": T, "p": p,
                "state": body, "state_sha256": hashlib.sha256(_canonical(body).encode()).hexdigest()}
         gribs.thermo._cache_atomic_write_text(self.path(identity, T, p), _canonical(doc) + "\n")
@@ -185,6 +187,10 @@ class CEATPProvider:
             mass_fractions = {str(k): float(v) for k, v in dict(sol.mass_fractions).items()}
             n, M = float(sol.n), float(sol.M)
             energy, enthalpy = float(sol.energy) * _KJ, float(sol.enthalpy) * _KJ
+            gamma = float(sol.gamma_s)
+        if not math.isfinite(gamma) or not gamma > 1.0:
+            raise StateRecoveryError(f"CEA returned an isentropic exponent gamma_s = {gamma!r} (must be finite and > 1) at "
+                                     f"T = {T:.9g} K, p = {p:.9g} Pa")
         values = [n, M, energy, enthalpy, *mass_fractions.values()]
         if not all(math.isfinite(v) for v in values) or not (n > 0.0 and M > 0.0):
             raise StateRecoveryError(f"CEA returned a non-finite or non-positive value at T = {T:.9g} K, p = {p:.9g} Pa")
@@ -195,7 +201,7 @@ class CEATPProvider:
         condensed = {k: mass_fractions[k] for k in self._condensed_names if mass_fractions.get(k, 0.0) > 0.0}
         yg = math.fsum(mass_fractions[k] for k in self._gas_names)
         return CEATPDetail(T_K=float(T), p_Pa=float(p), u_J_per_kg=energy, h_J_per_kg=enthalpy, n_gas_per_kg=n, M_CEA=M,
-                           Yg=yg, condensed_mass_fraction=condensed, cea_version=str(self._cea.__version__))
+                           Yg=yg, condensed_mass_fraction=condensed, cea_version=str(self._cea.__version__), gamma_s=gamma)
 
     def tp(self, T: float, p: float, B_e: Mapping[str, float]) -> TPState:
         if self._cache is not None:
@@ -205,7 +211,7 @@ class CEATPProvider:
                 return hit
         d = self.tp_detail(T, p, B_e)
         state = TPState(u_J_per_kg=d.u_J_per_kg, n_gas_per_kg=d.n_gas_per_kg, Yg=d.Yg,
-                        condensed_mass_fraction=dict(d.condensed_mass_fraction), converged=True)
+                        condensed_mass_fraction=dict(d.condensed_mass_fraction), converged=True, gamma_s=d.gamma_s)
         if self._cache is not None:
             self._cache.store(self.cache_identity(), float(T), float(p), state)
         return state

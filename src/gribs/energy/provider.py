@@ -3,11 +3,11 @@
 A provider answers a TP equilibrium at (T, p) for the element inventory B_e.  Quantities are per kg of TOTAL products
 (gas plus condensed): u_J_per_kg is the internal energy of the mixture, n_gas_per_kg = 1 / M_CEA [kmol-gas / kg-total]
 (so that p V_gas = m_total R_eff T with R_eff = Ru n_gas_per_kg), condensed_mass_fraction maps each condensed species to
-its mass fraction.  The condensed-phase volume is NOT the provider's: it is computed from the constant densities of
+its mass fraction, gamma_s is the equilibrium isentropic exponent (> 1 when given).  The condensed-phase volume is NOT the provider's: it is computed from the constant densities of
 energy_model.condensed (CEA's v_c = 0 equilibrium is combined with an external rho_c).
 """
 from dataclasses import dataclass, field
-from typing import Dict, Mapping, Protocol
+from typing import Dict, Mapping, Optional, Protocol
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,9 @@ class TPState:
     Yg: float
     condensed_mass_fraction: Dict[str, float] = field(default_factory=dict)
     converged: bool = True
+    #: Equilibrium isentropic exponent of the mixture (CEA EqSolution.gamma_s, the definition of the legacy gamma_s); None when
+    #: the provider does not give it (a run that needs it - the nozzle flow - then fails fast, C11).
+    gamma_s: Optional[float] = None
 
 
 class EquilibriumProvider(Protocol):

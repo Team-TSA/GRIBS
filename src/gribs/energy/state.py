@@ -44,3 +44,4 @@ class RecoveredState:
     Yg: float
     condensed_mass_fraction: Dict[str, float] = field(default_factory=dict)
     n_starts_agreed: int = 1
+    gamma_s: Optional[float] = None         # equilibrium isentropic exponent of the provider's state (C11); None if not given

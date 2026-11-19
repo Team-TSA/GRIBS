@@ -33,10 +33,10 @@ ROOT = Path(__file__).resolve().parents[1]
 G1 = json.loads((ROOT / "cases" / "golden" / "g1_reference_constant.json").read_text(encoding="utf-8"))
 
 SOLID_H = {"reference_J_kg": -2.0e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}
-SURFACE = {"form": "a", "grain_far_temperature_K": 293.0, "solid_density_kg_m3": 1800.0, "solid_enthalpy": SOLID_H}
+SURFACE = {"form": "a", "grain_far_temperature_K": 293.0, "solid_enthalpy": SOLID_H}
 FILL = {"temperature_K": 300.0, "composition": "main_propellant_products", "element_tolerance": 1.0e-6}
 CONDENSED = {"volume": "external_density", "phases": [], "transitions": []}
-RECOVERY = {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6}
+RECOVERY = {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6, "temperature_search_K": [200.0, 8000.0], "start_temperatures_K": [600.0, 3000.0]}
 ENERGY = {"initial_fill": FILL, "wall": {"adiabatic": True}, "burn_surface": SURFACE, "condensed": CONDENSED,
           "recovery": RECOVERY}
 FRACTIONS = {"C": 0.3, "H": 0.7}
@@ -47,12 +47,13 @@ class IdealProvider:
     """A synthetic gas: u = U_F + cv T, M = 24 kg/kmol, gamma = 1.2 (assumed inputs; no condensed phase)."""
     enthalpy_convention = ABSOLUTE_ENTHALPY_BASIS
     MW = 24.0
+    GAMMA = 1.2
     CV = 8314.51 / 24.0 / 0.2
     U_F = -8.236e6
 
     def tp(self, T, p, B_e):
         return TPState(u_J_per_kg=self.U_F + self.CV * T, n_gas_per_kg=1.0 / self.MW, Yg=1.0, condensed_mass_fraction={},
-                       converged=True)
+                       converged=True, gamma_s=self.GAMMA)
 
 
 class FailingProvider(IdealProvider):
@@ -79,8 +80,7 @@ def config(energy=ENERGY, sections=None, **changes):
 
 
 def inputs(provider=None, **changes):
-    values = dict(provider=provider or IdealProvider(), element_fractions=FRACTIONS, gamma_s=1.2, T_search_K=(200.0, 8000.0),
-                  starts_K=(600.0, 3000.0))
+    values = dict(provider=provider or IdealProvider(), element_fractions=FRACTIONS)
     return ei.EnergyRunInputs(**{**values, **changes})
 
 
@@ -132,20 +132,20 @@ def test_e05_the_burning_mass_flow_is_rho_p_times_the_swept_volume():
     c, run = config(), base_run()
     y = run["sol_burn"].y[:, -1]
     swept = geometry(float(y[ei.IX]), c)[3] - geometry(0.0, c)[3]                          # the free volume gained by the burn
-    assert y[ei.IMG] == pytest.approx(SURFACE["solid_density_kg_m3"] * swept, rel=1.0e-6, abs=0.0)
+    assert y[ei.IMG] == pytest.approx(c.rho_p * swept, rel=1.0e-6, abs=0.0)
 
 
 @pytest.mark.fast
 def test_e06_the_outflow_enthalpy_comes_from_the_state_not_from_the_settings():
-    doubled = {**ENERGY, "burn_surface": {**SURFACE, "solid_density_kg_m3": 3.0 * SURFACE["solid_density_kg_m3"]}}
-    c1, c2 = config(), config(doubled)
+    c1 = config()
+    c2 = config(rho_p=3.0 * c1.rho_p)                                      # the one density of the solid: Config.rho_p (B-15)
     y = state_vector(c1, 4.0e-4, 1500.0)
     k1, k2 = ei._EnergyModel(c1, inputs()).terms(y, True), ei._EnergyModel(c2, inputs()).terms(y, True)
     V_free = geometry(0.0, c1)[3]
     h_state = y[ei.IE] / y[ei.IM] + k1["p"] * V_free / y[ei.IM]                          # u + p V_free / M, written out here
     assert k1["H0_out"] == pytest.approx(h_state, rel=1.0e-13, abs=0.0) and k2["H0_out"] == k1["H0_out"]
     assert k2["mdot_burn"] == pytest.approx(3.0 * k1["mdot_burn"], rel=1.0e-13, abs=0.0)      # the solid density scales the burn only
-    assert k1["mdot_burn"] == pytest.approx(SURFACE["solid_density_kg_m3"] * k1["Ab"] * k1["r"], rel=1.0e-13, abs=0.0)
+    assert k1["mdot_burn"] == pytest.approx(c1.rho_p * k1["Ab"] * k1["r"], rel=1.0e-13, abs=0.0)
 
 
 def _attributes_in(function_name):
@@ -161,16 +161,16 @@ def test_e07_the_two_densities_are_not_mixed_in_the_settings_or_in_the_code():
     for section in (SURFACE, CONDENSED, FILL, RECOVERY, SOLID_H):
         keys |= set(section)
     keys |= {k for ph in CONDENSED["phases"] for k in ph}
-    densities = {k for k in keys if "density" in k or k.startswith("rho")}
-    assert densities == {"solid_density_kg_m3"}                                  # one density key in the settings: the solid
-    assert not any("gas" in k or "rho_th" in k or "thermodynamic" in k for k in keys)    # no input for the gas-mixture density
-    parsed = config().energy
-    assert isinstance(parsed, EnergyModeSettings) and parsed.burn_surface.solid_density_kg_m3 == 1800.0
-    burn_attrs, _ = _attributes_in("_burn_mass_flow")
+    assert not {k for k in keys if "density" in k or k.startswith("rho")}       # B-15: no density key for the solid ...
+    assert not any("gas" in k or "rho_th" in k or "thermodynamic" in k for k in keys)   # ... and none for the gas mixture
+    assert isinstance(config().energy, EnergyModeSettings) and config().rho_p > 0.0     # the one rho_p of the solid is Config.rho_p
+    burn_attrs, burn_args = _attributes_in("_burn_mass_flow")
     enthalpy_attrs, enthalpy_args = _attributes_in("_outflow_enthalpy")
-    assert "solid_density_kg_m3" in burn_attrs                                   # the solid density: in the burn flow ...
-    assert "solid_density_kg_m3" not in enthalpy_attrs and enthalpy_args == ["E_cv", "M", "p", "V_free"]   # ... and not in h
+    assert "rho_p" in burn_attrs and burn_args == ["c", "A_b", "r"]               # the solid density: in the burn flow ...
+    assert "rho_p" not in enthalpy_attrs and enthalpy_args == ["E_cv", "M", "p", "V_free"]   # ... and not in h
     source = Path(ei.__file__).read_text(encoding="utf-8")
+    uses = [n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Attribute) and n.attr == "rho_p"]
+    assert "solid_density_kg_m3" not in source and len(uses) == 1                # one use of rho_p in the whole module
     assert "rho_s" not in source.replace("rho_p", "")                            # the symbol of the old mixed use is not used
 
 
@@ -265,12 +265,22 @@ def test_e15_a_closure_residual_above_the_tolerance_raises():
 
 
 @pytest.mark.fast
-def test_e16_a_run_needs_valid_inputs_an_energy_configuration_and_a_provider_with_a_declared_basis():
-    for bad in (dict(gamma_s=1.0), dict(gamma_s=math.nan), dict(element_fractions={}), dict(element_fractions={"C": 0.5}),
-                dict(element_fractions={"C": 1.5, "H": -0.5}), dict(T_search_K=(500.0, 100.0)), dict(starts_K=(10.0,)),
-                dict(starts_K=())):
+def test_e16_a_run_needs_valid_inputs_a_gamma_above_one_from_the_state_and_a_declared_basis():
+    for bad in (dict(element_fractions={}), dict(element_fractions={"C": 0.5}), dict(element_fractions={"C": 1.5, "H": -0.5})):
         with pytest.raises(ValueError):
             inputs(**bad)
+
+    class NoGamma(IdealProvider):
+        GAMMA = None
+
+    class LowGamma(IdealProvider):
+        GAMMA = 1.0
+
+    class NanGamma(IdealProvider):
+        GAMMA = math.nan
+    for provider in (NoGamma(), LowGamma(), NanGamma()):                           # B-14: gamma_s > 1 or the run stops
+        with pytest.raises(StateRecoveryError, match="gamma_s"):
+            ei.run_model_energy(config(), inputs(provider))
 
     class NoBasis:
         def tp(self, T, p, B_e):
@@ -280,3 +290,4 @@ def test_e16_a_run_needs_valid_inputs_an_energy_configuration_and_a_provider_wit
     legacy = gribs.config.loader.configuration_from_document(G1).config
     with pytest.raises(ValueError, match="energy_model"):
         ei.run_model_energy(legacy, inputs())
+    assert base_run()["provenance"]["gamma_s_min"] == base_run()["provenance"]["gamma_s_max"] == 1.2   # recorded in the provenance

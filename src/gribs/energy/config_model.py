@@ -5,6 +5,8 @@ The parsed settings are attached to the run configuration as the attribute ``c.e
 not as a field of ``Config``: dataclasses.asdict(cfg), which the CLI and the API write as ``resolved_configuration``,
 returns the fields only, so a legacy summary never shows an "energy" key (tests/test_energy_config_schema.py).
 
+The solid density rho_p of the burning mass flow is NOT a setting of this section (C11, B-15): there is one rho_p, Config.rho_p.
+
 The values the tests use for these inputs are assumed inputs, not data (PRE_REGISTRATION_C3.md, held items H-01..H-08).
 """
 from dataclasses import dataclass
@@ -43,7 +45,6 @@ class SolidEnthalpy:
 class BurnSurface:
     form: str                       # one of BURN_SURFACE_FORMS
     grain_far_temperature_K: float  # T_grain,inf: where h_s is evaluated (contract 2b-4.3)
-    solid_density_kg_m3: float      # rho_s of the burning surface
     solid_enthalpy: SolidEnthalpy
 
 
@@ -79,12 +80,20 @@ class RecoverySettings:
 
 
 @dataclass(frozen=True)
+class RecoverySearch:
+    """Where the state recovery looks (C11; keys of energy_model.recovery next to the three tolerances)."""
+    temperature_search_K: Tuple[float, float]   # searched temperature range (T_lo, T_hi)
+    start_temperatures_K: Tuple[float, ...]     # start temperatures; every start must give the same state
+
+
+@dataclass(frozen=True)
 class EnergyModeSettings:
     initial_fill: InitialFill
     wall: WallHeat
     burn_surface: BurnSurface
     condensed: CondensedData
     recovery: RecoverySettings
+    recovery_search: RecoverySearch
     #: Explicit formulas of the reactants, reactant name -> {element symbol: atoms} (C9; optional, None when not given).
     #: Never inferred from species names; energy mode will require it at run time (the wiring, C11).
     propellant_formulas: Optional[Mapping[str, Mapping[str, float]]] = None

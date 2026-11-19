@@ -25,7 +25,7 @@ G1 = json.loads((ROOT / "cases" / "golden" / "g1_reference_constant.json").read_
 FILL = {"temperature_K": 300.0, "composition": "main_propellant_products", "element_tolerance": 1.0e-6}
 WALL = {"adiabatic": True}
 SOLID_H = {"reference_J_kg": -2.0e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}
-SURFACE = {"form": "a", "grain_far_temperature_K": 293.0, "solid_density_kg_m3": 1800.0, "solid_enthalpy": SOLID_H}
+SURFACE = {"form": "a", "grain_far_temperature_K": 293.0, "solid_enthalpy": SOLID_H}
 CONDENSED = {
     "volume": "external_density",
     "phases": [
@@ -34,7 +34,7 @@ CONDENSED = {
         {"species": "Al2O3(L)", "phase": "liquid", "density_kg_m3": 3000.0, "cp_J_kgK": 1300.0,
          "enthalpy_reference_J_kg": -1.5e7, "reference_temperature_K": 298.15}],
     "transitions": [{"solid_species": "Al2O3(a)", "liquid_species": "Al2O3(L)", "melting_temperature_K": 2327.0}]}
-RECOVERY = {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6}
+RECOVERY = {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6, "temperature_search_K": [200.0, 8000.0], "start_temperatures_K": [600.0, 3000.0]}
 ENERGY = {"initial_fill": FILL, "wall": WALL, "burn_surface": SURFACE, "condensed": CONDENSED, "recovery": RECOVERY}
 
 
@@ -79,7 +79,7 @@ def test_c02_with_the_section_the_settings_are_an_attribute_and_asdict_is_unchan
     configuration = gribs.config.loader.configuration_from_document(document())
     c = configuration.config
     assert isinstance(c.energy, EnergyModeSettings)
-    assert c.energy.initial_fill.temperature_K == 300.0 and c.energy.burn_surface.solid_density_kg_m3 == 1800.0
+    assert c.energy.initial_fill.temperature_K == 300.0 and c.energy.recovery_search.temperature_search_K == (200.0, 8000.0)
     assert c.energy.condensed.volume == "external_density" and len(c.energy.condensed.phases) == 2
     assert c.energy.condensed.transitions[0].melting_temperature_K == 2327.0
     assert "energy" not in asdict(c) and set(asdict(c)) == LEGACY_KEYS == set(asdict(load(G1)))
@@ -145,10 +145,11 @@ def test_c09_the_grain_far_temperature_is_required():
 
 
 @pytest.mark.fast
-def test_c10_the_solid_density_and_enthalpy_are_required():
-    for missing in ("solid_density_kg_m3", "solid_enthalpy"):
-        with pytest.raises(ConfigurationError, match=missing):
-            load(document({**ENERGY, "burn_surface": without(SURFACE, missing)}))
+def test_c10_the_solid_enthalpy_is_required_and_there_is_no_solid_density_key():
+    with pytest.raises(ConfigurationError, match="solid_enthalpy"):
+        load(document({**ENERGY, "burn_surface": without(SURFACE, "solid_enthalpy")}))
+    with pytest.raises(ConfigurationError, match="unknown key"):                # B-15: the one rho_p is Config.rho_p
+        load(document({**ENERGY, "burn_surface": {**SURFACE, "solid_density_kg_m3": 1800.0}}))
 
 
 @pytest.mark.fast
@@ -176,14 +177,14 @@ def test_c13_a_two_phase_mode_other_than_homogeneous_equilibrium_is_rejected():
 def test_c14_the_energy_features_not_implemented_yet_raise_not_implemented_error(tmp_path):
     """C10 rewrite of the C3 test (B-13): list what is NOT implemented at C10 and check that each raises NotImplementedError.
     The integrator core (simulation/energy_integrator.py) is implemented and is tested in test_energy_integrator.py, so it is
-    not in the list.  What is left: the wiring from the configuration to the equilibrium provider, through run_model and
-    through the API (C11)."""
+    not in the list.  What is left: the output, the CLI and the API of an energy run, through run_model and the API
+    (the next commit; the wiring of the configuration to the provider exists since C11)."""
     path = tmp_path / "energy_case.json"
     path.write_text(json.dumps(document()), encoding="utf-8")
     not_implemented = (
-        ("run_model: the wiring of the configuration to the provider", lambda: gribs.simulation.integrator.run_model(load(document()))),
-        ("run_simulation (API): the same wiring", lambda: gribs.api.run_simulation(path)),
+        ("run_model: the output of an energy run", lambda: gribs.simulation.integrator.run_model(load(document()))),
+        ("run_simulation (API): the output, CLI and API of an energy run", lambda: gribs.api.run_simulation(path)),
     )
     for what, call in not_implemented:
-        with pytest.raises(NotImplementedError, match="wiring"):
+        with pytest.raises(NotImplementedError, match="output"):
             call()

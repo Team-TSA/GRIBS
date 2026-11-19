@@ -13,7 +13,7 @@ from gribs.config.loader import (
 from gribs.energy.config_model import (
     BURN_SURFACE_FORMS, CONDENSED_PHASES, CONDENSED_VOLUME_CHOICES, INITIAL_FILL_COMPOSITIONS,
     BurnSurface, CondensedData, CondensedPhaseSpec, EnergyModeSettings, InitialFill, PhaseTransitionSpec,
-    RecoverySettings, SolidEnthalpy, WallHeat,
+    RecoverySearch, RecoverySettings, SolidEnthalpy, WallHeat,
 )
 from gribs.energy.elements import check_formulas
 from gribs.errors import ConfigurationError
@@ -21,12 +21,13 @@ from gribs.errors import ConfigurationError
 _KEYS = ("initial_fill", "wall", "burn_surface", "condensed", "recovery", "propellant_formulas")
 _FILL_KEYS = ("temperature_K", "composition", "element_tolerance")
 _WALL_KEYS = ("adiabatic", "heat_rate_W")
-_SURFACE_KEYS = ("form", "grain_far_temperature_K", "solid_density_kg_m3", "solid_enthalpy")
+_SURFACE_KEYS = ("form", "grain_far_temperature_K", "solid_enthalpy")
 _SOLID_H_KEYS = ("reference_J_kg", "reference_temperature_K", "cp_J_kgK")
 _CONDENSED_KEYS = ("volume", "phases", "transitions")
 _PHASE_KEYS = ("species", "phase", "density_kg_m3", "cp_J_kgK", "enthalpy_reference_J_kg", "reference_temperature_K")
 _TRANSITION_KEYS = ("solid_species", "liquid_species", "melting_temperature_K")
-_RECOVERY_KEYS = ("phase_fraction_tolerance", "root_tolerance", "plateau_edge_tolerance")
+_RECOVERY_KEYS = ("phase_fraction_tolerance", "root_tolerance", "plateau_edge_tolerance", "temperature_search_K",
+                  "start_temperatures_K")
 
 
 def _array_of_objects(node: dict, key: str, path: str) -> List[dict]:
@@ -34,6 +35,30 @@ def _array_of_objects(node: dict, key: str, path: str) -> List[dict]:
     if not isinstance(value, list):
         raise ConfigurationError(f"{path}.{key}: expected a JSON array, got {type(value).__name__}")
     return [_mapping(item, f"{path}.{key}[{i}]") for i, item in enumerate(value)]
+
+
+def _numbers(node: dict, key: str, path: str) -> List[float]:
+    value = _get(node, key, path)
+    if not isinstance(value, list):
+        raise ConfigurationError(f"{path}.{key}: expected a JSON array of numbers, got {type(value).__name__}")
+    out = []
+    for i, item in enumerate(value):
+        out.append(float(_number({str(i): item}, str(i), f"{path}.{key}", exclusive_minimum=0.0)))
+    return out
+
+
+def _temperature_range(node: dict, key: str, path: str) -> tuple:
+    values = _numbers(node, key, path)
+    if len(values) != 2 or not values[0] < values[1]:
+        raise ConfigurationError(f"{path}.{key}: expected [T_lo, T_hi] with 0 < T_lo < T_hi, got {values}")
+    return (values[0], values[1])
+
+
+def _temperature_list(node: dict, key: str, path: str) -> tuple:
+    values = _numbers(node, key, path)
+    if not values:
+        raise ConfigurationError(f"{path}.{key}: expected at least one start temperature")
+    return tuple(values)
 
 
 def parse_energy_model(node: Any, path: str = "energy_model") -> EnergyModeSettings:
@@ -61,8 +86,6 @@ def parse_energy_model(node: Any, path: str = "energy_model") -> EnergyModeSetti
         form=str(_choice(surface, "form", f"{path}.burn_surface", BURN_SURFACE_FORMS)),
         grain_far_temperature_K=float(_number(surface, "grain_far_temperature_K", f"{path}.burn_surface",
                                               exclusive_minimum=0.0)),
-        solid_density_kg_m3=float(_number(surface, "solid_density_kg_m3", f"{path}.burn_surface",
-                                          exclusive_minimum=0.0)),
         solid_enthalpy=SolidEnthalpy(
             reference_J_kg=float(_number(solid, "reference_J_kg", f"{path}.burn_surface.solid_enthalpy")),
             reference_temperature_K=float(_number(solid, "reference_temperature_K",
@@ -103,6 +126,13 @@ def parse_energy_model(node: Any, path: str = "energy_model") -> EnergyModeSetti
         root_tolerance=float(_number(rec, "root_tolerance", f"{path}.recovery", exclusive_minimum=0.0)),
         plateau_edge_tolerance=float(_number(rec, "plateau_edge_tolerance", f"{path}.recovery",
                                              exclusive_minimum=0.0)))
+    search = RecoverySearch(temperature_search_K=_temperature_range(rec, "temperature_search_K", f"{path}.recovery"),
+                            start_temperatures_K=_temperature_list(rec, "start_temperatures_K", f"{path}.recovery"))
+    lo, hi = search.temperature_search_K
+    outside = [t for t in search.start_temperatures_K if not lo < t < hi]
+    if outside:
+        raise ConfigurationError(f"{path}.recovery.start_temperatures_K: every start must lie inside temperature_search_K "
+                                 f"({lo:g}, {hi:g}) K, got {outside}")
 
     formulas = None
     if "propellant_formulas" in root:
@@ -111,4 +141,4 @@ def parse_energy_model(node: Any, path: str = "energy_model") -> EnergyModeSetti
         formulas = {str(name): {str(e): float(n) for e, n in formula.items()} for name, formula in table.items()}
 
     return EnergyModeSettings(initial_fill=initial_fill, wall=wall_heat, burn_surface=burn_surface,
-                              condensed=condensed, recovery=recovery, propellant_formulas=formulas)
+                              condensed=condensed, recovery=recovery, recovery_search=search, propellant_formulas=formulas)

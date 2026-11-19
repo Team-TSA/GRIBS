@@ -15,7 +15,7 @@ T_FAR, T_REF, H_REF = 293.0, 293.0, -2.0e6
 
 
 def surface(cp=1300.0, t_far=T_FAR):
-    return BurnSurface(form="a", grain_far_temperature_K=t_far, solid_density_kg_m3=1800.0,
+    return BurnSurface(form="a", grain_far_temperature_K=t_far,
                        solid_enthalpy=SolidEnthalpy(reference_J_kg=H_REF, reference_temperature_K=T_REF, cp_J_kgK=cp))
 
 
