@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gribs"
-# Development placeholder during A-6 stage 1. The program reports PROGRAM_VERSION only; this value is not
-# used in any output (ADR_A6_PACKAGE_SPLIT). The release version is decided at release preparation.
-version = "0.7.0.dev0"
+# The release version in the PEP 440 form (PROGRAM_VERSION is "0.7.0-alpha"). The program reports PROGRAM_VERSION only; this
+# value is not used in any output (ADR_A6_PACKAGE_SPLIT) and must differ from PROGRAM_VERSION as a string (tests/test_a6_output_version.py).
+version = "0.7.0a0"
 description = "JSON-configured solid rocket motor internal-ballistics simulator"
 readme = "README.md"
 requires-python = ">=3.11"

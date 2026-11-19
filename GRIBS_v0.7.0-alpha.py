@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GRIBS v0.6.2-alpha
+GRIBS v0.7.0-alpha
 ================================================================================
 JSON-CONFIGURED INTERNAL BALLISTICS OF A SOLID ROCKET MOTOR
   Grain    : cylindrical bore + N burning end face(s) (outer surface inhibited)
@@ -161,9 +161,9 @@ OUTPUT
   All user inputs are read from gribs_config.json beside this script.
   Select thermochemistry.backend in that file.  An alternative complete
   configuration may be supplied with:
-      python GRIBS_v0.6.2-alpha.py --config another_config.json
+      python GRIBS_v0.7.0-alpha.py --config another_config.json
   Run numerical self-tests only with:
-      python GRIBS_v0.6.2-alpha.py --selftest
+      python GRIBS_v0.7.0-alpha.py --selftest
 
 --------------------------------------------------------------------------------
 STATUS / LIMITATIONS

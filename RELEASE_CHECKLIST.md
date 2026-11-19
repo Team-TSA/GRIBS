@@ -1,15 +1,15 @@
 # Public release checklist
 
-Checklist for publishing a GRIBS release (current target: v0.6.2-alpha,
-a patch release of v0.6.0-alpha "Keystone"). Each step that runs tests, changes history or publishes anything
+Checklist for publishing a GRIBS release (current target: v0.7.0-alpha,
+the first release after v0.6.2-alpha). Each step that runs tests, changes history or publishes anything
 needs the maintainer's explicit approval.
 
 ## 1. Decisions recorded before preparation
 
-- [ ] Scope of the release decided (v0.6.2-alpha: warning
-      `W_HIGH_CONDENSATE_G4B_UNVALIDATED` added; README G0 text for
-      v0.6.1-alpha corrected; numerical results unchanged; G4a still a
-      documented known limitation; `SCHEMA_VERSION` unchanged).
+- [ ] Scope of the release decided (v0.7.0-alpha: A-6 stage 1 (package split, Python
+      interface), P5 and A-9, and A-6 stage 2 (opt-in energy mode, marked experimental);
+      program file renamed to `GRIBS_v0.7.0-alpha.py`; `SCHEMA_VERSION` unchanged; G4a still
+      a documented known limitation).
 - [ ] Release name and title decided.
 
 ## 2. Release-preparation changes

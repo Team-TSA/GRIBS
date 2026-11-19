@@ -37,8 +37,11 @@ Before submitting a Pull Request:
 PROGRAM="$(ls GRIBS_v*.py | sort -V | tail -n 1)"   # the program file; its name contains the version
 python3 -m py_compile "$PROGRAM"
 python3 "$PROGRAM" --selftest
+pytest -q
 python3 "$PROGRAM"
 ```
+
+`pytest -q` needs the packages in `requirements-dev.txt`. The CI runs the same `--selftest` and `pytest -q` (Python 3.11, 3.12, 3.13). Tests that need the official CEA package fail in an environment without it.
 
 Confirm that the expected output files are generated and review `summary.json` for the resolved configuration and verification metrics.
 
