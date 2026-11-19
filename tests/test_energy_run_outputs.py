@@ -19,7 +19,7 @@ import gribs.config
 import gribs.config.loader
 import gribs.simulation.energy_postprocess as ep
 from gribs.config import Config
-from gribs.errors import ConfigurationError
+from gribs.errors import ConfigurationError, ThermochemistryError
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -124,7 +124,12 @@ class TestEnergyRun:
         s = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert s["model_mode"] == "energy" and "energy" not in s["resolved_configuration"]
         em = s["energy_model"]
-        assert em["burn_surface_interpretation"].startswith("A:") and "H-05" in em["H0_out_definition"]
+        assert em["burn_surface_interpretation"].startswith("A:")
+        definition = em["H0_out_definition"]                                   # B-24: the departure from the contract is stated
+        assert "departs from the model definition (contract 164 section 2b-4.4 (i))" in definition and "H-18" in definition
+        assert "H-05" not in definition and not any("H-05" in item for item in em["held_items_adopted"])
+        assert any(item.startswith("H-18") for item in em["held_items_adopted"])
+        assert "provisional (held item H-09)" in em["closure_tolerance_status"]
         assert "synthetic" in em["scope"] and em["gamma_s"]["min"] > 1.0 and em["gamma_s"]["max"] >= em["gamma_s"]["min"]
         assert em["provenance"]["provider"] == "ReferenceConstantProvider" and em["provenance"]["element_mass_fractions"]
         not_produced = " ".join(em["legacy_outputs_not_produced"])
@@ -134,7 +139,7 @@ class TestEnergyRun:
         assert not (out / "time_history.csv").exists() and (out / ep.HISTORY_FILENAME).is_file()
         assert s["results"]["closure"]["passed"] is True and s["results"]["closure"]["tolerance_normalised"] == ep.CLOSURE_TOLERANCE
 
-    def test_o03_the_equilibrium_pressure_diagnostic_is_rejected_on_the_run_path(self, tmp_path):
+    def test_o03_the_diagnostic_the_backend_failure_and_the_legacy_flags_are_rejected_explicitly(self, tmp_path, capsys):
         c = gribs.config.loader.load_json_configuration(case_file(tmp_path, "o3")).config
         sub = type("ConfigWithEnergy", (Config,), {"energy": c.energy, "reactants_spec_list": c.reactants_spec_list})
         changed = sub(**{**asdict(c), "equilibrium_pressure_diagnostic": "sampled"})
@@ -143,6 +148,26 @@ class TestEnergyRun:
         outcome = ep.run_energy_case(loaded)
         assert isinstance(outcome.error, ConfigurationError) and "equilibrium_pressure_diagnostic" in str(outcome.error)
         assert outcome.write_and_report(tmp_path / "o3_out", {}, {}) == 2 and not (tmp_path / "o3_out").exists()
+        plain = ep.EnergyOutcome(error=ThermochemistryError("the cea package is missing"))        # as the legacy command line: 3
+        assert plain.write_and_report(tmp_path / "t_out", {}, {}) == 3 and not (tmp_path / "t_out").exists()
+        assert "Thermochemistry backend error" in capsys.readouterr().err
+
+        class Coded(ThermochemistryError):
+            code = "E_TEST_CODE"
+        assert ep.EnergyOutcome(error=Coded("x")).write_and_report(tmp_path / "t_out", {}, {}) == 3
+        assert "[E_TEST_CODE]" in capsys.readouterr().err
+        assert ep.EnergyOutcome(error=RuntimeError("x")).write_and_report(tmp_path / "t_out", {}, {}) == 4   # other failures
+        path = case_file(tmp_path, "o3b")
+        for flag, extra in (("--selftest", []), ("--dump-thermo", [str(tmp_path / "t.json")]), ("--no-cache", []),
+                            ("--allow-verification-failure", [])):
+            proc = subprocess.run([sys.executable, "-B", "-P", "-s", str(entry()), "--config", str(path), flag, *extra],
+                                  capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
+            assert proc.returncode == 2, (flag, proc.stderr[-500:])
+            assert f"{flag} is not available for a configuration with an energy_model section" in proc.stderr, flag
+            assert not (tmp_path / "o3b_out").exists() and not (tmp_path / "t.json").exists(), flag
+        ok = subprocess.run([sys.executable, "-B", "-P", "-s", str(entry()), "--config", str(path), "--validate-config",
+                             "--backend", "reference_constant"], capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
+        assert ok.returncode == 0, ok.stderr[-500:]                                            # --backend is not rejected
 
     def test_o04_the_time_history_has_the_columns_with_units_and_the_closure_residuals(self, energy_cli):
         _path, out, _proc = energy_cli

@@ -199,3 +199,13 @@ def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma
     assert all(g > 1.0 for g in outcome.history["gamma_s"])
     assert outcome.results["closure"]["passed"] is True and outcome.run_passed is True
     assert all(v <= CLOSURE_TOLERANCE for v in outcome.results["closure"]["max_normalised"].values())
+    # C12b: a provider that cannot be constructed is a backend initialisation failure (exit code 3), not a run failure
+    from dataclasses import asdict
+    from gribs.config import Config
+    from gribs.energy.wiring import build_energy_inputs
+    from gribs.errors import ThermochemistryError
+    c = gribs.config.loader.load_json_configuration(path).config
+    sub = type("ConfigWithEnergy", (Config,), {"energy": c.energy, "reactants_spec_list": c.reactants_spec_list})
+    broken = sub(**{**asdict(c), "cea_py_products_from_reactants": False, "cea_py_product_species": ("NO_SUCH_SPECIES(zz)",)})
+    with pytest.raises(ThermochemistryError):
+        build_energy_inputs(broken)

@@ -213,6 +213,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     cfg = loaded.config
+    if getattr(cfg, "energy", None) is not None:
+        # A-6 stage 2 (energy mode): the flags that belong to the legacy model are rejected, not ignored.
+        _legacy_only = [
+            (flag, why) for flag, given, why in (
+                ("--selftest", args.selftest, "energy mode does not build the legacy thermochemistry table"),
+                ("--dump-thermo", args.dump_thermo is not None, "energy mode does not build the legacy thermochemistry table"),
+                ("--no-cache", args.no_cache, "it rebuilds the legacy chamber-property cache, which energy mode does not use"),
+                ("--allow-verification-failure", args.allow_verification_failure,
+                 "it applies only to the legacy mass-ledger gate (exit code 5), which energy mode does not have; an energy "
+                 "closure failure (exit code 1) is never downgraded")) if given]
+        if _legacy_only:
+            print("Configuration error:\n" + "\n".join(
+                f"{flag} is not available for a configuration with an energy_model section ({why})."
+                for flag, why in _legacy_only), file=sys.stderr)
+            return 2
     if args.no_cache:
         cfg.cea_rebuild_cache = True
         loaded.migration_notes.append("Chamber-property cache rebuild forced by --no-cache.")
@@ -230,11 +245,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"Configuration {loaded.config.configuration_source} is valid "
               f"(schema {SCHEMA_VERSION}, backend {cfg.thermo_backend}).")
         return 0
-
-    if getattr(cfg, "energy", None) is not None and (args.selftest or args.dump_thermo is not None):
-        print("Configuration error:\n--selftest and --dump-thermo are not available for a configuration with an "
-              "energy_model section (energy mode does not build the legacy thermochemistry table).", file=sys.stderr)
-        return 2
 
     # A-6 stage 2 (energy mode): the same branch as in gribs.api._run; run_energy_case writes nothing.
     _energy = None

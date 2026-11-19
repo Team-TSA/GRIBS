@@ -27,7 +27,8 @@ from gribs.energy.balance import ABSOLUTE_ENTHALPY_BASIS, h_s_for_burn_surface
 from gribs.energy.elements import element_mass_fractions, reactant_element_rows
 from gribs.energy.initial import ElementBasis, check_initial_fill
 from gribs.energy.provider import EquilibriumProvider, TPState
-from gribs.errors import ConfigurationError
+from gribs.energy.exceptions import StateRecoveryError
+from gribs.errors import ConfigurationError, ThermochemistryError
 
 GAMMA_DEFINITION_CEA = ("EqSolution.gamma_s of the CEA TP equilibrium: the equilibrium isentropic exponent of the mixture, the "
                         "definition of the legacy gamma_s; must be finite and > 1")
@@ -122,11 +123,16 @@ def build_energy_inputs(c):
     elif c.thermo_backend == gribs.constants.BACKEND_CEA_PYTHON:
         from gribs.energy.cea_tp import CEATPProvider, TPCache
         cache = TPCache(Path(c.cea_cache_dir).expanduser()) if (c.cea_cache_enabled and c.cea_cache_dir) else None
-        provider = CEATPProvider(names, [wt[n] for n in names], fractions, products_from_reactants=c.cea_py_products_from_reactants,
-                                 product_species=c.cea_py_product_species, omit_species=c.cea_py_omit_species,
-                                 insert_species=c.cea_py_insert_species, ions=c.cea_py_ions, trace=c.cea_py_trace,
-                                 smooth_truncation=c.cea_py_smooth_truncation, truncation_width=c.cea_py_truncation_width,
-                                 element_tolerance=e.initial_fill.element_tolerance, cache=cache)
+        try:
+            provider = CEATPProvider(names, [wt[n] for n in names], fractions,
+                                     products_from_reactants=c.cea_py_products_from_reactants,
+                                     product_species=c.cea_py_product_species, omit_species=c.cea_py_omit_species,
+                                     insert_species=c.cea_py_insert_species, ions=c.cea_py_ions, trace=c.cea_py_trace,
+                                     smooth_truncation=c.cea_py_smooth_truncation,
+                                     truncation_width=c.cea_py_truncation_width,
+                                     element_tolerance=e.initial_fill.element_tolerance, cache=cache)
+        except StateRecoveryError as exc:           # the provider could not be constructed: a backend initialisation failure
+            raise ThermochemistryError(str(exc)) from exc
         provenance.update(provider="CEATPProvider", gamma_s_definition=GAMMA_DEFINITION_CEA, cea_cache=cache is not None,
                           cea_identity=provider.cache_identity())
     else:

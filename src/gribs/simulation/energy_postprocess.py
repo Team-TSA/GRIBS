@@ -32,14 +32,17 @@ import numpy as np
 import gribs.simulation.energy_integrator as ei
 from gribs.constants import PROGRAM_NAME, PROGRAM_VERSION, SCHEMA_VERSION
 from gribs.energy.ledger import closure_residuals
-from gribs.errors import ConfigurationError, GribsError
+from gribs.errors import ConfigurationError, GribsError, ThermochemistryError
 
 #: The pass criterion of the closure residuals of an energy run: |R| / scale of each of R_M, R_B, R_E, R_V (a choice of this
 #: commit, recorded in the summary; the residuals are accumulated with the same right-hand side, so they sit near 1e-13).
 CLOSURE_TOLERANCE = 1.0e-6
+CLOSURE_TOLERANCE_STATUS = ("provisional (held item H-09): a pass/fail threshold, not a claim of accuracy; to be fixed in the "
+                            "acceptance of real cases")
 CLOSURE_WARNING_CODE = "W_ENERGY_CLOSURE_FAILED"
 EXIT_CODE_SUCCESS = 0
 EXIT_CODE_CONFIGURATION = 2
+EXIT_CODE_THERMOCHEMISTRY = 3
 EXIT_CODE_SIMULATION = 4
 EXIT_CODE_VERIFICATION_FAILED = 1
 HISTORY_FILENAME = "energy_time_history.csv"
@@ -65,10 +68,13 @@ BURN_SURFACE_INTERPRETATION = (
     "temperature of the grain (T_grain_inf) on the absolute enthalpy basis; heat through the burn surface is included by that "
     "evaluation and not added separately (contract 164 sections 1b, 2b-4.3)")
 H0_OUT_DEFINITION = (
-    "H0_out = h + v_inlet^2/2 with h = u + p*V_free/M (u = E_cv/M, the contents at rest, v_inlet = 0: held item H-05); "
-    "the stagnation enthalpy per kg that leaves is not changed by Cd (an adiabatic nozzle: held item H-14)")
+    "H0_out = h + v_inlet^2/2 with h = u + p*V_free/M (u = E_cv/M, the contents at rest) and v_inlet = 0, so the kinetic energy at "
+    "the nozzle inlet plane is NOT included: this departs from the model definition (contract 164 section 2b-4.4 (i)), which "
+    "requires the kinetic energy at the inlet plane to be included; the inlet plane (position, area) is not defined (held item "
+    "H-18). The stagnation enthalpy per kg that leaves is not changed by Cd (an adiabatic nozzle: held item H-14)")
 HELD_ITEMS_ADOPTED = (
-    "H-05 (inlet velocity taken as 0)", "H-07 (quasi-steady burn surface: no storage term for ignition and tail-off)",
+    "H-18 (the kinetic energy at the nozzle inlet plane is not included; departs from contract 164 section 2b-4.4 (i))",
+    "H-07 (quasi-steady burn surface: no storage term for ignition and tail-off)",
     "H-14 (adiabatic nozzle: Cd scales the mass flow only)",
     "H-17 (the atomic-mass table is not audited against the atomic masses of CEA)")
 SCOPE = ("energy mode is verified on synthetic fixtures only; no real propellant is accepted, and no result is compared with "
@@ -117,6 +123,16 @@ class EnergyOutcome:
             if isinstance(self.error, ConfigurationError):
                 print(f"Configuration error:\n{self.error}", file=sys.stderr)
                 return EXIT_CODE_CONFIGURATION
+            if isinstance(self.error, ThermochemistryError):          # as the legacy command line (exit code 3)
+                code = getattr(self.error, "code", None)
+                if code:
+                    print(f"Thermochemistry backend error [{code}]:\n{self.error}", file=sys.stderr)
+                    record = {"code": code, "severity": "error", "message": str(self.error),
+                              "context": getattr(self.error, "context", {})}
+                    print(json.dumps(record, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+                else:
+                    print(f"Thermochemistry backend error:\n{self.error}", file=sys.stderr)
+                return EXIT_CODE_THERMOCHEMISTRY
             print(f"Simulation failed: {type(self.error).__name__}: {self.error}", file=sys.stderr)
             return EXIT_CODE_SIMULATION
         outdir = Path(outdir)
@@ -220,6 +236,7 @@ def run_energy_case(loaded) -> EnergyOutcome:
         "provenance": json.loads(json.dumps(run["provenance"], default=str)),
         "settings": json.loads(json.dumps(asdict(cfg.energy), default=str)),
         "closure_tolerance_normalised": CLOSURE_TOLERANCE,
+        "closure_tolerance_status": CLOSURE_TOLERANCE_STATUS,
         "legacy_outputs_not_produced": list(LEGACY_OUTPUTS_NOT_PRODUCED),
         "legacy_comparison": "none (a run with a condensed volume is a different model from the legacy model and is not compared)",
     }
