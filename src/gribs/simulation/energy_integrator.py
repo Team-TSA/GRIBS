@@ -24,7 +24,9 @@ a run is part of its provenance.  An igniter is rejected by the configuration ch
 from __future__ import annotations
 
 import math
-from typing import Optional
+import time
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -139,7 +141,35 @@ def _event(fn, terminal=True, direction=0.0):
     return fn
 
 
-def _counted(fun):
+@dataclass(frozen=True)
+class WallBudget:
+    """The wall-clock limit of one run_model_energy call (burning and blowdown phases together, as the legacy budget).
+    limit_s, the clock and the check interval can be passed in (a test injects a counting clock); the defaults are the legacy
+    values: INTEGRATION_MAX_WALL_S (read when default() is called), time.monotonic and a check every 1024 evaluations."""
+    limit_s: float
+    clock: Callable[[], float] = time.monotonic
+    check_every: int = 1024
+
+    @staticmethod
+    def default() -> "WallBudget":
+        return WallBudget(limit_s=gribs.simulation.integrator.INTEGRATION_MAX_WALL_S)
+
+
+class _WallClock:
+    """One start time and one count of right-hand-side evaluations for both phases of a run."""
+
+    def __init__(self, budget: WallBudget):
+        self.budget, self.n, self.t_start = budget, 0, budget.clock()
+
+    def tick(self, t: float) -> None:
+        self.n += 1
+        b = self.budget
+        if self.n % b.check_every == 0 and b.clock() - self.t_start > b.limit_s:
+            raise gribs.simulation.integrator.IntegrationBudgetError(
+                f"{gribs.simulation.integrator.IntegrationBudgetError.code}: wall time above {b.limit_s:g} s (t = {t:.9g} s).")
+
+
+def _counted(fun, wall: _WallClock):
     state = {"calls": 0}
 
     def counted(t, y):
@@ -148,13 +178,15 @@ def _counted(fun):
             raise gribs.simulation.integrator.IntegrationBudgetError(
                 f"{gribs.simulation.integrator.IntegrationBudgetError.code}: more than "
                 f"{gribs.simulation.integrator.INTEGRATION_MAX_RHS_CALLS} right-hand-side evaluations (t = {t:.9g} s).")
+        wall.tick(t)
         return fun(t, y)
     return counted, state
 
 
-def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None) -> dict:
+def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None, *, wall_budget: Optional[WallBudget] = None) -> dict:
     """Integrate the burning phase and (optionally) the blowdown phase of an energy-mode configuration.  Without inputs they
-    are built from the configuration (energy/wiring.py)."""
+    are built from the configuration (energy/wiring.py).  wall_budget (default: WallBudget.default(), the legacy 300 s) limits the
+    wall-clock time of the two phases together; it stops the run with IntegrationBudgetError (exit code 4)."""
     gribs.config.validate(c)
     if getattr(c, "energy", None) is None:
         raise ValueError("run_model_energy needs a configuration with an energy_model section")
@@ -180,7 +212,8 @@ def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None) -> dic
     ev_amb = _event(lambda t, y: model.terms(y, False)["p"] - c.p_a * 1.0005, True, -1.0)
     names = ["burnout", "unchoked", "rechoked", "ambient"]
 
-    f1, calls1 = _counted(model.rhs(True))
+    wall = _WallClock(wall_budget if wall_budget is not None else WallBudget.default())
+    f1, calls1 = _counted(model.rhs(True), wall)
     sol1 = solve_ivp(f1, (0.0, c.t_max), y0, method=c.method, events=[ev_burn, ev_unch, ev_rech, ev_amb],
                      dense_output=True, rtol=c.rtol, atol=atol, max_step=c.max_step_burn, first_step=1.0e-7)
     if not sol1.success:
@@ -200,7 +233,7 @@ def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None) -> dic
         y_bo[IX] = xw
         ev_amb2 = _event(lambda t, y: model.terms(y, False)["p"] - c.p_a * 1.0005, True, -1.0)
         ev_unch2 = _event(lambda t, y: model.choke_margin(y), c.unchoked_policy == "stop", -1.0)
-        f2, calls2 = _counted(model.rhs(False))
+        f2, calls2 = _counted(model.rhs(False), wall)
         sol2 = solve_ivp(f2, (sol1.t[-1], sol1.t[-1] + c.blowdown_tmax), y_bo, method=c.method,
                          events=[ev_amb2, ev_unch2], dense_output=True, rtol=c.rtol, atol=atol, max_step=c.max_step_blow)
         if not sol2.success:

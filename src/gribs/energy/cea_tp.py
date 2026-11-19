@@ -28,6 +28,7 @@ import gribs.thermo
 from gribs.energy import relations
 from gribs.energy.balance import ABSOLUTE_ENTHALPY_BASIS
 from gribs.energy.exceptions import StateRecoveryError
+from gribs.errors import ThermochemistryCacheError
 from gribs.energy.provider import TPState
 
 TP_CACHE_SCHEMA = "gribs-energy-tp-cache-2"        # 2: the state carries gamma_s (C11); schema-1 files are not read
@@ -53,6 +54,26 @@ class CEATPDetail:
 
 def _canonical(obj) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _tp_cache_write_failed(phase: str, step: str, path, original: BaseException, replaced: bool,
+                           cleanup: Optional[Mapping]) -> ThermochemistryCacheError:
+    """The error of a failed TP cache write (code E_THERMO_CACHE_WRITE_FAILED, exit code 3 on the command line, like the legacy
+    chamber-property cache).  The wording is the energy mode's own and says "TP cache"; the legacy wording and code are unchanged."""
+    c = dict(cleanup or {})
+    if phase == "create_directory":
+        state = "the TP cache directory could not be created; no TP cache file was written"
+    elif replaced:
+        state = ("the TP cache file name was changed by this run, so any previous TP cache file is gone; the new file's "
+                 "identity or durability could not be confirmed")
+    else:
+        state = "this run did not replace the TP cache file (an existing one, if any, was not modified by this run)"
+    return ThermochemistryCacheError(
+        f"TP cache could not be written ({phase}, {step}): {path}\n"
+        f"Original error: {type(original).__name__}: {original}\n{state}; temp file: {c.get('status', 'unknown')}.",
+        code="E_THERMO_CACHE_WRITE_FAILED",
+        context={"phase": phase, "step": step, "path": str(path), "error": f"{type(original).__name__}: {original}",
+                 "errno": getattr(original, "errno", None), "replaced": bool(replaced), "temp_cleanup": c, "cache": "tp"})
 
 
 class TPCache:
@@ -94,7 +115,15 @@ class TPCache:
                 "condensed_mass_fraction": dict(state.condensed_mass_fraction), "gamma_s": state.gamma_s}
         doc = {"schema": TP_CACHE_SCHEMA, "key": self.key(identity, T, p), "identity": identity, "T": T, "p": p,
                "state": body, "state_sha256": hashlib.sha256(_canonical(body).encode()).hexdigest()}
-        gribs.thermo._cache_atomic_write_text(self.path(identity, T, p), _canonical(doc) + "\n")
+        try:                                                       # as the legacy cache: the directory first
+            self.directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise _tp_cache_write_failed("create_directory", "create_directory", self.directory, exc, False,
+                                         {"status": "not_created", "created": False}) from exc
+        try:
+            gribs.thermo._cache_atomic_write_text(self.path(identity, T, p), _canonical(doc) + "\n")
+        except gribs.thermo._CacheWriteError as exc:
+            raise _tp_cache_write_failed(exc.phase, exc.step, exc.path, exc.original, exc.replaced, exc.cleanup) from exc
         self.stores += 1
 
 

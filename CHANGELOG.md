@@ -47,6 +47,7 @@ Details of each item are under "Changed".
 - Rejected in energy mode (the main items; the full list is item 9 of "Energy mode" in `MODEL_LIMITATIONS.md`): an igniter (`E_ENERGY_MODE_IGNITER_REJECTED`), `equilibrium_pressure_diagnostic` other than `off`, `temperature_efficiency` other than 1, an initial fill that is not the products of the main propellant (an air fill), and `--selftest`, `--dump-thermo`, `--no-cache` or `--allow-verification-failure` with an `energy_model` section.
 - The energy-mode closure threshold (normalised residuals within `1e-6`) is provisional (held item H-09); it is a pass/fail threshold, not a claim of accuracy.
 - `reference_constant` in energy mode uses the test convention `h(T_ref) = h_s(T_grain,inf)`; it is for tests only.
+- Exit codes of energy mode for failures outside the model: a failure to write the TP cache stops the run with code 3 (`E_THERMO_CACHE_WRITE_FAILED`; the cache directory is created first, as for the legacy cache); an unexpected exception ends with code 4 (`E_ENERGY_UNEXPECTED_ERROR`, traceback on stderr; the Python API raises the exception unchanged); a failure to write the output files ends with code 4 (`E_ENERGY_OUTPUT_WRITE_FAILED`), not code 1, which stays the closure failure; and the run is limited to 300 s of wall time over the whole run, as the legacy model (`E_INTEGRATION_BUDGET_EXCEEDED`, code 4).
 
 ### Documentation
 

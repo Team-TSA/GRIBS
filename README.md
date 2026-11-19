@@ -354,8 +354,8 @@ Energy mode uses the codes above as follows; no code has a new meaning, and code
 | 0 | the run completed, `gamma_s > 1` held and the closure residuals are within the threshold (an exit-code decision, not a statement that the results are physically valid) |
 | 1 | a normalised closure residual exceeds the threshold (`W_ENERGY_CLOSURE_FAILED`; the files are written first). This is the energy closure gate, not the mass-ledger gate of code 5 |
 | 2 | invalid configuration, including the rejected items above (except a non-unique reactant basis, which stops the run with code 4); also `--selftest`, `--dump-thermo`, `--no-cache` or `--allow-verification-failure` with an `energy_model` section |
-| 3 | the thermochemistry backend could not be initialised (for example the `cea` package is missing for `cea_python`) |
-| 4 | the simulation failed (a failed state recovery, `gamma_s` not above 1, a non-unique reactant basis, an integration failure) |
+| 3 | the thermochemistry backend could not be initialised (for example the `cea` package is missing for `cea_python`), or the TP cache could not be written (`E_THERMO_CACHE_WRITE_FAILED`, as the legacy chamber-property cache) |
+| 4 | the simulation failed (a failed state recovery, `gamma_s` not above 1, a non-unique reactant basis, an integration failure, including an integration that exceeds a safety limit such as 300 s of wall time over the whole run); an unexpected exception (`E_ENERGY_UNEXPECTED_ERROR`, with its traceback on stderr); a failure to write the output files (`E_ENERGY_OUTPUT_WRITE_FAILED`) |
 
 `--allow-verification-failure` is rejected with an `energy_model` section (code 2): it applies only to the legacy mass-ledger gate (code 5), and the energy closure failure (code 1) is never downgraded; `--no-cache` is rejected for the same reason (it concerns the legacy chamber-property cache).
 

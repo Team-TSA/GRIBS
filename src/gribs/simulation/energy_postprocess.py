@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+import traceback
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -45,6 +46,8 @@ EXIT_CODE_CONFIGURATION = 2
 EXIT_CODE_THERMOCHEMISTRY = 3
 EXIT_CODE_SIMULATION = 4
 EXIT_CODE_VERIFICATION_FAILED = 1
+UNEXPECTED_ERROR_CODE = "E_ENERGY_UNEXPECTED_ERROR"
+OUTPUT_WRITE_ERROR_CODE = "E_ENERGY_OUTPUT_WRITE_FAILED"
 HISTORY_FILENAME = "energy_time_history.csv"
 
 HISTORY_COLUMNS = (
@@ -95,6 +98,9 @@ class EnergyOutcome:
     integration_budget: Dict[str, Any] = field(default_factory=dict)
     run_passed: bool = False
     source: Dict[str, Any] = field(default_factory=dict)         # configuration_source, migration, documents (for summary.json)
+    #: True when `error` is an exception that run_energy_case does not know (not GribsError / ValueError / RuntimeError):
+    #: the command line prints its traceback and ends with code 4 (E_ENERGY_UNEXPECTED_ERROR); the API raises `error` itself.
+    unexpected: bool = False
 
     @property
     def summary(self) -> Dict[str, Any]:
@@ -133,10 +139,18 @@ class EnergyOutcome:
                 else:
                     print(f"Thermochemistry backend error:\n{self.error}", file=sys.stderr)
                 return EXIT_CODE_THERMOCHEMISTRY
+            if self.unexpected:
+                print("".join(traceback.format_exception(type(self.error), self.error, self.error.__traceback__)),
+                      file=sys.stderr, end="")
+                print(f"Energy mode: unexpected error [{UNEXPECTED_ERROR_CODE}]: {type(self.error).__name__}: {self.error}",
+                      file=sys.stderr)
+                record = {"code": UNEXPECTED_ERROR_CODE, "severity": "error", "message": str(self.error),
+                          "context": {"exception_type": type(self.error).__name__}}
+                print(json.dumps(record, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+                return EXIT_CODE_SIMULATION
             print(f"Simulation failed: {type(self.error).__name__}: {self.error}", file=sys.stderr)
             return EXIT_CODE_SIMULATION
         outdir = Path(outdir)
-        outdir.mkdir(parents=True, exist_ok=True)
         csvp, txtp = outdir / HISTORY_FILENAME, outdir / names["summary_text_filename"]
         jsnp = outdir / names["summary_json_filename"]
         text = self.summary_text()
@@ -147,9 +161,18 @@ class EnergyOutcome:
             "output_files": {"history_csv": str(csvp), "summary_text": str(txtp), "summary_json": str(jsnp),
                              "figure": None, "legacy_history_csv": None},
         }
-        csvp.write_text(history_csv_text(self.history), encoding="utf-8")
-        txtp.write_text(text, encoding="utf-8")
-        jsnp.write_text(json.dumps(summary_json, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            outdir.mkdir(parents=True, exist_ok=True)
+            csvp.write_text(history_csv_text(self.history), encoding="utf-8")
+            txtp.write_text(text, encoding="utf-8")
+            jsnp.write_text(json.dumps(summary_json, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        except OSError as exc:         # not a closure failure (code 1, files written): the output could not be written
+            print(f"Energy mode: the output could not be written [{OUTPUT_WRITE_ERROR_CODE}]: {type(exc).__name__}: {exc}; "
+                  "some output files may have been written", file=sys.stderr)
+            record = {"code": OUTPUT_WRITE_ERROR_CODE, "severity": "error", "message": str(exc),
+                      "context": {"path": str(getattr(exc, "filename", None) or outdir), "errno": exc.errno}}
+            print(json.dumps(record, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+            return EXIT_CODE_SIMULATION
         print()
         print(text)
         print("Output files")
@@ -199,7 +222,16 @@ def _history_and_closure(run: dict) -> Dict[str, np.ndarray]:
 def run_energy_case(loaded) -> EnergyOutcome:
     """Run the energy-mode configuration `loaded` (a Configuration of gribs.config.loader) and return its EnergyOutcome.
     Nothing is written and nothing is printed.  The errors of the run (GribsError, ValueError, RuntimeError, as the command
-    line treats them) are returned in EnergyOutcome.error, not raised."""
+    line treats them) are returned in EnergyOutcome.error, not raised.  Any other Exception is returned too, with
+    `unexpected` set (the command line prints its traceback and ends with code 4; the API raises it unchanged); KeyboardInterrupt
+    and SystemExit are not caught."""
+    try:
+        return _run_energy_case(loaded)
+    except Exception as exc:
+        return EnergyOutcome(error=exc, unexpected=True)
+
+
+def _run_energy_case(loaded) -> EnergyOutcome:
     cfg = loaded.config
     try:
         run = ei.run_model_energy(cfg)
