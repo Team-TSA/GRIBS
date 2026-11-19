@@ -9,6 +9,10 @@ R_E  energy:   E_cv - (E0 + Q + W_burn - H_out)            the energy of the con
                accumulated by its own state variable, not by integrating E_cv)
 R_V  volume:   V_gas + V_condensed - V_free                the volumes of the recovered state fill the free volume
 
+The residuals check that the integration is self-consistent (each accumulator against the state and the inventories); they
+are not a check that the physical model is right, and a model error that the integration carries consistently does not
+show in them.
+
 check_closure raises ClosureError for a residual above its tolerance.  Standard library only.
 """
 import math

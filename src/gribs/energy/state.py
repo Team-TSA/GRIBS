@@ -1,7 +1,10 @@
 """State of the chamber control volume (A-6 stage 2, C4; contract 164 section 2b-4.1, 2b-4.2).
 
 The general form is (E_cv, B_e): the total energy of the contents [J] and the inventory of each element [kg-element]
-(the mass of the contents is the sum of B_e).  No reduction to the internal energy U_cv is implemented.
+(the mass of the contents is the sum of B_e).  E_cv is treated as the internal energy of contents at rest (the kinetic
+energy of the contents is not modelled), so the implemented state is equivalent to U_cv: this departs from the model
+definition (contract 164 section 2b-4.1), which allows the reduction to U_cv only when an upper bound of M_port is stated
+(held item H-05, not decided).
 RecoveredState (C5) is what the state recovery returns for such a state.
 """
 import math

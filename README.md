@@ -137,7 +137,7 @@ Validate the configuration without initializing CEA:
 python GRIBS_v0.6.2-alpha.py --config gribs_config.json --validate-config
 ```
 
-For an `energy_model` configuration, `--validate-config` checks the configuration file only (its keys and values and the rules applied when it is loaded). The energy-mode checks made when the run starts, including the presence of `propellant_formulas`, the explicit `reference_constant` values, the construction of the thermochemistry backend and the element check at t = 0, are not made, so a valid result does not guarantee that the run starts.
+For an `energy_model` configuration, `--validate-config` checks the configuration file only (its keys and values and the rules applied when it is loaded). The energy-mode checks made when the run starts, including the presence of `propellant_formulas`, the explicit `reference_constant` values, the construction of the thermochemistry backend and the element check and the latent-heat check at t = 0, are not made, so a valid result does not guarantee that the run starts.
 
 Run the numerical self-tests:
 
@@ -425,7 +425,7 @@ Limits of this interface:
 
 - The input is the path of a configuration file; a configuration given as a Python dictionary is not accepted.
 - Runs in one process must be made one after another. Concurrent runs (for example in threads) are not supported: the selected thermochemistry backend is module state of `gribs.thermo`; `run_simulation` restores it after each call, also after an error.
-- Nothing is printed and no output file is written (no `summary.json`, `time_history.csv` or figure). The chamber-property cache is still read and written, in the same directory as by the command line.
+- Nothing is printed and no output file is written (no `summary.json`, `time_history.csv` or figure). The chamber-property cache is still read and written, in the same directory as by the command line (in energy mode the TP cache is used instead: see "Energy mode").
 - Errors are raised instead of being turned into exit codes: `gribs.errors.ConfigurationError` (command line: exit code 2), `gribs.errors.ThermochemistryError` (3), `gribs.api.ModelApplicabilityError` (1, raised before the simulation) and the errors of the simulation (4).
 - A `Result` does not contain the `summary.json` sections `environment`, `cea_theoretical_diagnostics` and `output_files`, which only the command line computes. There is no input hash, no uncertainty summary and no dedicated warning type (warnings are dictionaries as in `summary.json`).
 
@@ -464,7 +464,7 @@ Rejected in energy mode (the same list as item 9 of "Energy mode" in `MODEL_LIMI
 Outputs of an energy run, in the output directory:
 
 - `energy_time_history.csv`: columns with units, including the four closure residuals (mass, element inventory, energy, volume; absolute and normalised);
-- `summary.txt` and `summary.json` (under their configured names): `summary.json` has the top-level keys `model_mode = "energy"` and `energy_model` (scope, interpretation of the burn-surface term, definition of `H0_out`, held items adopted, `gamma_s` range, provenance, settings, the closure threshold and `legacy_outputs_not_produced`).
+- `summary.txt` and `summary.json` (under their configured names): `summary.json` has the top-level keys `model_mode = "energy"` and `energy_model` (`scope`, `contract`, `burn_surface_form`, `burn_surface_interpretation`, `H0_out_definition`, `held_items_adopted`, `gamma_s` (definition and range), `provenance` (including `enthalpy_convention`), `settings`, `latent_heat_check`, `closure_tolerance_normalised`, `closure_tolerance_status`, `legacy_outputs_not_produced` and `legacy_comparison`); `derived_inputs.propellant_density_source`; and `output_files.legacy_history_csv` is `null`. Energy mode uses the TP cache (`thermo_cea_tp_*.json`, schema 3; earlier schemas are not read) and not the legacy chamber-property cache; `--no-cache` concerns the legacy cache only.
 
 The legacy figure, the legacy `time_history.csv`, the CEA theoretical rocket diagnostics, the equilibrium pressure diagnostic, the legacy post-run self-test, the legacy mass and energy ledger and the legacy model-applicability check are **not produced** in energy mode; the command line prints a line saying so and the summary lists them. A run ends with exit code 0 when it completes, `gamma_s > 1` in every state and the normalised closure residuals are within a threshold of `1e-6`; that is an exit-code rule, not a statement that the results are physically valid. The threshold is provisional (held item H-09), a pass/fail threshold and not a claim of accuracy.
 
@@ -493,7 +493,7 @@ results/
 
 ### Run-state keys
 
-The summary (`results` in `summary.json`, `Result.summary`) of a completed run has six run-state keys at its top level. `summary.txt` prints them in its `[ run state ]` section and lists every warning code of the run in its `[ warning codes ]` section. A run that stops with an error has no summary and no keys. The keys do not change `run_passed` or the exit code.
+The summary (`results` in `summary.json`, `Result.summary`) of a completed run has six run-state keys at its top level (legacy model; an energy-mode run does not produce these six keys, and its closure residuals are in `results.closure`). `summary.txt` prints them in its `[ run state ]` section and lists every warning code of the run in its `[ warning codes ]` section. A run that stops with an error has no summary and no keys. The keys do not change `run_passed` or the exit code.
 
 | Key | Meaning |
 |---|---|
@@ -625,7 +625,7 @@ GRIBS v0.6.2-alpha is alpha research software. **Its physical validity has not b
 
 - This is alpha-stage research software. It is not certified for safety-critical use and is not intended for production use; physical validity has not been established (see [Validation status](#validation-status)).
 - The nozzle `c*` uses a constant-gamma isentropic relation. Against the CEA equilibrium reference it differs by up to about 2.3% in the tested condensed AP/Al compositions (G4a not passed).
-- The chamber gas phase is treated as an ideal gas; non-ideal effects at high pressure are not modelled or bounded. The condensed-phase volume is neglected.
+- The chamber gas phase is treated as an ideal gas; non-ideal effects at high pressure are not modelled or bounded. The condensed-phase volume is neglected (legacy model; energy mode computes it from constant densities, see "Energy mode").
 - Condensed-phase scope, by the minimum gas mass fraction `Yg_min` of the thermochemistry table (code constants, not linked to validation evidence):
   - `Yg_min <= 0.65`: `model_status = out_of_scope`; the run stops before the simulation with `E_OUT_OF_VALIDATED_RANGE`.
   - `0.65 < Yg_min <= 0.99`: `model_status = approximate_with_limitations`; the run continues and reports `W_HIGH_CONDENSATE_MODEL_LIMITATION`. This warning describes the physics the homogeneous-equilibrium model does not include (particle slip, finite-rate condensation, condensed-phase volume, phase-density lag).
@@ -640,7 +640,7 @@ GRIBS v0.6.2-alpha is alpha research software. **Its physical validity has not b
 - Theoretical CEA rocket diagnostics do not replace GRIBS results.
 - The chamber-property cache relies on the operating assumptions in [Chamber-property cache writes and concurrent runs](#chamber-property-cache-writes-and-concurrent-runs). Survival after a crash or power loss is not guaranteed (the parent of a newly created cache directory is not synced), and other users (UIDs), other file systems, other hosts, file systems without hard links, `security.*` / `trusted.*` extended attributes, SELinux and device files have not been tested. Publishing a new cache requires hard links or Linux `renameat2` (glibc 2.28 or later).
 - The `cea_python` cache key identifies the database by the SHA-256 of the package `thermo.lib` (and of `trans.lib` when `transport` is true) and contains no file paths, so moving or recreating the virtual environment does not invalidate the cache (GitHub Issue #10, item 3; changed by P5-1). Cache files written before this change have other keys and are not reused; the table is built again once.
-- Not included in this release and not approved for use: stopping at the property-table range with a dedicated exit code (M3), the safe output mode (output-directory locking and overwrite refusal), the Phase B physical extensions (B1: energy / equation-of-state closure), and the Phase B CEA comparison layers (B2-C, B2-D). None of them is connected to the program.
+- Not included in this release and not approved for use: stopping at the property-table range with a dedicated exit code (M3), the safe output mode (output-directory locking and overwrite refusal), the Phase B physical extensions (B1: energy / equation-of-state closure), and the Phase B CEA comparison layers (B2-C, B2-D). None of them is connected to the program (this statement is about the legacy model; the opt-in energy mode is described in "Energy mode").
 - `MODEL_LIMITATIONS.md` summarises the model assumptions. It was written for the earlier v0.3 / v0.4 model and has been revised only minimally for v0.6.0-alpha, v0.6.1-alpha and v0.6.2-alpha; where it differs, this README and `CHANGELOG.md` take precedence.
 - Model outputs are not substitutes for static firing tests, material characterization, or independent review.
 

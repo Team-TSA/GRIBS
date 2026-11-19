@@ -80,8 +80,8 @@ HELD_ITEMS_ADOPTED = (
     "H-07 (quasi-steady burn surface: no storage term for ignition and tail-off)",
     "H-14 (adiabatic nozzle: Cd scales the mass flow only)",
     "H-17 (the atomic-mass table is not audited against the atomic masses of CEA)")
-SCOPE = ("energy mode is verified on synthetic fixtures only; no real propellant is accepted, and no result is compared with "
-         "measured data or (for a condensed volume) with the legacy model")
+SCOPE = ("energy mode is verified on synthetic fixtures only; the number of cases qualified with a real propellant is 0, and "
+         "no result is compared with measured data or (for a condensed volume) with the legacy model")
 
 
 @dataclass

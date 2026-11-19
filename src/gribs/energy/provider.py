@@ -5,6 +5,9 @@ A provider answers a TP equilibrium at (T, p) for the element inventory B_e.  Qu
 (so that p V_gas = m_total R_eff T with R_eff = Ru n_gas_per_kg), condensed_mass_fraction maps each condensed species to
 its mass fraction, gamma_s is the equilibrium isentropic exponent (> 1 when given).  The condensed-phase volume is NOT the provider's: it is computed from the constant densities of
 energy_model.condensed (CEA's v_c = 0 equilibrium is combined with an external rho_c).
+
+The analytic provider (reference_constant) and the synthetic providers of the tests are for tests: a result obtained with
+them is not a result for a propellant.
 """
 from dataclasses import dataclass, field
 from typing import Dict, Mapping, Optional, Protocol

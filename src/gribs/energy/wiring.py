@@ -13,6 +13,8 @@ thermochemistry backend:
   The legacy backend has no enthalpy, so the convention here is stated in the provenance: the enthalpy at the reference
   temperature is that of the solid at its far temperature (h_s), i.e. the adiabatic flame temperature is the reference
   temperature, so the steady state of energy mode can be compared with the legacy model (algebraic limit, contract 2b-4.8).
+  reference_constant and the synthetic providers of the tests are for tests: a result obtained with them is not a result for
+  a propellant.
 
 The provenance returned with the inputs records every choice the run made (provider, gamma_s definition, formulas, element
 fractions, atomic-mass table status, enthalpy basis, the source of rho_p, the recovery range).
