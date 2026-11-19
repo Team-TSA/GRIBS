@@ -4,7 +4,7 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
-A-6 stage 1 (package split and Python interface): G0 was approved for revision ea3f4a7 on 2026-11-10. The later items (P5 and A-9 integration, A-6 stage 2 energy mode) have not been through G0. The program version stays `0.6.2-alpha`.
+A-6 stage 1 (package split and Python interface), the P5 and A-9 integration and A-6 stage 2 (energy mode): G0 (reproducibility) was approved for revision `2bd5ec5` on 2026-11-19, limited to that revision, the recorded environment (cea 3.3.4; pass/fail is limited to an environment with CEA) and the recorded objects. It does not cover physical validity, G4a, G4b, G5, real-propellant acceptance or reverse-direction scenarios. The earlier G0 approval for revision `ea3f4a7` (2026-11-10) covered stage 1 only. Documentation-only commits made after `2bd5ec5` (starting with the one that added this text) were not themselves put through G0; G0 is approved for `2bd5ec5` only. The program version stays `0.6.2-alpha`; nothing here is a release.
 
 ### Breaking
 
@@ -59,6 +59,7 @@ Details of each item are under "Changed".
 - README, "Run-state keys": the six run-state keys of P5-5. `summary.txt` prints them in a new `[ run state ]` section and lists every warning code of the run in a new `[ warning codes ]` section (display only; `summary.json` and all computed values are unchanged).
 - MODEL_LIMITATIONS.md item 5 describes the erosive-burning model as implemented (F-01, documentation only): one aft-end total mass flux, applied to the whole burning surface; not a port-average model; the unit of alpha.
 - `docs/G0/G0_APPROVAL_3c0c98c_2026-11-07.txt`: the G0 approval record of v0.6.2-alpha with an English summary.
+- `docs/G0/G0_APPROVAL_2bd5ec5_2026-11-19.txt`: the G0 approval record of revision `2bd5ec5` (A-6 stage 2) with an English summary. The opening paragraph of this `[Unreleased]` section, README "Validation status" and `CONTRIBUTING.md` (version-independent commands) are updated to match; no code or test file is changed.
 ### Notes
 
 - Warning-code vocabulary: `W_MIGRATION_MODEL_CHANGE` is the implemented code for a configuration migration that changes the physical model (the command line and `gribs.run_simulation` add it; a caller that runs `summarize()` itself uses `append_migration_model_change_warning`). `W_MASS_BASIS_CONFIG_MIGRATED` (improvement plan candidate) is not implemented and is covered by `W_MIGRATION_MODEL_CHANGE`; `W_DEPRECATED_MOLECULAR_WEIGHT_KEY` (review proposal) was not adopted: `gas_phase_M` is a frozen compatibility token accepted without a warning.

@@ -34,9 +34,10 @@ For `cea2` development, separately provide compatible `fcea2`, `thermo.lib`, and
 Before submitting a Pull Request:
 
 ```bash
-python3 -m py_compile GRIBS_v0.3.1-alpha.py
-python3 GRIBS_v0.3.1-alpha.py --selftest
-python3 GRIBS_v0.3.1-alpha.py
+PROGRAM="$(ls GRIBS_v*.py | sort -V | tail -n 1)"   # the program file; its name contains the version
+python3 -m py_compile "$PROGRAM"
+python3 "$PROGRAM" --selftest
+python3 "$PROGRAM"
 ```
 
 Confirm that the expected output files are generated and review `summary.json` for the resolved configuration and verification metrics.

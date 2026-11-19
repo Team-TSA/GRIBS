@@ -1,0 +1,45 @@
+# English summary (added in the repository copy; everything after the separator line is the original record,
+# byte-identical to reports/G0/G0_APPROVAL_2bd5ec5_2026-11-19.txt of the working records (not part of this repository), SHA-256 09438cf351c589513545054b72e3cdff01523e88c9f62b00a3a6ae524f1207ae):
+# Revision: 2bd5ec5d0ddc27f50788d52c40b01ed383d6157a (A-6 stage 2; program version string 0.6.2-alpha); G0 (reproducibility) approved by the maintainer on 2026-11-19.
+# Environment: Linux 7.0.0-43, glibc 2.43 (2ubuntu2.7), Python 3.14.4, cea 3.3.4, NumPy 2.5.3, SciPy 1.18.1, Matplotlib 3.11.2, pytest 9.1.1, ruff 0.16.10 (the reproduction record G0_REPRODUCTION_2bd5ec5_2026-11-19.txt, SHA-256 8eb0bd51c6d1bcd2a45c3939f4ed17d1b92e6f917cfee2f61f62962970780675, is a working record and is not in this repository).
+# Limits: this revision and environment only; pass/fail is limited to an environment with CEA; not physical validity, G4a (not passed), G4b, G5, real-propellant acceptance, reverse-direction scenarios (not run), CI, other environments or later revisions. The paths it cites (runs/..., reports/...) are working records outside this repository; the decision text is Japanese, verbatim.
+# Note: the original record says that docs/G0/ was "not added" at the time of the approval; this file is that later addition. Documentation-only commits made after 2bd5ec5 (starting with the one that added this file) were not themselves put through G0.
+# ---- original record ----
+# STATUS: APPROVED. G0 approval record for 2bd5ec5 (A-6 stage 2, C19; version string 0.6.2-alpha unchanged; 2026-11-19, report 207).
+# New file; earlier G0 files and reports unchanged.
+# Approved by the user (39th entry), LIMITED to the revision, run r524, the environment and the objects recorded in
+# G0_REPRODUCTION_2bd5ec5_2026-11-19.txt (sha256 8eb0bd51c6d1bcd2a45c3939f4ed17d1b92e6f917cfee2f61f62962970780675).
+# The reproduction record keeps its own "STATUS: NOT APPROVED" header as written (as in the ea3f4a7 precedent); this file is the approval.
+# Pass/fail of this G0 is limited to an environment with CEA (cea 3.3.4).
+
+revision: 2bd5ec5d0ddc27f50788d52c40b01ed383d6157a (tree 944892f49c0d7456d77b06c208ddbb3379ebb234)
+  docs(changelog): state the time of each claim in the A-6 stage 1 entries (C19, CHANGELOG.md only); parent 20fc553 (C17)
+  base of the comparison: c7bb092 (tree 2d0edd1888dd20d60305e59c14f502387c3ac72e; measured again in the same run r524)
+source of the commit objects: runs/r524_a6_stage2_c19_g0/c19.bundle (sha256 af56697d...; prerequisites in base_c7bb092_G0.bundle, sha256 5c9c4dac...1edc)
+run: r524 (runs/r524_a6_stage2_c19_g0), pre-registrations PRE_REGISTRATION_C19.md, PRE_REGISTRATION_G0_STAGE2.md (v1) and
+  PRE_REGISTRATION_G0_STAGE2_REV2.md (sha256 ecbfab618adcb238ed315dfe8a0c7dc0f63f4dcff105842ce5ac0f452c6a9aa0)
+
+objects (summary; the full text is in G0_REPRODUCTION_2bd5ec5_2026-11-19.txt, report 206):
+  pytest (CEA present, probe copies v1a/v3): 2bd5ec5 1118 passed + 1 skipped; c7bb092 972 passed + 1 skipped; normal, reversed,
+    guard-disabled (1116+1 / 970+1) and single-file orders all met the registered counts; golden g1-g8 violations=0; api_vs_golden 8/8;
+  G1 probe numeric leaves: 4,869, difference 0; census byte-equal; lint 17 findings equal; --version / --help / --selftest (one run) as recorded.
+  The 9 G1 identification-field differences (body_sha256, entry_sha256, package_files 22->40, package_tree_digest, sha256; outputs
+    D_nozzle and g1_g4a_followup) are accepted (decision [2]).
+
+decision (user, 2026-11-19, 39th entry, verbatim from reports/A6_STAGE2_PLAN_APPROVAL_2026-11-18.txt):
+  【1】2bd5ec5（A-6 stage 2、C19。版 0.6.2-alpha のまま）の G0 を承認します。範囲は G0 の記録に書かれたとおりです。
+  - 合否は CEA のある環境に限ります。
+  - 逆向きは未実行です（D-04）。
+  - 記録の「範囲の外」の項目（H-05、H-09、H-17〜H-22、G4a、G4b、G5、実ケース受入）は、承認に含みません。
+  【2】G1 の識別の欄の差 9 件（body_sha256・entry_sha256・package_files 22→40・package_tree_digest・sha256。D_nozzle と g1_g4a_followup の 2 つの出力）を受け入れます。理由: どれも stage 2 の変更（本体ファイルの 1 行、package のファイルの追加）から予想どおり変わる欄で、測定の前の独立した計算と 9 件とも一致し、数値の葉（4,869）は差 0 だからです。
+  【3】CEA なしの 25 件の失敗と 1 件の収集エラーは、合否の外のままにします。191 §6 の B-6 との食い違いは、未解決のまま残します。
+
+not approved / not covered (from the decision and the reproduction record's decision clause):
+  reverse-direction scenarios (未実行, D-04); H-05, H-09, H-17 to H-22 and the other held items of contract 164 section 11; G4a (9 of 18
+  points above 2e-3, not passed); G4b; G5; real-propellant acceptance (number of qualified cases: 0); physical validity; other
+  environments; CI; the CEA-less environment (25 failures + 1 collection error of the legacy suite, outside pass/fail; the
+  discrepancy with B-6 in 191 section 6 stays unresolved); the import of these commits into the checkout (a commit produced there
+  with a different hash is a different revision); push, tag, Release, v0.7.0-alpha preparation, fast-forward of a6/stage1, merge
+  into main; docs/G0/ (not added: an item of the version-deciding stage).
+
+earlier G0 files: not modified. G0_REPRODUCTION_2bd5ec5_2026-11-19.txt: not modified.
