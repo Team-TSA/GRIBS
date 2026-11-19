@@ -13,6 +13,11 @@ R_gas = R_eff / Yg and M_gas = Yg M_CEA are derived with gribs.energy.relations.
 The TP cache holds states at exact (T, p) nodes in files thermo_cea_tp_<hash>.json.  Its key holds the schema, the CEA version
 and database digest, the reactants and weights, the element order and fractions, the product-species options and the enthalpy
 convention.  The p-only caches of the legacy backend (thermo_cea_python_*.json) are neither read nor written.
+
+Every TP state is solved on a NEW EqSolution (C18, report 198).  A reused EqSolution carries a history: at a change from a solid
+to a liquid condensed phase (Al2O3(a) -> Al2O3(L)) the solve can fail with CEA_FORTRAN_ABORT ("Re-insertion of AL2O3(a) likely to
+cause singular matrix"), and after such a failure the later solves return the same T, n, u and fractions but a gamma_s below 1
+(a difference of up to 0.19), without recovering.  Before the failure a reused solution agrees with a new one to about 2e-8.
 """
 from __future__ import annotations
 
@@ -31,7 +36,7 @@ from gribs.energy.exceptions import StateRecoveryError
 from gribs.errors import ThermochemistryCacheError
 from gribs.energy.provider import TPState
 
-TP_CACHE_SCHEMA = "gribs-energy-tp-cache-2"        # 2: the state carries gamma_s (C11); schema-1 files are not read
+TP_CACHE_SCHEMA = "gribs-energy-tp-cache-3"        # 3: states of earlier schemas may come from a reused EqSolution (C18, report 198); they are not read
 TP_CACHE_PREFIX = "thermo_cea_tp_"
 _KJ = 1000.0                      # EqSolution energy, enthalpy, cp and cv are kJ-based; J = 1000 * kJ
 _INVARIANT_TOL = 1.0e-10
@@ -171,7 +176,6 @@ class CEATPProvider:
             if smooth_truncation:
                 kwargs.update(smooth_truncation=True, truncation_width=float(truncation_width))
             self._solver = cea.EqSolver(products, **kwargs)
-            self._solution = cea.EqSolution(self._solver)
         except Exception as exc:
             raise StateRecoveryError(f"CEA could not construct the TP equilibrium solver: {type(exc).__name__}: {exc}") from exc
         species = tuple(products.species_names)
@@ -206,10 +210,10 @@ class CEATPProvider:
         with self._lock:
             try:
                 import numpy as np
-                self._solver.solve(self._solution, self._cea.TP, float(T), float(p) / 1.0e5, np.asarray(self._weights, dtype=float))
+                sol = self._cea.EqSolution(self._solver)             # a NEW solution for every state (C18, see the module docstring)
+                self._solver.solve(sol, self._cea.TP, float(T), float(p) / 1.0e5, np.asarray(self._weights, dtype=float))
             except Exception as exc:
                 raise StateRecoveryError(f"CEA TP solve raised {type(exc).__name__}: {exc}") from exc
-            sol = self._solution
             if not bool(sol.converged):
                 raise StateRecoveryError(f"the CEA TP equilibrium did not converge at T = {T:.9g} K, p = {p:.9g} Pa "
                                          f"(last_error = {int(sol.last_error)})")

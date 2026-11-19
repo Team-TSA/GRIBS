@@ -149,7 +149,7 @@ def test_p08_a_tp_cache_round_trip_returns_the_same_state(tmp_path):
     assert a.gamma_s > 1.0 and b.gamma_s == a.gamma_s                # the equilibrium gamma_s is part of the state (C11, B-14)
     (path,) = list(tmp_path.glob(TP_CACHE_PREFIX + "*.json"))
     doc = json.loads(path.read_text(encoding="utf-8"))
-    assert doc["schema"] == "gribs-energy-tp-cache-2" and doc["key"].startswith(path.stem[len(TP_CACHE_PREFIX):])
+    assert doc["schema"] == "gribs-energy-tp-cache-3" and doc["key"].startswith(path.stem[len(TP_CACHE_PREFIX):])
     path.write_text(path.read_text(encoding="utf-8").replace('"Yg":', '"Yg":0.5,"Yg_":', 1), encoding="utf-8")   # corrupt the file
     with pytest.raises(StateRecoveryError):
         provider(cache=TPCache(tmp_path)).tp(3300.0, 2.0e6, B_E)
@@ -161,6 +161,58 @@ def test_p09_a_cea_equilibrium_that_does_not_converge_is_an_error():
         warnings.simplefilter("ignore")                              # CEA warns "CEA_NOT_CONVERGED"
         with pytest.raises(StateRecoveryError, match="did not converge"):
             provider().tp(5.0, 2.0e6, B_E)                           # 5 K: no equilibrium is found (last_error = 8)
+
+
+# --- C18 (report 198): the provider solves every state on a new EqSolution; the result does not depend on the history ---------
+_Y_T_M_MINUS, _Y_T_M_PLUS = 2326.999998, 2327.000002                      # T_m = 2327 K of Al2O3 -+ d (the points of report 198)
+_Y_PGRID = [1.5e6 + i * 1.5e5 for i in range(11)]
+_Y_POINTS = ([(_Y_T_M_MINUS, p) for p in _Y_PGRID] + [(2200.0, p) for p in _Y_PGRID] + [(_Y_T_M_PLUS, p) for p in (1.5e6, 2.25e6, 3.0e6)])
+
+
+def _y_close(a, b, tol):
+    """The four values of a TP state agree to the relative tolerance tol."""
+    for name in ("gamma_s", "u_J_per_kg", "Yg", "n_gas_per_kg"):
+        x, y = getattr(a, name), getattr(b, name)
+        assert abs(x - y) <= tol * max(abs(x), abs(y)), (name, x, y)
+
+
+@pytest.mark.fast
+def test_y01_the_states_do_not_depend_on_the_order_in_which_the_provider_solved_before():
+    """Report 198: a reused EqSolution failed at the change from the solid to the liquid Al2O3 and, after a failure, gave a
+    gamma_s below 1.  The 25 states of the report (T_m -+ d and 2200 K, solid side first, then the liquid) are solved in order,
+    in the reverse order and each on a new provider: all succeed, gamma_s > 1 (B-14), and the values agree to 1e-7 (the old
+    behaviour gave a failure or a difference of up to 0.19 in gamma_s; the remaining difference of the solver is of the order
+    of 1e-10)."""
+    reference = [provider().tp(T, p, B_E) for T, p in _Y_POINTS]
+    forward_provider, reverse_provider = provider(), provider()
+    forward = [forward_provider.tp(T, p, B_E) for T, p in _Y_POINTS]
+    reverse = [reverse_provider.tp(T, p, B_E) for T, p in reversed(_Y_POINTS)][::-1]
+    assert len(reference) == len(forward) == len(reverse) == 25
+    for state in reference + forward + reverse:
+        assert state.gamma_s > 1.0
+    for ref, fwd, rev in zip(reference, forward, reverse):
+        _y_close(fwd, ref, 1.0e-7)
+        _y_close(rev, ref, 1.0e-7)
+
+
+@pytest.mark.fast
+def test_y02_the_state_after_the_change_from_the_solid_to_the_liquid_is_the_state_of_a_new_provider():
+    """The point after the change from the solid (T_m - d, 3e6 Pa) to the liquid (T_m + d, 1.5e6 Pa) gave gamma_s = 0.9994
+    with the reused solution (report 198; the change itself failed).  Now it is the value of a new provider, and above 1."""
+    used = provider()
+    used.tp(_Y_T_M_MINUS, 3.0e6, B_E)
+    used.tp(_Y_T_M_PLUS, 1.5e6, B_E)                                     # raised CEA_FORTRAN_ABORT with the reused solution
+    after = used.tp(_Y_T_M_PLUS, 2.25e6, B_E)
+    assert after.gamma_s > 1.0
+    _y_close(after, provider().tp(_Y_T_M_PLUS, 2.25e6, B_E), 1.0e-7)
+
+
+@pytest.mark.fast
+def test_y03_one_state_after_two_different_histories_is_the_same_to_1e_9():
+    """The same (T, p) = (2200 K, 1.5e6 Pa) on a provider that solved it first and on one that solved a liquid state before."""
+    first, second = provider(), provider()
+    second.tp(_Y_T_M_PLUS, 3.0e6, B_E)
+    _y_close(second.tp(2200.0, 1.5e6, B_E), first.tp(2200.0, 1.5e6, B_E), 1.0e-9)
 
 
 _AL2O3_S = {"species": "AL2O3(a)", "phase": "solid", "density_kg_m3": 3990.0, "cp_J_kgK": 1300.0,
@@ -208,8 +260,8 @@ def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma
     gamma_s > 1 in every state and the closure residuals only; nothing is compared with the legacy model.  The run stays at
     T = 3000-3245 K (above T_m = 2327 K), where liquid Al2O3 is present and the CEA gamma_s is above 1.  If T fell below T_m a solid
     would appear and the run would stop with exit code 4 (a condensed species not in the phases, the gap of 191 section 6).
-    Synthetic condensed-phase and solid data (assumed inputs, not data of a propellant).  The melting plateau is NOT run with CEA
-    (p11 fixes that limit, report 196)."""
+    Synthetic condensed-phase and solid data (assumed inputs, not data of a propellant).  A run through the melting plateau with the CEA
+    provider is not tested (p11 only checks the latent heat at t = 0; report 198)."""
     import gribs.config.loader
     from gribs.simulation.energy_postprocess import CLOSURE_TOLERANCE, run_energy_case
     path = write_g5_energy_case(tmp_path, with_transition=False)
@@ -233,17 +285,20 @@ def test_p10_the_wired_cea_provider_runs_an_energy_case_to_completion_with_gamma
 
 
 @pytest.mark.integration
-def test_p11_the_cea_path_stops_at_t0_with_exit_code_4_when_a_melting_plateau_is_declared(tmp_path):
-    """A KNOWN LIMIT (new H number, C17), fixed by this test: with the transition AL2O3(a) -> AL2O3(L) declared the t = 0 latent
-    heat check needs states at T_m +- d, and the CEA path does not run them (report 196, measured at T_m +- d, 2200 K and 2500 K):
-    the CEA gamma_s of the states there is at most 1 (rejected by the provider), or the TP solve of the solid side raises
-    CEA_FORTRAN_ABORT.  (Above T_m, at 3000-3245 K, gamma_s is above 1 and p10 runs; the boundary temperature is not measured.)
-    The run stops at t = 0 with exit code 4 and one of those two messages.  The known limit is fixed by this test: when it is
-    resolved this test fails and has to be rewritten."""
+def test_p11_the_cea_path_passes_the_latent_heat_check_at_t0(tmp_path):
+    """C18 (report 198; it replaces the C16 test that fixed a stop at t = 0): with the transition AL2O3(a) -> AL2O3(L) declared
+    (assumed latent heat 1.0e6 J/kg, tolerance 0.5) the t = 0 latent heat check needs the states at T_m +- d, and the CEA provider
+    now gives them (every state is solved on a new EqSolution).  The run has the settings of p10 (3000 K, 0.002 s): it does NOT
+    cross T_m, so this test confirms only that the check passes with the CEA provider and that the run completes above T_m with
+    gamma_s > 1 and the closure residuals.  A run through the melting plateau with the CEA provider is not tested.  L_calc is not
+    asserted (the condensed-phase data are assumed inputs, not data of a propellant)."""
     import gribs.config.loader
-    from gribs.simulation.energy_postprocess import run_energy_case
+    from gribs.simulation.energy_postprocess import CLOSURE_TOLERANCE, run_energy_case
     outcome = run_energy_case(gribs.config.loader.load_json_configuration(write_g5_energy_case(tmp_path, with_transition=True)))
-    assert isinstance(outcome.error, StateRecoveryError) and outcome.unexpected is False
-    text = str(outcome.error)
-    assert ("CEA returned an isentropic exponent gamma_s" in text) or ("CEA TP solve raised" in text), text
-    assert outcome.write_and_report(tmp_path / "out", {}, {}) == 4
+    assert outcome.error is None and outcome.unexpected is False and outcome.run_passed is True
+    assert outcome.results["closure"]["passed"] is True
+    assert all(v <= CLOSURE_TOLERANCE for v in outcome.results["closure"]["max_normalised"].values())
+    assert all(g > 1.0 for g in outcome.history["gamma_s"])
+    (record,) = outcome.energy_model["latent_heat_check"]
+    assert record["L_input_J_per_kg"] == 1.0e6 and math.isfinite(record["L_calc_J_per_kg"])
+    assert record["accepted"] is True and record["relative_difference"] <= record["tolerance_rel"] == 0.5
