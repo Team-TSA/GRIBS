@@ -17,6 +17,7 @@ import pytest
 import gribs
 import gribs.config
 import gribs.config.loader
+import gribs.energy.wiring as ep_wiring
 import gribs.simulation.energy_postprocess as ep
 from gribs.config import Config
 from gribs.errors import ConfigurationError, ThermochemistryError
@@ -47,6 +48,19 @@ def case_file(tmp_path, name, energy=True):
     path = tmp_path / f"{name}.json"
     path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     return path
+
+
+def g5_energy_document(output_directory):
+    """The golden g5 (backend cea_python, no reference_constant values) with an energy_model section; the cases of C12c only
+    build the inputs, so no CEA call is made."""
+    doc = json.loads((ROOT / "cases" / "golden" / "g5_high_condensed_ap_al.json").read_text(encoding="utf-8"))
+    doc["output"]["directory"] = str(output_directory)
+    doc["two_phase_model"]["mode"] = "homogeneous_equilibrium"
+    doc["energy_model"] = {**ENERGY, "initial_fill": {**ENERGY["initial_fill"], "temperature_K": 3000.0},
+                           "recovery": {**ENERGY["recovery"], "temperature_search_K": [500.0, 5000.0], "start_temperatures_K": [3000.0]},
+                           "propellant_formulas": {"NH4CLO4(I)": FORMULAS["NH4CLO4(I)"], "AL(cr)": {"Al": 1},
+                                                   "C4H6,butadiene": FORMULAS["C4H6,butadiene"]}}
+    return doc
 
 
 def entry():
@@ -168,6 +182,29 @@ class TestEnergyRun:
         ok = subprocess.run([sys.executable, "-B", "-P", "-s", str(entry()), "--config", str(path), "--validate-config",
                              "--backend", "reference_constant"], capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
         assert ok.returncode == 0, ok.stderr[-500:]                                            # --backend is not rejected
+
+        # C12c (B-29 (d)): energy mode has no default values; the reference_constant values must be stated in the file
+        g5 = tmp_path / "g5_energy.json"
+        g5.write_text(json.dumps(g5_energy_document(tmp_path / "g5_out")), encoding="utf-8")
+        proc = subprocess.run([sys.executable, "-B", "-P", "-s", str(entry()), "--config", str(g5), "--backend", "reference_constant"],
+                              capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
+        assert proc.returncode == 2 and "energy mode has no default values" in proc.stderr, proc.stderr[-600:]
+        assert all(k in proc.stderr for k in ("temperature_K", "gamma", "molecular_weight_kg_kmol"))
+        assert not (tmp_path / "g5_out").exists()
+        with pytest.raises(ConfigurationError, match="energy mode has no default values"):
+            gribs.run_simulation(g5, backend_override="reference_constant")
+        partial = g5_energy_document(tmp_path / "g5p_out")
+        partial["thermochemistry"]["reference_constant"] = {"temperature_K": 3000.0, "gamma": 1.2}      # one value not stated
+        (tmp_path / "g5_partial.json").write_text(json.dumps(partial), encoding="utf-8")
+        with pytest.raises(ConfigurationError, match=r"\['molecular_weight_kg_kmol'\]"):
+            ep_wiring.build_energy_inputs(gribs.config.loader.load_json_configuration(
+                tmp_path / "g5_partial.json", backend_override="reference_constant").config)
+        stated = g5_energy_document(tmp_path / "g5s_out")
+        stated["thermochemistry"]["reference_constant"] = {"temperature_K": 2800.0, "gamma": 1.25, "molecular_weight_kg_kmol": 22.0}
+        (tmp_path / "g5_stated.json").write_text(json.dumps(stated), encoding="utf-8")
+        inputs = ep_wiring.build_energy_inputs(gribs.config.loader.load_json_configuration(
+            tmp_path / "g5_stated.json", backend_override="reference_constant").config)       # all three stated: accepted
+        assert (inputs.provider.gamma, inputs.provider.M, inputs.provider.T_ref) == (1.25, 22.0, 2800.0)
 
     def test_o04_the_time_history_has_the_columns_with_units_and_the_closure_residuals(self, energy_cli):
         _path, out, _proc = energy_cli

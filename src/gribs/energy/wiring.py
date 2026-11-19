@@ -90,6 +90,26 @@ def _reactants(c) -> Tuple[Tuple[str, ...], Dict[str, float]]:
     return names, {str(r.name).strip(): float(r.wt_percent) for r in specs}
 
 
+_REFERENCE_KEYS = ("temperature_K", "gamma", "molecular_weight_kg_kmol")
+
+
+def _require_stated_reference_values(c) -> None:
+    """Energy mode has no default values: the reference_constant values must be STATED in the configuration file.  The legacy
+    loader fills the values a file does not state from its defaults when the backend is overridden (--backend, backend_override);
+    the document it keeps in Config.original_configuration is the file as loaded, before any override, so it tells what was
+    stated.  A configuration without that document cannot be checked and is rejected too."""
+    document = getattr(c, "original_configuration", None)
+    thermo = document.get("thermochemistry") if isinstance(document, Mapping) else None
+    section = thermo.get("reference_constant") if isinstance(thermo, Mapping) else None
+    missing = [k for k in _REFERENCE_KEYS if not (isinstance(section, Mapping) and k in section)]
+    if missing:
+        raise ConfigurationError(
+            f"energy mode has no default values: thermochemistry.reference_constant.{missing} must be stated in the configuration "
+            f"file. With the backend reference_constant chosen by --backend (or backend_override) the legacy loader fills the "
+            f"values the file does not state from its defaults; energy mode does not accept them. State temperature_K, gamma and "
+            f"molecular_weight_kg_kmol in thermochemistry.reference_constant.")
+
+
 def build_energy_inputs(c):
     """The EnergyRunInputs of an energy-mode configuration (see the module docstring).  Imported lazily by the integrator."""
     e = c.energy
@@ -113,6 +133,7 @@ def build_energy_inputs(c):
                   "temperature_search_K": list(e.recovery_search.temperature_search_K),
                   "start_temperatures_K": list(e.recovery_search.start_temperatures_K), "backend": c.thermo_backend}
     if c.thermo_backend == gribs.constants.BACKEND_REFERENCE_CONSTANT:
+        _require_stated_reference_values(c)
         h_ref = h_s_for_burn_surface(e.burn_surface, products_enthalpy_basis=ABSOLUTE_ENTHALPY_BASIS)
         provider = ReferenceConstantProvider(c.reference_gamma, c.reference_molecular_weight_kg_kmol,
                                              c.reference_temperature_K, h_ref)
