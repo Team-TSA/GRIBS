@@ -79,7 +79,7 @@ The update from the supplied v0.4.2-alpha implementation to v0.4.3-alpha changes
 GRIBS/
 ├── GRIBS_v0.7.0-alpha.py   program file and command line (imports the package below)
 ├── src/gribs/             the GRIBS package (the program code)
-├── pyproject.toml         package metadata (version placeholder, see Python API)
+├── pyproject.toml         package metadata (version, see Python API)
 ├── gribs_config.json
 ├── requirements.txt
 ├── requirements-dev.txt
@@ -642,7 +642,7 @@ GRIBS v0.7.0-alpha is alpha research software. **Its physical validity has not b
 - The `cea_python` cache key identifies the database by the SHA-256 of the package `thermo.lib` (and of `trans.lib` when `transport` is true) and contains no file paths, so moving or recreating the virtual environment does not invalidate the cache (GitHub Issue #10, item 3; changed by P5-1). Cache files written before this change have other keys and are not reused; the table is built again once.
 - Not included in this release and not approved for use: stopping at the property-table range with a dedicated exit code (M3), the safe output mode (output-directory locking and overwrite refusal), the Phase B physical extensions (B1: energy / equation-of-state closure), and the Phase B CEA comparison layers (B2-C, B2-D). None of them is connected to the program (this statement is about the legacy model; the opt-in energy mode is described in "Energy mode").
 - Environment and held items: the legacy test suite run without the official CEA package has 25 failures and 1 collection error (measured at revision `2bd5ec5`); the G0 pass/fail is limited to an environment with CEA. The held items H-05, H-09 and H-17 to H-22 are known limitations that this release does not resolve.
-- `MODEL_LIMITATIONS.md` summarises the model assumptions. It was written for the earlier v0.3 / v0.4 model and has been revised only minimally for v0.6.0-alpha, v0.6.1-alpha and v0.6.2-alpha; where it differs, this README and `CHANGELOG.md` take precedence.
+- `MODEL_LIMITATIONS.md` summarises the model assumptions. It was written for the earlier v0.3 / v0.4 model and has been revised only minimally for v0.6.0-alpha, v0.6.1-alpha, v0.6.2-alpha and v0.7.0-alpha; where it differs, this README and `CHANGELOG.md` take precedence.
 - Model outputs are not substitutes for static firing tests, material characterization, or independent review.
 
 ## License
