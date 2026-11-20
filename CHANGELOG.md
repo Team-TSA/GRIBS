@@ -4,7 +4,7 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
-## [v0.7.0-alpha] - 2026-11-22
+## [v0.7.0-alpha] - 2026-11-20
 
 A-6 stage 1 (package split and Python interface), the P5 and A-9 changes and A-6 stage 2 (an opt-in energy mode, experimental). Status: alpha research software (physical validity not established; G4a not passed; G4b and G5 not complete; no case of the energy mode has been qualified with a real propellant). The G0 decision for the v0.7.0-alpha release commit is stated in the release notes. The earlier G0 approval for revision `2bd5ec5` (A-6 stage 2; version string `0.6.2-alpha`, 2026-11-19) was limited to that revision, the recorded environment (cea 3.3.4; pass/fail is limited to an environment with CEA) and the recorded objects; it does not cover physical validity, G4a, G4b, G5, real-propellant acceptance or reverse-direction scenarios.
 
