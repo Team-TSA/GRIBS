@@ -71,12 +71,16 @@ BURN_SURFACE_INTERPRETATION = (
     "temperature of the grain (T_grain_inf) on the absolute enthalpy basis; heat through the burn surface is included by that "
     "evaluation and not added separately (contract 164 sections 1b, 2b-4.3)")
 H0_OUT_DEFINITION = (
-    "H0_out = h + v_inlet^2/2 with h = u + p*V_free/M (u = E_cv/M, the contents at rest) and v_inlet = 0, so the kinetic energy at "
-    "the nozzle inlet plane is NOT included: this departs from the model definition (contract 164 section 2b-4.4 (i)), which "
-    "requires the kinetic energy at the inlet plane to be included; the inlet plane (position, area) is not defined (held item "
-    "H-18). The stagnation enthalpy per kg that leaves is not changed by Cd (an adiabatic nozzle: held item H-14)")
+    "H0_out = h_cv with h_cv = u + p*V_free/M (u = E_cv/M, the contents at rest). For contents at rest this is the stagnation "
+    "enthalpy of the chamber gas, and for a steady adiabatic flow without shaft work it is the stagnation enthalpy at the nozzle "
+    "inlet plane (h_inlet + v_inlet^2/2 = h_cv), so the kinetic energy at the inlet plane is included in it and is not added "
+    "separately (contract 164 section 2b-4.4 (i)). The kinetic energy of the contents, the non-uniformity of the state between "
+    "the contents and the inlet plane, and the unsteadiness of that flow are not modelled (held item H-05). The stagnation "
+    "enthalpy per kg that leaves is not changed by Cd (an adiabatic nozzle: held item H-14)")
 HELD_ITEMS_ADOPTED = (
-    "H-18 (the kinetic energy at the nozzle inlet plane is not included; departs from contract 164 section 2b-4.4 (i))",
+    "H-05 (the contents are taken to be at rest: E_cv is treated as the internal energy, and the kinetic energy of the contents, "
+    "the non-uniformity of the state and the unsteadiness of the flow to the nozzle inlet plane are not modelled; departs from "
+    "contract 164 section 2b-4.1)",
     "H-07 (quasi-steady burn surface: no storage term for ignition and tail-off)",
     "H-14 (adiabatic nozzle: Cd scales the mass flow only)",
     "H-17 (the atomic-mass table is not audited against the atomic masses of CEA)")

@@ -139,10 +139,11 @@ class TestEnergyRun:
         assert s["model_mode"] == "energy" and "energy" not in s["resolved_configuration"]
         em = s["energy_model"]
         assert em["burn_surface_interpretation"].startswith("A:")
-        definition = em["H0_out_definition"]                                   # B-24: the departure from the contract is stated
-        assert "departs from the model definition (contract 164 section 2b-4.4 (i))" in definition and "H-18" in definition
-        assert "H-05" not in definition and not any("H-05" in item for item in em["held_items_adopted"])
-        assert any(item.startswith("H-18") for item in em["held_items_adopted"])
+        definition = em["H0_out_definition"]                  # H-18 closed (report 237): H0_out = h_cv is the stagnation enthalpy
+        assert "H0_out = h_cv" in definition and "h_inlet + v_inlet^2/2 = h_cv" in definition and "steady adiabatic flow" in definition
+        assert "H-05" in definition and "H-18" not in definition and "departs from the model definition" not in definition
+        assert any(item.startswith("H-05") for item in em["held_items_adopted"])
+        assert not any("H-18" in item for item in em["held_items_adopted"])
         assert "provisional (held item H-09)" in em["closure_tolerance_status"]
         assert "synthetic" in em["scope"] and em["gamma_s"]["min"] > 1.0 and em["gamma_s"]["max"] >= em["gamma_s"]["min"]
         assert em["provenance"]["provider"] == "ReferenceConstantProvider" and em["provenance"]["element_mass_fractions"]

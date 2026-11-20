@@ -470,7 +470,7 @@ The legacy figure, the legacy `time_history.csv`, the CEA theoretical rocket dia
 
 The analytic backend `reference_constant`, used in energy mode, has no enthalpy; energy mode gives it the convention `h(T_ref) = h_s(T_grain,inf)`. That convention is for tests only and is not a property of any propellant. The values of `reference_constant` (`temperature_K`, `gamma`, `molecular_weight_kg_kmol`) must be stated in the file; energy mode does not accept the defaults that the legacy loader supplies for `--backend reference_constant`.
 
-The effect of the simplifications of energy mode (quasi-steady burn surface, the kinetic energy at the nozzle inlet plane not included (a departure from the model definition, held item H-18), adiabatic nozzle, constant condensed-phase properties, linear phase fraction on a plateau, an atomic-mass table not audited against CEA) on results has not been evaluated; see `MODEL_LIMITATIONS.md`.
+The effect of the simplifications of energy mode (quasi-steady burn surface, the contents taken as at rest, so the kinetic energy of the contents and the non-uniformity of the state are not modelled (a departure from the model definition, held item H-05), adiabatic nozzle, constant condensed-phase properties, linear phase fraction on a plateau, an atomic-mass table not audited against CEA) on results has not been evaluated; see `MODEL_LIMITATIONS.md`.
 
 ## Outputs
 

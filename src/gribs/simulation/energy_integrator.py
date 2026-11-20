@@ -11,7 +11,7 @@ Each right-hand side recovers (p, T) from (E_cv, V_free, B_e) with energy/recove
   burning mass flow mdot_burn = rho_p A_b r,   rho_p = Config.rho_p (the one density of the solid; B-15: no energy_model key),
   outflow enthalpy  h = u + p V_free / M = E_cv / M + p V_free / M   (the thermodynamic density of the gas mixture is M / V_free:
                     it is taken from the STATE, never from the settings),
-  nozzle flow       nozzle_state_from_chamber (the chamber state is the stagnation state, the contents at rest; the kinetic energy at the inlet plane is not included, H-18),
+  nozzle flow       nozzle_state_from_chamber (the chamber state is the stagnation state, the contents at rest; H0_out = h_cv, the stagnation enthalpy of the contents at rest, H-05),
   balance           first_law_rhs with the burn-surface net term of form (a) and h_s at T_grain_inf.
 The solid density rho_p and the gas density M / V_free are two different quantities (contract 164 section 1c): they are not
 compared, and each has one role, in a function of its own below.
