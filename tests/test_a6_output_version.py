@@ -1,5 +1,5 @@
-"""The only version written to any output is PROGRAM_VERSION (ADR_A6_PACKAGE_SPLIT). The pyproject version is a
-placeholder and importlib.metadata.version("gribs") is never used."""
+"""The only version written to any output is PROGRAM_VERSION (ADR_A6_PACKAGE_SPLIT). The pyproject version (its PEP 440 form) is not
+used in any output, and importlib.metadata.version("gribs") is never used."""
 import ast
 import importlib
 import json
