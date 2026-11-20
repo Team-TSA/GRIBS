@@ -4,6 +4,10 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+### Documentation
+
+- `docs/G0/G0_APPROVAL_bc310dc_2026-11-20.txt`, `docs/G0/G0_APPROVAL_7854d6d_2026-11-20.txt` and `docs/G0/G0_REPRODUCTION_bc310dc_2026-11-20.txt`: the G0 approval records of revision `bc310dc` (the parent of the v0.7.0-alpha release commit) and of `7854d6d` (the v0.7.0-alpha release commit), and the G0 reproduction record of `bc310dc`, each with an English summary. The `7854d6d` approval rests on the `bc310dc` reproduction and on an inspection of the two-line difference (the release date); the measurement was not repeated at `7854d6d`. README "Validation status" and "G0 records" are updated to match, the statement that `2bd5ec5` is the only revision approved for G0 is corrected, and `3c0c98c` (v0.6.2-alpha), which was missing from the list of approved revisions at the top of the G0 entry, is added. Documentation only: no code or test file is changed, and this change is not itself covered by G0.
+
 ## [v0.7.0-alpha] - 2026-11-20
 
 A-6 stage 1 (package split and Python interface), the P5 and A-9 changes and A-6 stage 2 (an opt-in energy mode, experimental). Status: alpha research software (physical validity not established; G4a not passed; G4b and G5 not complete; no case of the energy mode has been qualified with a real propellant). The G0 decision for the v0.7.0-alpha release commit is stated in the release notes. The earlier G0 approval for revision `2bd5ec5` (A-6 stage 2; version string `0.6.2-alpha`, 2026-11-19) was limited to that revision, the recorded environment (cea 3.3.4; pass/fail is limited to an environment with CEA) and the recorded objects; it does not cover physical validity, G4a, G4b, G5, real-propellant acceptance or reverse-direction scenarios.

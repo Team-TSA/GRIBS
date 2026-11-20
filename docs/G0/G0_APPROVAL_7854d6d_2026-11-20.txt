@@ -1,0 +1,25 @@
+# English summary (added in the repository copy; everything after the separator line is the original record,
+# byte-identical to reports/G0/G0_APPROVAL_7854d6d_2026-11-20.txt of the working records (not part of this repository) and to the asset of the GitHub Release v0.7.0-alpha of the same name, SHA-256 9edc0c39d829ecc0dd8eab00f61774e4e5d6a0bbe744fe1c8fb322c2cd5fbbc9; line 15 of the original ends with one space, kept as published):
+# Revision: 7854d6db0b2e98073dc4c520f8304b9b8748acc2 (tree d718899c5397f2820b7eb42bf08f9aa62dae46a6; the v0.7.0-alpha release commit, tag v0.7.0-alpha; parent bc310dc872bd9f24408edee5e326793164ca01a0); G0 (reproducibility) approved by the maintainer on 2026-11-20.
+# Basis: the G0 reproduction of the parent bc310dc and its approval, and an inspection of the difference bc310dc..7854d6d (two lines, the release date in CHANGELOG.md and CITATION.cff; the inspection is a string search, see the record for its limits). The measurement was NOT repeated at 7854d6d: pytest, --selftest, golden and G1 were not run at this revision.
+# Environment: that of the bc310dc reproduction (Linux 7.0.0-43, glibc 2.43 (2ubuntu2.7), Python 3.14.4, cea 3.3.4, NumPy 2.5.3, SciPy 1.18.1, Matplotlib 3.11.2, pytest 9.1.1, ruff 0.16.10).
+# Limits: those of the bc310dc approval; pass/fail is limited to an environment with CEA; not physical validity, G4a (not passed), G4b, G5, real-propellant acceptance, reverse-direction scenarios (not run), other environments or later revisions. The paths it cites (runs/..., reports/...) are working records outside this repository; the decision text is Japanese, verbatim.
+# Note: the original record says that this file is added to docs/G0/ at a later step (B-4-5); this file is that addition. Commits made after 7854d6d, including the one that added this file, were not themselves put through G0.
+# ---- original record ----
+# STATUS: APPROVED. G0 approval record for 7854d6d (v0.7.0-alpha release commit; version string 0.7.0-alpha; 2026-11-20, report 227).
+# New file; earlier G0 files and reports unchanged.
+# Approved by the user (62nd entry) on the basis of (1) the G0 reproduction of the parent bc310dc and its approval, and (2) the inspection of the difference between bc310dc and 7854d6d.
+# The measurement was NOT repeated at 7854d6d. Pass/fail of this G0 is limited to an environment with CEA (cea 3.3.4).
+
+revision: 7854d6db0b2e98073dc4c520f8304b9b8748acc2 (tree d718899c5397f2820b7eb42bf08f9aa62dae46a6), parent bc310dc872bd9f24408edee5e326793164ca01a0 (tree 26eb5d712ae43a57133e1f03ac26acd996ca7581)
+basis 1: G0_REPRODUCTION_bc310dc_2026-11-20.txt (sha256 96d447fdf51ef652325bad54084d2068c360e8b0436b2739bdad09d0df4f7cb9; run r531; measured at bc310dc) and
+         G0_APPROVAL_bc310dc_2026-11-20.txt (sha256 78cfddfd224c83561a973f9ebf81406184a6a7877a33b164d7e61a5c57921620).
+basis 2: difference bc310dc..7854d6d (report 227): two lines, CHANGELOG.md line 7 and CITATION.cff line 15, the release date 2026-11-22 -> 2026-11-20; status 0 lines;
+         no code or test in src, tests, tools or the program file reads CHANGELOG.md or CITATION.cff (string search; limits in report 227); bundle verify okay (sha256 69b6e28a...5802).
+supplement (not part of the G0 evidence): CI run 44658619073 passed on Python 3.11, 3.12, 3.13 (1118 passed, 1 skipped each).
+scope and limits: those of the bc310dc approval (record 59 items 1 and 2): environment cea 3.3.4; figures compared as bytes only; argparse usage-error output not compared; reverse-direction scenarios not run;
+  procedural deviations as in the bc310dc reproduction record. Not covered: physical validity, G4a (not passed), G4b, G5, real-propellant acceptance, other environments, later revisions, the CEA-less environment.
+  pytest, --selftest, golden and G1 were not run at 7854d6d.
+decision (user, 62nd entry, verbatim): 
+  1. G0: 7854d6d（v0.7.0-alpha のリリース commit。tree d718899c…、親 bc310dc）の G0 を承認します。根拠は、bc310dc の G0（再現の記録と承認記録）と、報告 227 の差分の検査（リリース日の 2 行だけ）です。7854d6d では測定をやり直していません。範囲と限界は bc310dc の承認（59 回目 1）と同じです。差分の検査が文字列検索であるという限界（報告 227）も引き継ぎます。
+  2. 承認記録: 報告 227 §3 の案のとおりに reports/G0/G0_APPROVAL_7854d6d_2026-11-20.txt を書いてください。「<to be copied from the 62nd entry>」には、この 62 回目の 1 と 2 の逐語を入れてください。それ以外は 1 字も変えないでください。

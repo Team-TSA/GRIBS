@@ -1,0 +1,41 @@
+# English summary (added in the repository copy; everything after the separator line is the original record,
+# byte-identical to reports/G0/G0_APPROVAL_bc310dc_2026-11-20.txt of the working records (not part of this repository), SHA-256 78cfddfd224c83561a973f9ebf81406184a6a7877a33b164d7e61a5c57921620):
+# Revision: bc310dc872bd9f24408edee5e326793164ca01a0 (tree 26eb5d712ae43a57133e1f03ac26acd996ca7581; the parent of the v0.7.0-alpha release commit 7854d6d; program version string 0.7.0-alpha); G0 (reproducibility) approved by the maintainer on 2026-11-20.
+# Environment: Linux 7.0.0-43, glibc 2.43 (2ubuntu2.7), Python 3.14.4, cea 3.3.4, NumPy 2.5.3, SciPy 1.18.1, Matplotlib 3.11.2, pytest 9.1.1, ruff 0.16.10. The measurement record is docs/G0/G0_REPRODUCTION_bc310dc_2026-11-20.txt (SHA-256 96d447fdf51ef652325bad54084d2068c360e8b0436b2739bdad09d0df4f7cb9); it keeps its own "STATUS: NOT APPROVED" header as written, and this file is the approval.
+# Limits: this revision and environment only; pass/fail is limited to an environment with CEA; not physical validity, G4a (not passed), G4b, G5, real-propellant acceptance, reverse-direction scenarios (not run), CI, other environments or later revisions. The paths it cites (runs/..., reports/...) are working records outside this repository; the decision text is Japanese, verbatim.
+# Note: the original record says that docs/G0/ in the repository is added at a later step (B-4-5); this file is that addition. Commits made after bc310dc other than 7854d6d, including the one that added this file, were not themselves put through G0.
+# ---- original record ----
+# STATUS: APPROVED. G0 approval record for bc310dc (v0.7.0-alpha release commit; version string 0.7.0-alpha; 2026-11-20, report 225).
+# New file; earlier G0 files and reports unchanged.
+# Approved by the user (59th entry), LIMITED to the revision, run r531, the environment and the objects recorded in
+# G0_REPRODUCTION_bc310dc_2026-11-20.txt (sha256 96d447fdf51ef652325bad54084d2068c360e8b0436b2739bdad09d0df4f7cb9).
+# The reproduction record keeps its own "STATUS: NOT APPROVED" header as written (as in the 2bd5ec5 precedent); this file is the approval.
+# Pass/fail of this G0 is limited to an environment with CEA (cea 3.3.4).
+
+revision: bc310dc872bd9f24408edee5e326793164ca01a0 (tree 26eb5d712ae43a57133e1f03ac26acd996ca7581)
+  docs: README: fix the pyproject version note and add v0.7.0-alpha to the MODEL_LIMITATIONS note; parent e7d6ae0fd18c2dc93eac3531746348009123de1e (release: prepare v0.7.0-alpha),
+  grandparent 12344a2 (docs only, not G0-approved), then 2bd5ec5 (G0-approved 2026-11-19; an ancestor). base of the comparison: 2bd5ec5.
+source of the commit objects: runs/r530_a6_b2_release_prep/out/b2_release_v2.bundle (sha256 0a79e6b79c3f41654744fbce5d02ca059ec9abb24316a815bb1987e14e6ce233)
+run: r531 (runs/r531_a6_b3_g0_bc310dc), pre-registration PRE_REGISTRATION_B3_G0.md (sha256 c1662113...; full digits in the run's logs/key_sha256.txt)
+
+objects (summary; the full text is in G0_REPRODUCTION_bc310dc_2026-11-20.txt, report 225):
+  pytest (CEA present): 1118 passed + 1 skipped (tests/test_v043_anchor.py:95); reversed order 1118+1; guard disabled 1116+1; each of 51 files alone all exit 0 (1118 passed, 1 skipped);
+    collection counts equal the registered values; golden g1-g8 exit 0; api_vs_golden 8/8; census byte-equal to 2bd5ec5; lint F_text identical (17 findings).
+  version-substitution test: with only _version.py replaced by the 2bd5ec5 file, golden_compare_stage2 violations=0 and figures byte-identical 8/8.
+  --help: 0 differing lines after the two accepted replacements; G1 numeric leaves 4,869 difference 0; 4 program-path fields 0 after preprocessing; 7 identification fields equal the independent calculation
+    (entry eed42036..., package_tree_digest 388e6590..., body_composite 71b22993...); --version GRIBS 0.7.0-alpha; --selftest all checks passed.
+
+decision (user, 2026-11-20, 59th entry, items 1 and 2 verbatim from reports/A6_STAGE2_PLAN_APPROVAL_2026-11-18.txt):
+  1. G0: bc310dc（v0.7.0-alpha のリリース commit。tree 26eb5d71…）の G0 を承認します。範囲は G0 の記録 reports/G0/G0_REPRODUCTION_bc310dc_2026-11-20.txt に書かれたとおりで、その記録の環境（cea 3.3.4。合否は CEA のある環境に限る）、run r531、対象に限ります。報告 225 §5 の 3 の限界（図は注記の外の画素を確認していない、argparse の使い方エラーは比べていない、逆向きのシナリオは実行していない）と、記録に書かれた手順上のずれは、そのまま引き継ぎます。物理的妥当性、G4a（不通過）、G4b、G5、実推進薬での受入、CI、ほかの環境、後の revision は対象外です。
+  2. 承認記録 reports/G0/G0_APPROVAL_bc310dc_2026-11-20.txt を、2bd5ec5 の承認記録と同じ書式（STATUS: APPROVED、revision と tree、bundle の sha256、run、G0 の記録の sha256 の全桁、範囲と限界、この 1 と 2 の逐語）で書いてください。G0 の記録そのものは NOT APPROVED の見出しのまま変えません。repository の docs/G0/ への追加は B-4-5 で行い、今は行いません。
+
+limits carried over (as recorded in the reproduction record):
+  figure pixels outside the annotation not checked (bytes only); argparse usage-error output not compared (no 2bd5ec5 record); reverse-direction scenarios not run (未実行, record 52 item 7 (d));
+  procedural deviations as written in the record's "facts disclosed": the measurement stopped once (report 224; both items accepted by records 58 items 1 and 2); the first normal-order pytest start moved to the background
+  and was stopped, then repeated in the foreground; the normal-order pytest log was overwritten by the reversed run (result kept in logs/exit.txt and console output); summary.txt version line is line 3.
+
+not approved / not covered: physical validity; G4a (9 of 18 points above 2e-3, not passed); G4b; G5; real-propellant acceptance (qualified cases: 0); CI; other environments; later revisions
+  (a commit with a different hash is a different revision, including the later docs/G0 commit); the CEA-less environment (25 failures + 1 collection error, outside pass/fail); H-05, H-09, H-17 to H-22 and the other held
+  items of contract 164 section 11; push, tag, Release, merge into main (separate decisions; 59th entry item 3 approves only B-4-0 and B-4-1); docs/G0/ in the repository (added at B-4-5, not now).
+
+earlier G0 files: not modified. G0_REPRODUCTION_bc310dc_2026-11-20.txt: not modified (sha256 unchanged).

@@ -1,0 +1,101 @@
+# English summary (added in the repository copy; everything after the separator line is the original record,
+# byte-identical to reports/G0/G0_REPRODUCTION_bc310dc_2026-11-20.txt of the working records (not part of this repository) and to the asset of the GitHub Release v0.7.0-alpha of the same name, SHA-256 96d447fdf51ef652325bad54084d2068c360e8b0436b2739bdad09d0df4f7cb9):
+# This is the measurement record of the G0 reproduction of bc310dc872bd9f24408edee5e326793164ca01a0 (tree 26eb5d712ae43a57133e1f03ac26acd996ca7581; the parent of the v0.7.0-alpha release commit 7854d6d), measured on 2026-11-20. It is NOT an approval record: its own first line reads "STATUS: NOT APPROVED" as written; the approval is docs/G0/G0_APPROVAL_bc310dc_2026-11-20.txt.
+# Result in brief (CEA environment): 1118 tests passed and 1 skipped, also in reversed order, with the conftest guard disabled (1116 passed and 1 skipped) and for each of the 51 test files alone; golden cases g1-g8 rerun through the CLI; the Python API compared with the CLI for g1-g8, 8/8; G1 probes: 4,869 numerical leaves with difference 0; --version GRIBS 0.7.0-alpha; --selftest all checks passed. Details and the procedural deviations are in the original record below.
+# Environment: Linux 7.0.0-43, glibc 2.43 (2ubuntu2.7), Python 3.14.4, cea 3.3.4, NumPy 2.5.3, SciPy 1.18.1, Matplotlib 3.11.2, pytest 9.1.1, ruff 0.16.10.
+# Limits: this revision and environment only; pass/fail is limited to an environment with CEA (the CEA-less run is a supplement: 25 failures and 1 collection error, outside pass/fail); not physical validity, G4a (not passed), G4b, G5, real-propellant acceptance, reverse-direction scenarios (not run), CI, other environments or later revisions. The paths it cites (runs/..., reports/...) are working records outside this repository.
+# ---- original record ----
+# STATUS: NOT APPROVED. G0 reproduction of bc310dc (v0.7.0-alpha release commit; version string 0.7.0-alpha; 2026-11-20, run r531,
+# reports 223-225); the G0 decision is the user's. This is not an approval record. Earlier G0 files are unchanged.
+# Every number below is taken from run r531 (runs/r531_a6_b3_g0_bc310dc); 2bd5ec5 values are taken from reports/G0/G0_REPRODUCTION_2bd5ec5_2026-11-19.txt and
+# runs/r524_a6_stage2_c19_g0 and were NOT measured again (record 56 / report 223 section 3-2).
+# PASS/FAIL of this G0 is limited to an environment with CEA (cea 3.3.4). The CEA-less run is a supplement and is not part of the pass/fail.
+# bc310dc exists only in the commit clone runs/r530_a6_b2_release_prep/clone (branch release/v0.7.0-alpha, no remote), the replay clone
+# runs/r531_a6_b3_g0_bc310dc/replay_clone and the bundle below. Not in the checkout (HEAD 2090790), not pushed, no tag, no Release.
+
+revision: bc310dc872bd9f24408edee5e326793164ca01a0 (tree 26eb5d712ae43a57133e1f03ac26acd996ca7581)
+  docs: README: fix the pyproject version note and add v0.7.0-alpha to the MODEL_LIMITATIONS note; parent e7d6ae0fd18c2dc93eac3531746348009123de1e (release: prepare v0.7.0-alpha,
+  tree 759e50033d095b6a28ad489ffc82c72b817b049c), grandparent 12344a2 (docs only, not G0-approved), then 2bd5ec5 (G0-approved 2026-11-19). 2bd5ec5 is an ancestor.
+  base of the comparison: 2bd5ec5 (record 52 item 7 (a)); the record of its G0 and the outputs of run r524. c7bb092 and 3c0c98c are not compared.
+  difference to 2bd5ec5 (git diff --name-status -M 2bd5ec5 bc310dc): src/gribs/_version.py (2 lines); GRIBS_v0.6.2-alpha.py renamed to GRIBS_v0.7.0-alpha.py (R099, 3 lines);
+    tests/test_golden_regression.py and tests/test_nonfinite_config_inputs.py (the program file name, 1 line each); tools/convergence_sweep.py; pyproject.toml; examples/example_config.json (description);
+    CHANGELOG, CITATION.cff, CONTRIBUTING, MODEL_LIMITATIONS, README, RELEASE_CHECKLIST (documents); docs/G0/G0_APPROVAL_2bd5ec5_2026-11-19.txt (added). No numerical code is changed.
+  body (body_composite_v1; independent calculation r508 tools/composite_body.py on the archive tree BEFORE the measurements, out/composite_independent_n_gold.json, equal to the probe):
+    body_composite_v1:   71b229930d3686e2cc12c8f9d5bc8cc492940db3e03a35d48e73afedd340c1ea
+    entry_sha256:        eed420362c1dcc2d38e45f82c7baf5cc48e76c881220ab781c576665c5ac9126  (GRIBS_v0.7.0-alpha.py)
+    package_tree_digest: 388e65901b96761eeaf2af440dc39e0e07d50e437fc7d91de47066b66fe87d1a  (src/gribs, 40 files)
+  one entry and one package directory loaded in the full test run (probe copy v3; out/probe_n_main/probe_v3.json), 40 gribs.* modules, none outside src/gribs;
+    unreadable_modules exactly {"cea": "AssertionError"} (registered expectation).
+
+objects (facts): bundle runs/r530_a6_b2_release_prep/out/b2_release_v2.bundle sha256 0a79e6b79c3f41654744fbce5d02ca059ec9abb24316a815bb1987e14e6ce233 (git bundle verify: okay; complete history);
+  fresh clone from it (replay_clone): HEAD bc310dc, tree 26eb5d71..., status 0. Validation copies: git archive of the replay clone, one directory per measurement (trees/n_*); file lists equal to
+  git ls-tree -r --name-only; no thermo.lib / trans.lib at any root. Generated files left in the copies (results/thermo_cache/...json in n_main, n_alone, n_ng, n_self) were removed after the runs
+  (logs/remnants_*.txt). The replay clone is clean. Pre-registration: PRE_REGISTRATION_B3_G0.md (sha256 c1662113..., written and recorded before the measurements); key sha256: logs/key_sha256.txt.
+approval: A6_STAGE2_PLAN_APPROVAL_2026-11-18.txt records 52 item 7, 53 item 6, 56, 57, 58.
+
+environment (facts): env_manifest.sh lines 1-38 equal to those of the 2bd5ec5 G0 (out/env_manifest_n_gold.txt vs r524 out/env_manifest_g_gold.txt: 0 differing lines). Differences to r478 are the known four lines
+  (kernel 7.0.0-43, glibc 2.43-2ubuntu2.7, platform string, no thermo.lib line); Python 3.14.4, cea 3.3.4, numpy 2.5.3, scipy 1.18.1, matplotlib 3.11.2, pytest 9.1.1, ruff 0.16.10 are the same.
+
+procedure (run.sh of r531, a copy of r524 run.sh with the run name changed and X = replay clone; tools copied from r524, sha256 unchanged for the probe copies and compare_g0_golden.py):
+  tests: pytest -q -rfEs -p gribs_body_probe_v1a -p gribs_body_probe_v3; reversed file order; conftest guard disabled (reversed, test_a6_thermo_state_guard.py excluded; conftest diff identical to the 2bd5ec5 record);
+  each of the 51 files alone; CEA-less supplement (tools/shadow_nocea, run_label.sh directly). Golden: r478 g0_golden_rerun_v4.py; api_vs_golden; G1 g1_cmd_v2.sh; census r483; lint ruff F + lint_by_text.
+  Comparison tools tried before use (same input -> no difference; planted difference -> detected): golden_compare_stage2.py, compare_g0_golden.py, g1_out_compare.py, and the new g1_prep_rename.py (record 58 item 2).
+  Fact: in the trial of golden_compare_stage2.py a copy of the golden directory placed at another path is reported as different in summary.json / summary.txt (the tool derives the run-directory prefix from the path);
+    the trial (a) was therefore made as a comparison of the directory with itself (violations=0), as in r524.
+
+reproduction (CEA environment):
+  pytest: 1118 passed, 1 skipped, exit 0 (234 s); skipped test tests/test_v043_anchor.py:95 ("git tag v0.4.3-alpha is not available in this checkout", confirmed with -rs in this run); equal to the 2bd5ec5 record.
+  per-file collection counts: 51 files, 1,119 collected, 0 differing lines against out/expected_per_file_counts_raw.txt (sha256 7731d622...), the 17 test_energy_*.py files: unchanged; the file order equals r524's.
+  reversed order: 1118 passed + 1 skipped, exit 0 (229 s). guard disabled: 1116 passed + 1 skipped, exit 0 (224 s). each of 51 files alone: all exit 0, passed 1118 in total, skipped 1 (test_v043_anchor.py),
+    each file's passed+skipped equal to its collected count. All equal to the 2bd5ec5 record.
+  CEA-less supplement (not part of pass/fail): 25 failed, 1027 passed, 22 skipped, 1 error (collection error tests/test_a5_1_g4a_tool_throat_validity.py), 128 s; the sets of FAILED (25) and ERROR (1) ids equal those of
+    2bd5ec5 (out/nocea_ids_n.txt vs out/nocea_ids_g2bd.txt: 0 differing lines). Same as the numbers of the 2bd5ec5 record.
+  golden g1-g8 (CLI): exit 0; api_vs_golden: run_simulation equals the CLI on g1-g8, 8/8 OK.
+  version-substitution test (record 57 item 2): copy n_sub of bc310dc with src/gribs/_version.py replaced by the 2bd5ec5 file byte for byte (two lines differ: the PROGRAM_VERSION line and one docstring line);
+    golden g1-g8 rerun; golden_compare_stage2.py against r524 out/golden_g_gold with an EMPTY list of intended differences: violations=0 (time_history.csv, ballistics.png, every thermo_cache file byte-equal;
+    ballistics.png byte-identical 8/8 (checked again with cmp), file sets equal, summary.json / summary.txt equal after the tool's normalizations); g0_golden.json by compare_g0_golden.py: differing paths 0.
+    So the differences between bc310dc and 2bd5ec5 in the golden outputs come from the version string only.
+  real new-vs-old (n_gold against r524 g_gold; recorded): time_history.csv byte-equal for g1-g8; g0_golden.json differs in 12 paths, all /environment/program_version and /program/version of g1-g6
+    ("0.5.0-alpha -> 0.6.2-alpha" vs "0.5.0-alpha -> 0.7.0-alpha"); summary.txt (checked for g1): one line differs, the version line (line 3) "GRIBS v0.6.2-alpha   (schema 0.5.0-alpha)" -> "GRIBS v0.7.0-alpha ...".
+    ballistics.png: byte differences in 8 of 8 figures (recorded only; record 57 item 2: the pixel check outside the annotation was not made; the version-substitution test above shows the figures are byte-identical
+    when only the version string is the old one).
+    Reading of record 52 item 7 (e) (record 58 item 3): "the first line of summary.txt" is read as "the version line of summary.txt (line 3)". This reading is the user's correction.
+  census: bc310dc equals 2bd5ec5 byte for byte (out/census_n_gold.tsv vs r524 out/census_g_gold.tsv, 6 lines).
+  lint (ruff F 0.16.10): 17 findings; F_text identical to 2bd5ec5.
+  --version: GRIBS 0.7.0-alpha (exit 0). --selftest (one independent step on n_self, 1.5 s): exit 0, "all checks passed" (the tests that start --selftest in a subprocess are also inside all pytest runs).
+  --help (record 58 item 1): after replacing "GRIBS_v0.7.0-alpha.py" by "GRIBS_v0.6.2-alpha.py" and "GRIBS v0.7.0-alpha" by "GRIBS v0.6.2-alpha", the output equals r524 logs/help_g_gold/stdout.txt with 0 differing lines.
+    Before the second replacement 1 line differed: line 7, the argparse description "GRIBS v<PROGRAM_VERSION> JSON-configured internal ballistics" (src/gribs/cli.py:86). Not compared: the argparse usage-error output (no 2bd5ec5 record).
+  G1 probes (g1_cmd_v2.sh, all steps exit 0): numeric leaves: 4,869 compared, 0 numeric differences; CSV (5,353 lines) and standard output (101 lines) byte-equal. Differences (g1_out_compare.py, unchanged, 11 fields):
+    - 4 program-path fields (D_nozzle/a51_g4a_nozzle_station.json/body and /body_identity/entry; out_v2/g1_g4a_followup.json/body_identity/entry and /main): values are the tree path plus the program file name;
+      accepted as identification fields by record 58 item 2. After the preprocessing tools/g1_prep_rename.py (copy of the output directory; "GRIBS_v0.7.0-alpha.py" -> "GRIBS_v0.6.2-alpha.py" in text files; the tree
+      directory part is replaced by the unchanged tool) all 4 differ by 0. Preprocessing trials: same input -> 0 differences; one numeric leaf changed -> detected; one program name changed to another name -> detected.
+    - 7 identification fields, equal to the independent calculation made before the measurement (old -> new):
+        D_nozzle/a51_g4a_nozzle_station.json/body_identity: entry_sha256 52f78584... -> eed42036...; package_tree_digest 5888576b... -> 388e6590...; sha256 cd4e60eb... -> 71b22993...;
+        D_nozzle/a51_g4a_nozzle_station.json: body_sha256 52f78584... -> eed42036...;
+        out_v2/g1_g4a_followup.json/body_identity: entry_sha256, package_tree_digest, sha256 (same values as above).
+      package_files stays 40 (the two fields package_files of the 2bd5ec5 record did not differ). No other field differs (out/g1_n_vs_g_after_rename.txt).
+    Information: the G4a count of points above 2e-3 is unchanged (9 of 18; the standard output is byte-equal to 2bd5ec5's; not a pass).
+  reverse-direction scenarios: 未実行 (record 52 item 7 (d); 実ケース受入は別の U-ID)
+    Status: 未実行
+    Command or check: reverse-direction scenarios (procedure section 1, row "逆向きのシナリオ")
+    Reason: decided in record 52 item 7 (d): not required for this G0
+    Missing prerequisite: scenarios (a separate U-ID); real-propellant acceptance (0 cases)
+    Impact on confidence: it is not shown that the checks fail where they should
+    Alternative evidence: none
+    User decision required: no (decided)
+
+facts disclosed (not results):
+  - The measurement was stopped once (report 224) on two stop conditions (the --help description line; four program-path fields in the G1 output). The user accepted both as differences with the conditions above
+    (record 58 items 1 and 2) and the measurement was continued; no criterion was changed to fit a result.
+  - The first start of the normal-order pytest run was moved to the background automatically by the tool harness because no timeout was given. Background processing is forbidden (record 57 item 10): the run was stopped
+    (TaskStop), the tree was created again and the run was repeated in the foreground; the stopped run's output was not used (logs/steps.txt). It is not repeated again (record 58 item 5).
+  - The log of the normal-order pytest run (logs/pytest_n_main/) was overwritten by the reversed run with the same label (the same structure as in r524). The result of the normal run (1118 passed, 1 skipped, 234.05 s, exit 0)
+    is recorded in logs/exit.txt and in the console output of the run; its probe outputs are kept in out/probe_n_main/. The run was not repeated (record 58 item 5).
+  - Summary.txt: the version line is line 3, not line 1 (record 58 item 3, above). The G1 and --help conditions were extended by records 57 and 58 as written above.
+  - Comparison tool trial (golden_compare_stage2.py (a)): see "procedure".
+
+not covered (decision clause for the user; not measured by this G0): physical validity; the real-propellant acceptance (the number of cases qualified with a real propellant is 0);
+  the energy mode against measured data or (for a condensed volume) the legacy model (energy mode is experimental); H-05, H-09, H-17 to H-22 and the other held items of contract 164 section 11; G4a (9 of 18 points above 2e-3, not passed); G4b; G5;
+  other environments; CI (the GitHub CI is not run for bc310dc before the push; the skip ID in CI is not confirmed); the CEA-less environment (25 failures and 1 collection error of the legacy suite, outside the pass/fail);
+  the pixels of the figures outside the annotation (not checked; figures were compared as bytes only); the argparse usage-error output; push, tag, Release, merge into main, docs/G0/.
+decision: NOT APPROVED. The G0 decision, G0_MANIFEST, push, CI, FF, tag and Release are separate decisions of the user.
