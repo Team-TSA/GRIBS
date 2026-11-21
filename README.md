@@ -431,7 +431,7 @@ Limits of this interface:
 
 ## Energy mode (opt-in; synthetic fixtures only)
 
-Energy mode is selected only by an `energy_model` section in the configuration file. Without it the program runs the model described above, with the same outputs and exit codes. **Energy mode is verified on synthetic fixtures only: the number of cases qualified with a real propellant is 0, and its results are not compared with measured data or, for a condensed volume, with the legacy model.** The mode is experimental: it is opt-in, its keys, outputs and behaviour may change in a later release without notice, and its effect on results for a real propellant has not been evaluated. The schema version is unchanged; the section is optional.
+Energy mode is selected only by an `energy_model` section in the configuration file. Without it the program runs the model described above, with the same outputs and exit codes. **Energy mode is verified on synthetic fixtures only: the number of cases qualified with a real propellant is 0, and its results are not compared with measured data or with the legacy model.** The mode is experimental: it is opt-in, its keys, outputs and behaviour may change in a later release without notice, and its effect on results for a real propellant has not been evaluated. The schema version is unchanged; the section is optional.
 
 Required keys (there are no defaults):
 
@@ -440,7 +440,7 @@ Required keys (there are no defaults):
 | `initial_fill.temperature_K`, `.composition`, `.element_tolerance` | temperature of the initial charge; `main_propellant_products` is the only composition; tolerance of the element check at t = 0 |
 | `wall.adiabatic`, `wall.heat_rate_W` | `adiabatic` is declared explicitly; `heat_rate_W` is required unless the wall is adiabatic, and is rejected when it is given together with an adiabatic wall |
 | `burn_surface.form`, `.grain_far_temperature_K`, `.solid_enthalpy` (`reference_J_kg`, `reference_temperature_K`, `cp_J_kgK`) | form `a` only; the temperature at which `h_s` is evaluated; the enthalpy of the solid on the absolute basis of the products (formation enthalpy included) |
-| `condensed.volume`, `.phases`, `.transitions` | `external_density` only; constant density, heat capacity and enthalpy of each condensed species; melting temperatures |
+| `condensed.volume`, `.phases`, `.transitions` | `neglected` only (the condensed volume is taken as 0); constant density (used only for the diagnostic `condensed_volume_fraction`), heat capacity and enthalpy of each condensed species; melting temperatures |
 | `recovery.phase_fraction_tolerance`, `.root_tolerance`, `.plateau_edge_tolerance`, `.temperature_search_K`, `.start_temperatures_K` | tolerances of the state recovery; the searched temperature range `[T_lo, T_hi]` and the start temperatures inside it |
 | `propellant_formulas` | formula of each reactant, `{element symbol: atoms}` (case-sensitive: `Cl`, `Co`); required to run; never inferred from species names |
 
@@ -454,7 +454,7 @@ Rejected in energy mode (the same list as item 9 of "Energy mode" in `MODEL_LIMI
 - `two_phase_model.mode` other than `homogeneous_equilibrium`;
 - an initial fill other than the products of the main propellant (an air fill), and an initial state given by the pressure only (the fill temperature is required);
 - a non-adiabatic wall without `heat_rate_W`, and `heat_rate_W` together with an adiabatic wall;
-- `burn_surface.form` other than `a`, and `condensed.volume` other than `external_density`;
+- `burn_surface.form` other than `a`, and `condensed.volume` other than `neglected` (the earlier value `external_density` was removed);
 - unknown keys; `propellant_formulas` missing, or an element symbol that is not in the atomic-mass table (symbols are case-sensitive);
 - a reactant basis whose weights are not unique or not non-negative (found when the run starts; exit code 4);
 - a thermochemistry backend other than `cea_python` and `reference_constant`;
@@ -470,7 +470,7 @@ The legacy figure, the legacy `time_history.csv`, the CEA theoretical rocket dia
 
 The analytic backend `reference_constant`, used in energy mode, has no enthalpy; energy mode gives it the convention `h(T_ref) = h_s(T_grain,inf)`. That convention is for tests only and is not a property of any propellant. The values of `reference_constant` (`temperature_K`, `gamma`, `molecular_weight_kg_kmol`) must be stated in the file; energy mode does not accept the defaults that the legacy loader supplies for `--backend reference_constant`.
 
-The effect of the simplifications of energy mode (quasi-steady burn surface, the contents taken as at rest, so the kinetic energy of the contents and the non-uniformity of the state are not modelled (a departure from the model definition, held item H-05), adiabatic nozzle, constant condensed-phase properties, linear phase fraction on a plateau, an atomic-mass table not audited against CEA) on results has not been evaluated; see `MODEL_LIMITATIONS.md`.
+The effect of the simplifications of energy mode (quasi-steady burn surface, the contents taken as at rest, so the kinetic energy of the contents and the non-uniformity of the state are not modelled (a departure from the model definition, held item H-05), adiabatic nozzle, constant condensed-phase properties, the condensed volume taken as 0 (`condensed_volume_fraction` reports its relative size), linear phase fraction on a plateau, an atomic-mass table not audited against CEA) on results has not been evaluated; see `MODEL_LIMITATIONS.md`.
 
 ## Outputs
 
@@ -625,7 +625,7 @@ GRIBS v0.7.0-alpha is alpha research software. **Its physical validity has not b
 
 - This is alpha-stage research software. It is not certified for safety-critical use and is not intended for production use; physical validity has not been established (see [Validation status](#validation-status)).
 - The nozzle `c*` uses a constant-gamma isentropic relation. Against the CEA equilibrium reference it differs by up to about 2.3% in the tested condensed AP/Al compositions (G4a not passed).
-- The chamber gas phase is treated as an ideal gas; non-ideal effects at high pressure are not modelled or bounded. The condensed-phase volume is neglected (legacy model; energy mode computes it from constant densities, see "Energy mode").
+- The chamber gas phase is treated as an ideal gas; non-ideal effects at high pressure are not modelled or bounded. The condensed-phase volume is neglected (the legacy model and energy mode alike; energy mode reports its relative size, see "Energy mode").
 - Condensed-phase scope, by the minimum gas mass fraction `Yg_min` of the thermochemistry table (code constants, not linked to validation evidence):
   - `Yg_min <= 0.65`: `model_status = out_of_scope`; the run stops before the simulation with `E_OUT_OF_VALIDATED_RANGE`.
   - `0.65 < Yg_min <= 0.99`: `model_status = approximate_with_limitations`; the run continues and reports `W_HIGH_CONDENSATE_MODEL_LIMITATION`. This warning describes the physics the homogeneous-equilibrium model does not include (particle slip, finite-rate condensation, condensed-phase volume, phase-density lag).

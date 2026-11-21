@@ -41,12 +41,11 @@ YG, YC, MG, U_G0, CP, TREF, L = 0.6, 0.4, 28.0, -3.0e6, 1300.0, 298.15, 1.0e6
 CV_G = 900.0
 H_S_REF, H_L_REF = -1.6e7, -1.5e7                                   # L = H_L_REF - H_S_REF = 1.0e6 (same cp, same reference temperature)
 RHO_S, RHO_L = 3990.0, 3000.0
-VC_S, VC_L = YC * M / RHO_S, YC * M / RHO_L
-V_FREE = M * (YG / MG) * RU * T_M / 3.0e6 + VC_S
+V_FREE = M * (YG / MG) * RU * T_M / 3.0e6                          # V0: the gas fills V_free (N1d)
 SOLID = CondensedPhaseSpec("OX(s)", "solid", RHO_S, CP, H_S_REF, TREF)
 LIQUID = CondensedPhaseSpec("OX(L)", "liquid", RHO_L, CP, H_L_REF, TREF)
 TRANSITION = PhaseTransitionSpec("OX(s)", "OX(L)", T_M)
-CONDENSED = CondensedData("external_density", (SOLID, LIQUID), (TRANSITION,), 1.0e-3)
+CONDENSED = CondensedData("neglected", (SOLID, LIQUID), (TRANSITION,), 1.0e-3)
 RECOVERY = RecoverySettings(phase_fraction_tolerance=1.0e-6, root_tolerance=1.0e-10, plateau_edge_tolerance=1.0e-6)
 
 
@@ -66,14 +65,14 @@ class Plateau:
         return TPState(u_J_per_kg=u, n_gas_per_kg=YG / MG, Yg=YG, condensed_mass_fraction={phase.species: YC})
 
 
-def pressure(T, vc):
-    return M * (YG / MG) * RU * T / (V_FREE - vc)
+def pressure(T):
+    return M * (YG / MG) * RU * T / V_FREE
 
 
 def l_pred(d, a_p, cv_g=CV_G):
     """The predicted L_calc, from the constants alone (no call of the code under test)."""
     c_mix = YC * CP + YG * cv_g
-    dp = pressure(T_M + d, VC_L) - pressure(T_M - d, VC_S)
+    dp = pressure(T_M + d) - pressure(T_M - d)
     return L + (c_mix * 2.0 * d + YG * a_p * dp) / YC
 
 
@@ -90,16 +89,18 @@ def test_l01_l_calc_equals_the_prediction_and_without_pressure_dependence_equals
     (E about 6e6 J, the width 4e5 J), and the pressure root has a relative error of at most 1.5e-9 in ln p, which moves L_calc
     by Yg A_P p 1.5e-9 sqrt(2) / Yc = 1e-5 J/kg = 1e-11 relative; a formula without the pressure term is off by 1.09e-6, one
     without the sensible heat by 1.2e-8.  Against L (a_p = 0): 1e-7, 8 times the predicted offset 1.2333e-8 (the sensible heat
-    2 c_mix d / Yc = 1.233e-2 J/kg at d = 1e-9 T_m)."""
+    2 c_mix d / Yc = 1.233e-2 J/kg at d = 1e-9 T_m).  N1d (V0, the condensed volume is 0): the pressure difference between the two
+    ends is now 2 d p / T_m only (it was 1.09e-6 of L through the condensed volume), so the pressure term is 9.0e-6 J/kg
+    (9e-12 relative); the registered predictions below are recomputed from the constants for V0 (the a_p = 0 value is unchanged)."""
     d = D_DEFAULT * T_M
     assert l_pred(d, 0.0) == pytest.approx(1000000.0123331, rel=1e-12)             # the registered predictions (see PRE_REGISTRATION_C16)
-    assert l_pred(d, 1.0e-3) == pytest.approx(1000001.0898302882, rel=1e-12)
+    assert l_pred(d, 1.0e-3) == pytest.approx(1000000.0123421, rel=1e-12)          # V0 (the V_c-coupled value was 1000001.0898302882)
     no_pressure = l_calc(Plateau(a_p=0.0))
     assert no_pressure == pytest.approx(l_pred(d, 0.0), rel=1.0e-9)
     assert no_pressure == pytest.approx(L, rel=1.0e-7) and no_pressure > L          # the sensible heat only raises it
     with_pressure = l_calc(Plateau(a_p=1.0e-3))
     assert with_pressure == pytest.approx(l_pred(d, 1.0e-3), rel=1.0e-9)
-    assert abs(with_pressure - L) / L > 1.0e-6                                      # the pressure term is real: above 1e-6 of L
+    assert with_pressure - no_pressure == pytest.approx(YG * 1.0e-3 * (pressure(T_M + d) - pressure(T_M - d)) / YC, rel=1.0e-2)  # the (small) pressure term
     assert latent_heat(TRANSITION, CONDENSED.phases) == pytest.approx(L, rel=1.0e-12)        # L_input of the configuration's data
 
 
@@ -175,7 +176,7 @@ FRACTIONS = {"C": 0.3, "H": 0.7}
 
 
 def energy_doc(tol, t_m=RUN_T_M, h_liquid=RUN_H_L):
-    condensed = {"volume": "external_density",
+    condensed = {"volume": "neglected",
                  "phases": [phase_data("OX(s)", "solid", 3990.0, RUN_H_S), phase_data("OX(L)", "liquid", 3000.0, h_liquid)],
                  "transitions": [{"solid_species": "OX(s)", "liquid_species": "OX(L)", "melting_temperature_K": t_m}]}
     if tol is not None:
@@ -291,7 +292,7 @@ def without_keys(doc, phase_index, *keys):
 def test_l05_the_latent_heat_tolerance_is_required_with_a_transition_and_rejected_without_one():
     assert load(energy_doc(1.0e-3)).energy.condensed.latent_heat_check_tolerance_rel == 1.0e-3
     rejected(energy_doc(None), LATENT_HEAT_TOLERANCE_CODE)                             # a transition, no key
-    no_transition = {**energy_doc(None), "condensed": {"volume": "external_density", "phases": [], "transitions": []}}
+    no_transition = {**energy_doc(None), "condensed": {"volume": "neglected", "phases": [], "transitions": []}}
     assert load(no_transition).energy.condensed.latent_heat_check_tolerance_rel is None
     unused = {**no_transition, "condensed": {**no_transition["condensed"], "latent_heat_check_tolerance_rel": 1.0e-3}}
     assert "no phase transition is declared" in rejected(unused, LATENT_HEAT_TOLERANCE_CODE)

@@ -266,5 +266,5 @@ def closure_history(run: dict) -> list:
             out.append(closure_residuals(
                 M=M, M0=run["M0"], m_gen=float(y[IMG]), m_out=float(y[IMO]), B_e=model.B_e(M), E_cv=float(y[IE]),
                 E0=run["E0"], Q_cum=float(y[IQ]), W_burn_cum=float(y[IWB]), H_out_cum=float(y[IHO]),
-                V_gas=rec.V_gas_m3, V_condensed=rec.V_condensed_m3, V_free=V_free))
+                V_gas=rec.V_gas_m3, V_free=V_free))
     return out

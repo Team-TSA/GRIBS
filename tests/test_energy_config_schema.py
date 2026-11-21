@@ -26,7 +26,7 @@ WALL = {"adiabatic": True}
 SOLID_H = {"reference_J_kg": -2.0e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}
 SURFACE = {"form": "a", "grain_far_temperature_K": 293.0, "solid_enthalpy": SOLID_H}
 CONDENSED = {
-    "volume": "external_density",
+    "volume": "neglected",
     "phases": [
         {"species": "Al2O3(a)", "phase": "solid", "density_kg_m3": 3990.0, "cp_J_kgK": 1300.0,
          "enthalpy_reference_J_kg": -1.6e7, "reference_temperature_K": 298.15},
@@ -80,7 +80,7 @@ def test_c02_with_the_section_the_settings_are_an_attribute_and_asdict_is_unchan
     c = configuration.config
     assert isinstance(c.energy, EnergyModeSettings)
     assert c.energy.initial_fill.temperature_K == 300.0 and c.energy.recovery_search.temperature_search_K == (200.0, 8000.0)
-    assert c.energy.condensed.volume == "external_density" and len(c.energy.condensed.phases) == 2
+    assert c.energy.condensed.volume == "neglected" and len(c.energy.condensed.phases) == 2
     assert c.energy.condensed.transitions[0].melting_temperature_K == 2327.0
     assert "energy" not in asdict(c) and set(asdict(c)) == LEGACY_KEYS == set(asdict(load(G1)))
     assert configuration.document["energy_model"] == ENERGY             # the document keeps the section
@@ -91,7 +91,7 @@ def test_c03_unknown_keys_and_choices_are_rejected():
     for energy, text in (
             ({**ENERGY, "bogus": 1}, "unknown key"),
             ({**ENERGY, "wall": {**WALL, "bogus": 1}}, "unknown key"),
-            ({**ENERGY, "condensed": {**CONDENSED, "volume": "neglected"}}, "not supported"),
+            ({**ENERGY, "condensed": {**CONDENSED, "volume": "external_density"}}, "was removed"),
             ({**ENERGY, "burn_surface": {**SURFACE, "form": "b"}}, "not supported")):
         with pytest.raises(ConfigurationError, match=text):
             load(document(energy))

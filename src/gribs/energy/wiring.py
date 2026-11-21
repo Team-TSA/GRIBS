@@ -33,7 +33,8 @@ from gribs.energy.exceptions import StateRecoveryError
 from gribs.errors import ConfigurationError, ThermochemistryError
 
 GAMMA_DEFINITION_CEA = ("EqSolution.gamma_s of the CEA TP equilibrium: the equilibrium isentropic exponent of the mixture, the "
-                        "definition of the legacy gamma_s; must be finite and > 1")
+                        "definition of the legacy gamma_s; with the condensed-phase volume taken as 0 (RP-1311 p.4, eqs. 2.71 and 2.73); must "
+                        "be finite and > 1")
 GAMMA_DEFINITION_REFERENCE = "the constant gamma of the reference_constant backend (reference_gamma); must be > 1"
 
 

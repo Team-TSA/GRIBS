@@ -3,9 +3,11 @@
 densities 3990 / 3000 kg/m3 and T_m = 2327 K are the A-marked values of fable/probes/S182/u182_arith.py; L = 1.0e6 J/kg
 and the gas data are synthetic.  The providers are frozen dataclasses passed as arguments: no monkeypatch, no assignment.
 
-Tolerances (approval, 7th record, B-4, provisional): the phase fraction must agree with the exact coupled solution within
-5 x delta_ln_p (delta_ln_p = ln((V - Vc_solid)/(V - Vc_liquid)), the change of ln p along the plateau that melting
-causes), and the plateau edges are met to 1e-6 of the plateau width.
+Tolerances (provisional): N1d (V0, the condensed volume is 0) removed the change of p along the plateau that the condensed
+volume caused, so the earlier tolerance 5 x delta_ln_p (approval, 7th record, B-4) no longer applies.  The phase fraction must
+agree with the exact solution (p independent of the phase fraction, u linear in it) within PHI_TOL = 1e-6, a choice of the N1d
+commit (equal to RECOVERY.phase_fraction_tolerance; the measured deviation is the first-order-in-d error of the linear
+interpolation, of order 1e-8 here), and the plateau edges are met to 1e-6 of the plateau width.
 """
 import dataclasses
 import math
@@ -26,15 +28,14 @@ T_M = 2327.0
 SOLID = CondensedPhaseSpec("OX(s)", "solid", 3990.0, 1300.0, -1.6e7, 298.15)
 LIQUID = CondensedPhaseSpec("OX(L)", "liquid", 3000.0, 1300.0, -1.5e7, 298.15)
 TRANSITION = PhaseTransitionSpec("OX(s)", "OX(L)", T_M)
-CONDENSED = CondensedData("external_density", (SOLID, LIQUID), (TRANSITION,))
-NO_TRANSITION = CondensedData("external_density", (SOLID, LIQUID), ())
+CONDENSED = CondensedData("neglected", (SOLID, LIQUID), (TRANSITION,))
+NO_TRANSITION = CondensedData("neglected", (SOLID, LIQUID), ())
 RECOVERY = RecoverySettings(phase_fraction_tolerance=1.0e-6, root_tolerance=1.0e-10, plateau_edge_tolerance=1.0e-6)
 SEARCH, STARTS = (300.0, 6000.0), (600.0, 1500.0, 3500.0, 5000.0)
 YG, MG, CV_G, U_G0, A_P = 0.6, 28.0, 900.0, -3.0e6, 1.0e-3     # gas fraction, molar mass, cv, offset, weak p dependence
-VC_S, VC_L = (1.0 - YG) * M / SOLID.density_kg_m3, (1.0 - YG) * M / LIQUID.density_kg_m3
-V_FREE = M * (YG / MG) * RU * T_M / 3.0e6 + VC_S                # about 3 MPa at T_m with the condensed phase solid
-DLNP = math.log((V_FREE - VC_S) / (V_FREE - VC_L))              # change of ln p along the plateau
-PHI_TOL = 5.0 * DLNP                                            # the provisional tolerance of the phase fraction
+V_FREE = M * (YG / MG) * RU * T_M / 3.0e6                       # 3 MPa at T_m (V0: the gas fills V_free)
+P_M = M * (YG / MG) * RU * T_M / V_FREE                         # the pressure on the plateau (it does not depend on phi)
+PHI_TOL = 1.0e-6                                                # the provisional tolerance of the phase fraction
 
 
 def h_of(phase, T):
@@ -90,10 +91,10 @@ def recover(E, provider=None, condensed=CONDENSED, starts=STARTS, **kw):
 
 
 def exact_phi(E):
-    """The coupled exact solution on the plateau (phi and p from the volume and the energy equations), found by a solver
-    that does not use the linear approximation."""
+    """The exact solution on the plateau (V0: p does not depend on phi, u is linear in phi), found by a solver that does not
+    use the linear approximation."""
     def p_of(phi):
-        return M * (YG / MG) * RU * T_M / (V_FREE - (1.0 - YG) * M * ((1.0 - phi) / SOLID.density_kg_m3 + phi / LIQUID.density_kg_m3))
+        return P_M
 
     def residual(phi):
         u = YG * (U_G0 + CV_G * (T_M - 300.0) + A_P * p_of(phi)) + (1.0 - YG) * ((1.0 - phi) * h_of(SOLID, T_M) + phi * h_of(LIQUID, T_M))
@@ -107,7 +108,7 @@ def width_and_center():
 
 
 @pytest.mark.fast
-def test_r01_ta_known_latent_heat_gives_the_phase_fraction_of_the_exact_solution_within_5_dlnp():
+def test_r01_ta_known_latent_heat_gives_the_phase_fraction_of_the_exact_solution_within_the_tolerance():
     width, _ = width_and_center()
     b = bounds()
     for phi_true in (0.1, 0.35, 0.5, 0.8):
@@ -115,8 +116,8 @@ def test_r01_ta_known_latent_heat_gives_the_phase_fraction_of_the_exact_solution
         got = recover(E)
         assert got.on_plateau and got.T_K == T_M
         assert abs(got.phi - exact_phi(E)) <= PHI_TOL, (phi_true, got.phi, exact_phi(E), PHI_TOL)
+        assert got.p_Pa == pytest.approx(P_M, rel=1.0e-12)             # V0: p does not depend on phi
     assert latent_heat(TRANSITION, CONDENSED.phases) == pytest.approx(1.0e6, rel=1e-12)    # L from the two phases' data
-    assert 2.0e-4 < DLNP < 3.0e-4                                      # the synthetic change of ln p along the plateau
 
 
 @pytest.mark.fast
@@ -127,7 +128,7 @@ def test_r02_the_phase_fraction_is_the_linear_approximation_and_close_to_the_cou
     assert plateau_phase_fraction(E, b.E_minus, b.E_plus) == pytest.approx(0.4, rel=1e-12)
     assert recover(E).phi == pytest.approx(0.4, rel=1e-12)             # the recovery reports the linear approximation
     deviation = abs(plateau_phase_fraction(E, b.E_minus, b.E_plus) - exact_phi(E))
-    assert deviation > 0.0 and deviation <= PHI_TOL                    # an approximation (a*p couples), within tolerance
+    assert deviation > 0.0 and deviation <= PHI_TOL                    # an approximation (first order in d), within tolerance
     with pytest.raises(StateRecoveryError):
         plateau_phase_fraction(E, 1.0, 1.0)
 
@@ -139,7 +140,7 @@ def test_r03_tb_heating_through_the_plateau_is_continuous():
     for prev, cur in zip(sweep, sweep[1:]):
         assert cur.T_K >= prev.T_K - 1.0e-6
         assert cur.T_K - prev.T_K <= 1.2 * (width / 10.0) / 1060.0 + 1.0e-6     # no jump of T (cp of the mixture is 1060 J/K)
-        assert abs(math.log(cur.p_Pa / prev.p_Pa)) <= math.log(cur.T_K / prev.T_K) + 5.0 * DLNP + 1.0e-6   # p ~ T / (V - Vc)
+        assert abs(math.log(cur.p_Pa / prev.p_Pa)) <= math.log(cur.T_K / prev.T_K) + 1.0e-6   # p ~ T (V0)
     phis = [s.phi for s in sweep if s.on_plateau]
     assert phis == sorted(phis) and 0.0 <= phis[0] < 0.2 and 0.8 < phis[-1] <= 1.0
     assert not sweep[0].on_plateau and not sweep[-1].on_plateau and sweep[0].T_K < T_M < sweep[-1].T_K
@@ -174,7 +175,8 @@ def center_energy():
 def test_r06_the_plateau_energy_is_not_rejected_as_no_root():
     got = recover(center_energy())
     assert got.on_plateau and got.T_K == T_M and 0.4 < got.phi < 0.6
-    assert got.V_gas_m3 + got.V_condensed_m3 == pytest.approx(V_FREE, rel=1e-12)
+    assert got.V_gas_m3 == pytest.approx(V_FREE, rel=1e-12)            # V0: the gas fills V_free
+    assert got.V_condensed_diagnostic_m3 > 0.0                        # the nominal condensed volume is a diagnostic only
 
 
 @pytest.mark.fast
@@ -206,7 +208,7 @@ def test_r09_the_phase_returned_at_exactly_tm_does_not_make_the_starts_disagree(
 
 @pytest.mark.fast
 def test_r10_a_transition_without_its_data_is_rejected_and_an_undeclared_jump_is_an_error():
-    only_solid = CondensedData("external_density", (SOLID,), (TRANSITION,))
+    only_solid = CondensedData("neglected", (SOLID,), (TRANSITION,))
     with pytest.raises(StateRecoveryError, match="missing"):
         recover(center_energy(), condensed=only_solid)
     with pytest.raises(NoRootOutsidePlateauError, match="no phase transition is declared"):

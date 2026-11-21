@@ -66,7 +66,7 @@ ENERGY = {"initial_fill": {"temperature_K": 300.0, "composition": "main_propella
           "wall": {"adiabatic": True},
           "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0,
                            "solid_enthalpy": {"reference_J_kg": H_SURFACE, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}},
-          "condensed": {"volume": "external_density",
+          "condensed": {"volume": "neglected",
                         "phases": [phase_data("OX(s)", "solid", 3990.0, H_SOLID_REF), phase_data("OX(L)", "liquid", 3000.0, H_LIQUID_REF)],
                         "transitions": [{"solid_species": "OX(s)", "liquid_species": "OX(L)", "melting_temperature_K": T_M}],
                         "latent_heat_check_tolerance_rel": 1.0e-3},
@@ -96,7 +96,7 @@ def samples(c, run, sol, burning):
         k = model.terms(y, burning)
         res = closure_residuals(M=M, M0=run["M0"], m_gen=float(y[ei.IMG]), m_out=float(y[ei.IMO]), B_e=model.B_e(M), E_cv=E,
                                 E0=run["E0"], Q_cum=float(y[ei.IQ]), W_burn_cum=float(y[ei.IWB]), H_out_cum=float(y[ei.IHO]),
-                                V_gas=rec.V_gas_m3, V_condensed=rec.V_condensed_m3, V_free=V)
+                                V_gas=rec.V_gas_m3, V_free=V)
         out.append(dict(t=t, M=M, T=rec.T_K, p=rec.p_Pa, phi=rec.phi, on_plateau=rec.on_plateau, V=V, mdot_burn=k["mdot_burn"],
                         mdot_out=k["mdot_out"], closure=max(abs(res.R_M_normalised), abs(res.R_B_normalised),
                                                            abs(res.R_E_normalised), abs(res.R_V_normalised))))

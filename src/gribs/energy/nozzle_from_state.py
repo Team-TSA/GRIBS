@@ -26,7 +26,16 @@ def nozzle_state_from_chamber(p_stag, T_stag, R_eff, gamma_s, Yg, At, Ae, c, Yc=
     stagnation temperature; R_eff is the effective gas constant of the total mass (Ru / M_CEA = Yg * R_gas), so the mass flow
     comes out for the total mixture with no extra Yg factor, and it is proportional to p_stag / sqrt(R_eff * T_stag).  Cd scales
     the mass flow only: the stagnation enthalpy per unit mass that leaves is not changed by it (an adiabatic nozzle, held H-14).
-    The keys of the result are those of nozzle_state."""
+    The keys of the result are those of nozzle_state.
+
+    The closed forms below (choked flow, exit Mach number, exit pressure, exit velocity written with p_stag/rho_stag) close with
+    gamma_s and the stagnation quantities; they hold for a homogeneous equilibrium flow (no velocity or temperature lag, shifting
+    equilibrium), gamma_s constant along the isentrope, a path that does not cross a phase-transition plateau, the V0 convention
+    (condensed volume 0) and a one-dimensional steady adiabatic flow.  R_eff does not have to be constant for them; it has to be
+    constant for the forms that write the temperature ratio with the pressure ratio, T_e/T_0 = (p_e/p_0)^((gamma_s-1)/gamma_s),
+    and for the exit velocity written as sqrt(2 gamma_s/(gamma_s-1) R_eff (T_0 - T_e)).  gamma_s is the quantity of RP-1311
+    eq. 2.71, not c_p/c_v.  The exit velocity of the closed form equals sqrt(2 (h_0 - h_e)) only for a constant gamma_s; otherwise
+    the latter is the right one."""
     if Yc is None:
         Yc = 1.0 - Yg
     split_model = gribs.nozzle.NozzleTwoPhaseModel(c.two_phase_mode)

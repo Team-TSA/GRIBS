@@ -16,8 +16,11 @@ from typing import Mapping, Optional, Tuple
 INITIAL_FILL_COMPOSITIONS = ("main_propellant_products",)
 #: The burn-surface form a configuration may select: (a) mdot*h_s - p_s*A_b*r (contract section 2 #3).
 BURN_SURFACE_FORMS = ("a",)
-#: The only condensed-volume treatment of energy mode (D-07): an external density per condensed phase.
-CONDENSED_VOLUME_CHOICES = ("external_density",)
+#: The only condensed-volume treatment of energy mode (D-07, N1d): the volume of the condensed phases is taken as 0 (V0, the
+#: convention of CEA, RP-1311 p.4).  The value "external_density" of earlier versions (the volume from constant densities) was
+#: removed: config_parse rejects it with a message that says so.
+CONDENSED_VOLUME_CHOICES = ("neglected",)
+REMOVED_CONDENSED_VOLUME_VALUES = ("external_density",)
 CONDENSED_PHASES = ("solid", "liquid")
 
 
@@ -52,7 +55,7 @@ class BurnSurface:
 class CondensedPhaseSpec:
     species: str
     phase: str                      # one of CONDENSED_PHASES
-    density_kg_m3: float            # constant rho_c (D-10); required for every phase (it gives the volume)
+    density_kg_m3: float            # constant rho_c (D-10); required for every phase (used only for the diagnostic alpha, not in any equation)
     #: The three values of h = enthalpy_reference + cp (T - reference_temperature_K) (D-10) are required for the two phases of a
     #: declared transition and rejected for any other phase (an input that no number uses; C16, energy_validation).
     cp_J_kgK: Optional[float]

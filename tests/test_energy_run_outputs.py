@@ -31,7 +31,7 @@ ENERGY = {
     "wall": {"adiabatic": True},
     "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0,
                      "solid_enthalpy": {"reference_J_kg": -2.0e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}},
-    "condensed": {"volume": "external_density", "phases": [], "transitions": []},
+    "condensed": {"volume": "neglected", "phases": [], "transitions": []},
     "recovery": {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6,
                  "temperature_search_K": [200.0, 8000.0], "start_temperatures_K": [600.0, 3000.0]},
     "propellant_formulas": FORMULAS,
@@ -212,12 +212,14 @@ class TestEnergyRun:
         lines = (out / ep.HISTORY_FILENAME).read_text(encoding="utf-8").splitlines()
         header = lines[0].split(",")
         assert tuple(header) == ep.HISTORY_COLUMNS
-        suffixes = ("_s", "_kg", "_J", "_Pa", "_K", "_m", "_m3", "_m_s", "_kg_s", "_N", "_Ns", "_normalised", "gamma_s")
+        suffixes = ("_s", "_kg", "_J", "_Pa", "_K", "_m", "_m3", "_m_s", "_kg_s", "_N", "_Ns", "_normalised", "_fraction", "gamma_s")
         assert all(h.endswith(suffixes) for h in header)
+        assert len(header) == 28 and header[26] == "R_V_normalised" and header[-1] == "condensed_volume_fraction"   # N1d: one column added at the end
         rows = [[float(v) for v in line.split(",")] for line in lines[1:]]
         col = {h: [r[i] for r in rows] for i, h in enumerate(header)}
         s = json.loads((out / "summary.json").read_text(encoding="utf-8"))["results"]
         assert len(rows) == s["nodes"] > 20 and col["time_s"][0] == 0.0 and col["time_s"] == sorted(col["time_s"])
+        assert all(v == 0.0 for v in col["condensed_volume_fraction"])                     # no condensed phase: alpha = 0 (N-2)
         assert max(col["time_s"]) > s["burning_end_time_s"]                                  # the blowdown nodes follow the burn
         assert max(abs(v) for h in header if h.startswith("R_") and h.endswith("_normalised") for v in col[h]) <= ep.CLOSURE_TOLERANCE
         assert all(g > 1.0 for g in col["gamma_s"]) and all(p > 0.0 for p in col["pressure_Pa"])

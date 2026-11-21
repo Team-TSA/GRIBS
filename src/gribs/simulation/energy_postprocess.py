@@ -8,8 +8,9 @@ energy run does not go through the legacy thermochemistry table, the legacy samp
 
 SCOPE: energy mode is verified on SYNTHETIC fixtures only (an analytic reference_constant provider, ideal-gas or synthetic
 providers, and one smoke run with the CEA provider of a golden propellant that checks completion, gamma_s > 1 and the closure
-residuals).  No real propellant is accepted and no result is compared with measured data or, for a condensed volume, with the
-legacy model.  The summary says so (energy_model.scope).
+residuals).  No real propellant is accepted and no result is compared with measured data or with the legacy model.  The
+summary says so (energy_model.scope).  The volume of the condensed phases is taken as 0 (V0, the convention of CEA, RP-1311
+p.4); the condensed volume fraction alpha is reported as a diagnostic only (energy_model.condensed_volume_diagnostic).
 
 Output (D-05 (a): a dedicated minimal output): energy_time_history.csv (columns with units, the closure residuals R_M, R_B,
 R_E, R_V in absolute and normalised form), summary.json and summary.txt under the configured file names with the top-level keys
@@ -54,7 +55,8 @@ HISTORY_COLUMNS = (
     "time_s", "mass_kg", "total_energy_J", "pressure_Pa", "temperature_K", "gamma_s", "burn_depth_m", "throat_radius_m",
     "free_volume_m3", "burn_rate_m_s", "mdot_burn_kg_s", "mdot_out_kg_s", "thrust_N", "generated_mass_kg",
     "discharged_mass_kg", "impulse_Ns", "burn_surface_energy_J", "discharge_energy_J", "wall_heat_J",
-    "R_M_kg", "R_B_kg", "R_E_J", "R_V_m3", "R_M_normalised", "R_B_normalised", "R_E_normalised", "R_V_normalised")
+    "R_M_kg", "R_B_kg", "R_E_J", "R_V_m3", "R_M_normalised", "R_B_normalised", "R_E_normalised", "R_V_normalised",
+    "condensed_volume_fraction")
 
 LEGACY_OUTPUTS_NOT_PRODUCED = (
     "figure (the ballistics figure of the legacy model)",
@@ -71,7 +73,8 @@ BURN_SURFACE_INTERPRETATION = (
     "temperature of the grain (T_grain_inf) on the absolute enthalpy basis; heat through the burn surface is included by that "
     "evaluation and not added separately (contract 164 sections 1b, 2b-4.3)")
 H0_OUT_DEFINITION = (
-    "H0_out = h_cv with h_cv = u + p*V_free/M (u = E_cv/M, the contents at rest). For contents at rest this is the stagnation "
+    "H0_out = h_cv with h_cv = u + p*V_free/M (u = E_cv/M, the contents at rest; V_free = V_gas in the V0 convention, so this "
+    "is u + n*Ru*T, the enthalpy of the equilibrium state). For contents at rest this is the stagnation "
     "enthalpy of the chamber gas, and for a steady adiabatic flow without shaft work it is the stagnation enthalpy at the nozzle "
     "inlet plane (h_inlet + v_inlet^2/2 = h_cv), so the kinetic energy at the inlet plane is included in it and is not added "
     "separately (contract 164 section 2b-4.4 (i)). The kinetic energy of the contents, the non-uniformity of the state between "
@@ -85,7 +88,7 @@ HELD_ITEMS_ADOPTED = (
     "H-14 (adiabatic nozzle: Cd scales the mass flow only)",
     "H-17 (the atomic-mass table is not audited against the atomic masses of CEA)")
 SCOPE = ("energy mode is verified on synthetic fixtures only; the number of cases qualified with a real propellant is 0, and "
-         "no result is compared with measured data or (for a condensed volume) with the legacy model")
+         "no result is compared with measured data or with the legacy model")
 
 
 @dataclass
@@ -123,6 +126,11 @@ class EnergyOutcome:
                  f"{e['gamma_s']['max']:.9g}",
                  f"  closure residuals (normalised, max over the history; tolerance {CLOSURE_TOLERANCE:g}): "
                  + ", ".join(f"{k} = {v:.3g}" for k, v in r["closure"]["max_normalised"].items()),
+                 "  condensed volume fraction alpha (diagnostic, V0 convention): "
+                 + ", ".join(f"{lab} {e['condensed_volume_diagnostic'][key]:.9g}" for lab, key in
+                             (("initial", "alpha_initial"), ("max", "alpha_max"))) +
+                 f" at t = {e['condensed_volume_diagnostic']['alpha_max_time_s']:.9g} s, "
+                 f"final {e['condensed_volume_diagnostic']['alpha_final']:.9g}",
                  *[f"  latent heat check at t = 0 ({c['solid_species']} -> {c['liquid_species']}, T_m = "
                    f"{c['melting_temperature_K']:.9g} K): L_calc = {c['L_calc_J_per_kg']:.9g} J/kg, L_input = "
                    f"{c['L_input_J_per_kg']:.9g} J/kg, relative difference {c['relative_difference']:.3g} "
@@ -204,8 +212,10 @@ def history_csv_text(history: Dict[str, Any]) -> str:
 
 
 def _history_and_closure(run: dict) -> Dict[str, np.ndarray]:
+    """The history table.  Side effect: run["condensed_species_seen"] is set (the species of the alpha diagnostic)."""
     model = run["model"]
     rows = []
+    seen: set = set()            # condensed species with a positive mass fraction at some node (for the alpha diagnostic)
     for burning, sol in ((True, run["sol_burn"]), (False, run["sol_blow"])):
         if sol is None:
             continue
@@ -215,16 +225,36 @@ def _history_and_closure(run: dict) -> Dict[str, np.ndarray]:
             M, E = float(y[ei.IM]), float(y[ei.IE])
             k = model.terms(y, burning)
             rec, V_free = k["rec"], k["V_free"]
+            seen.update(sp for sp, yj in rec.condensed_mass_fraction.items() if yj > 0.0)
+            v_c, v_g = rec.V_condensed_diagnostic_m3, rec.V_gas_m3
+            alpha = v_c / (v_g + v_c)
             r = closure_residuals(M=M, M0=run["M0"], m_gen=float(y[ei.IMG]), m_out=float(y[ei.IMO]), B_e=model.B_e(M),
                                   E_cv=E, E0=run["E0"], Q_cum=float(y[ei.IQ]), W_burn_cum=float(y[ei.IWB]),
-                                  H_out_cum=float(y[ei.IHO]), V_gas=rec.V_gas_m3, V_condensed=rec.V_condensed_m3,
-                                  V_free=V_free)
+                                  H_out_cum=float(y[ei.IHO]), V_gas=rec.V_gas_m3, V_free=V_free)
             rows.append((float(sol.t[j]), M, E, k["p"], k["T"], k["gamma_s"], k["x"], float(y[ei.IRT]), V_free, k["r"],
                          k["mdot_burn"], k["mdot_out"], float(k["nz"]["F"]), float(y[ei.IMG]), float(y[ei.IMO]),
                          float(y[ei.IIMP]), float(y[ei.IWB]), float(y[ei.IHO]), float(y[ei.IQ]), r.R_M, r.R_B, r.R_E, r.R_V,
-                         r.R_M_normalised, r.R_B_normalised, r.R_E_normalised, r.R_V_normalised))
+                         r.R_M_normalised, r.R_B_normalised, r.R_E_normalised, r.R_V_normalised, alpha))
+    run["condensed_species_seen"] = sorted(seen)
     table = np.array(rows, dtype=float)
     return {name: table[:, i] for i, name in enumerate(HISTORY_COLUMNS)}
+
+
+def _alpha_diagnostic(history: Dict[str, np.ndarray], cfg, run: dict) -> Dict[str, Any]:
+    """The summary entry of the condensed volume fraction alpha = V_c/(V_gas + V_c), V_c = M sum_j Y_j/rho_j (a diagnostic of the
+    size of the volume that V0 neglects: no equation of the model reads it, no threshold or warning is attached)."""
+    a, t = history["condensed_volume_fraction"], history["time_s"]
+    i_max = int(np.argmax(a))
+    return {
+        "definition": ("alpha = V_c/(V_gas + V_c), V_c = M*sum_j(Y_j/rho_j), at the nodes of energy_time_history.csv; a diagnostic "
+                       "only: no equation of the model reads it, and it is not an error estimate"),
+        "convention": ("V0: the volume of the condensed phases is taken as 0 in the pressure, the energy, the nozzle flow and the "
+                       "closure (the convention of CEA, RP-1311 p.4)"),
+        "alpha_initial": float(a[0]), "alpha_max": float(a[i_max]), "alpha_max_time_s": float(t[i_max]), "alpha_final": float(a[-1]),
+        "alpha_sampled_at": "the nodes of the energy time history (a sampled maximum)",
+        "densities_kg_m3": {p.species: p.density_kg_m3 for p in cfg.energy.condensed.phases},
+        "species_seen": list(run["condensed_species_seen"]),
+    }
 
 
 def run_energy_case(loaded) -> EnergyOutcome:
@@ -278,8 +308,9 @@ def _run_energy_case(loaded) -> EnergyOutcome:
         "latent_heat_check": run["latent_heat_check"],
         "closure_tolerance_normalised": CLOSURE_TOLERANCE,
         "closure_tolerance_status": CLOSURE_TOLERANCE_STATUS,
+        "condensed_volume_diagnostic": _alpha_diagnostic(history, cfg, run),
         "legacy_outputs_not_produced": list(LEGACY_OUTPUTS_NOT_PRODUCED),
-        "legacy_comparison": "none (a run with a condensed volume is a different model from the legacy model and is not compared)",
+        "legacy_comparison": "none (not compared; both take the condensed volume as 0, but they differ in other respects)",
     }
     notes = list(loaded.migration_notes)
     source = {

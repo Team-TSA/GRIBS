@@ -36,7 +36,7 @@ ENERGY = {
     "wall": {"adiabatic": True},
     "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0,
                      "solid_enthalpy": {"reference_J_kg": -2.0e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}},
-    "condensed": {"volume": "external_density",
+    "condensed": {"volume": "neglected",
                   "phases": [{"species": "Al2O3(a)", "phase": "solid", "density_kg_m3": 3990.0}], "transitions": []},
     "recovery": {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6,
                  "temperature_search_K": [200.0, 8000.0], "start_temperatures_K": [600.0, 3000.0]},
@@ -103,7 +103,7 @@ class TestAlgebraicLimit:
         for p, T in ((2.0e6, 2500.0), (1.5e7, 3000.0), (8.0e6, 3400.0)):
             y = steady_state_vector(c, prov, p, T, 1.0e-3)
             rec = model.recover(float(y[ei.IM]), float(y[ei.IE]), geometry(1.0e-3, c)[3])
-            assert rec.V_condensed_m3 == 0.0 and rec.Yg == 1.0
+            assert rec.V_condensed_diagnostic_m3 == 0.0 and rec.Yg == 1.0
             assert rec.p_Pa == pytest.approx(p, rel=1.0e-9, abs=0.0) and rec.T_K == pytest.approx(T, rel=1.0e-9, abs=0.0)
             assert rec.p_Pa * (geometry(1.0e-3, c)[3]) == pytest.approx(rec.m_total_kg * prov.R * rec.T_K, rel=1.0e-12, abs=0.0)
             assert rec.gamma_s == c.reference_gamma
@@ -155,7 +155,7 @@ class TestAlgebraicLimit:
             assert dy[ei.IE] == pytest.approx(expected, rel=1.0e-12, abs=0.0)
             assert dy[ei.IM] == pytest.approx(k["mdot_burn"] - k["mdot_out"], rel=1.0e-14, abs=0.0)
 
-    def test_a05_a_condensed_volume_is_not_compared_with_the_legacy_model(self, legacy_c):
+    def test_a05_a_condensed_species_does_not_enter_the_volume_and_energy_mode_is_not_compared_with_the_legacy_model(self, legacy_c):
         class WithCondensed:
             enthalpy_convention = build_energy_inputs(energy_config()).provider.enthalpy_convention
             base = build_energy_inputs(energy_config()).provider
@@ -170,7 +170,9 @@ class TestAlgebraicLimit:
         p_star = legacy_steady_pressure(legacy_c, X_FROZEN)
         y = steady_state_vector(c, base_inputs.provider, p_star, c.reference_temperature_K, X_FROZEN)
         d_ln_p, d_ln_T = rates_of_p_and_T(model, y)
-        assert max(abs(d_ln_p), abs(d_ln_T)) > 1.0e3 * STEADY_RATE_TOL           # the legacy steady state is not one with V_c != 0
+        # V0 (N1d): a condensed species with a nominal volume does not change the volume accounting (the gas fills V_free), so
+        # the legacy steady state of the gas is still a steady state of energy mode: the two take the condensed volume as 0
+        assert max(abs(d_ln_p), abs(d_ln_T)) <= STEADY_RATE_TOL
         for module in (ei, gribs.energy.wiring, gribs.energy.ledger):
             assert not [n for n in dir(module) if "legacy" in n.lower() and "compare" in n.lower()]   # no function compares them
         assert gribs.config.Config().two_phase_condensed_volume == "neglected"          # legacy neglects the condensed volume

@@ -40,7 +40,7 @@ def document(phases, transitions):
     energy = {"initial_fill": {"temperature_K": 300.0, "composition": "main_propellant_products", "element_tolerance": 1.0e-6},
               "wall": {"adiabatic": True},
               "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0, "solid_enthalpy": SOLID_H},
-              "condensed": {"volume": "external_density", "phases": phases, "transitions": transitions,
+              "condensed": {"volume": "neglected", "phases": phases, "transitions": transitions,
                             **({"latent_heat_check_tolerance_rel": 1.0e-3} if transitions else {})},
               "recovery": RECOVERY}
     return {**G1, "two_phase_model": {**G1["two_phase_model"], "mode": "homogeneous_equilibrium"}, "energy_model": energy}

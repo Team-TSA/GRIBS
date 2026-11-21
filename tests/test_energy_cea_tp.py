@@ -111,6 +111,20 @@ def test_p05_the_tp_enthalpy_at_the_hp_temperature_is_the_reactant_enthalpy():
 
 
 @pytest.mark.fast
+def test_p05b_n7_r_h_the_enthalpy_of_the_provider_is_u_plus_the_v0_pv_term():
+    """r_h = (h - u - p V_free/M)/h with V_free the V0 volume of the gas (M n Ru T/p): the provider's h agrees with u + n Ru T,
+    so that H0_out = E_cv/M + p V_free/M is the enthalpy of the equilibrium state (N1d, decision of the 83rd record, item 1 (a)).
+    A test-only quantity: it is not in any output and not in any equation.  Tolerance = the volume tolerance of the recovery,
+    1e-8 (a choice of the N1d commit)."""
+    mass = math.fsum(B_E.values())
+    for T, p in ((3300.0, 2.0e6), (2326.0, 2.0e6), (2328.0, 2.0e6), (3000.0, 1.0e6)):
+        d = provider().tp_detail(T, p, B_E)
+        v_free = mass * d.n_gas_per_kg * 8314.51 * T / p
+        r_h = (d.h_J_per_kg - d.u_J_per_kg - p * v_free / mass) / d.h_J_per_kg
+        assert abs(r_h) <= 1.0e-8, (T, p, r_h)
+
+
+@pytest.mark.fast
 def test_p06_the_cache_key_depends_on_the_weights_the_element_order_and_the_enthalpy_convention():
     identity = provider().cache_identity()
     base = TPCache.key(identity, 3300.0, 2.0e6)
@@ -226,11 +240,11 @@ def write_g5_energy_case(tmp_path, *, with_transition):
     AL2O3(L) and no transition (F-1 R-3); True: AL2O3(a), AL2O3(L), the declared transition at 2327 K and the tolerance 0.5."""
     import gribs.config.loader  # noqa: F401
     if with_transition:
-        condensed = {"volume": "external_density", "latent_heat_check_tolerance_rel": 0.5,
+        condensed = {"volume": "neglected", "latent_heat_check_tolerance_rel": 0.5,
                      "transitions": [{"solid_species": "AL2O3(a)", "liquid_species": "AL2O3(L)", "melting_temperature_K": 2327.0}],
                      "phases": [dict(_AL2O3_S), dict(_AL2O3_L)]}
     else:
-        condensed = {"volume": "external_density", "transitions": [], "phases": [{k: v for k, v in _AL2O3_L.items()
+        condensed = {"volume": "neglected", "transitions": [], "phases": [{k: v for k, v in _AL2O3_L.items()
                                                                if k not in ("cp_J_kgK", "enthalpy_reference_J_kg", "reference_temperature_K")}]}
     root = Path(__file__).resolve().parents[1]
     doc = json.loads((root / "cases" / "golden" / "g5_high_condensed_ap_al.json").read_text(encoding="utf-8"))

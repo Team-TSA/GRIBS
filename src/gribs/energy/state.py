@@ -35,14 +35,16 @@ class ChamberState:
 @dataclass(frozen=True)
 class RecoveredState:
     """The state recovered from (E_cv, V_free, B_e): pressure and temperature, and on a phase-transition plateau the phase
-    fraction phi (0 = all solid, 1 = all liquid; None off a plateau).  V_gas + V_condensed = V_free."""
+    fraction phi (0 = all solid, 1 = all liquid; None off a plateau).  V_gas = V_free (V0: the volume of the condensed
+    phases is taken as 0); V_condensed_diagnostic_m3 is the nominal volume M sum Y_j/rho_j, a diagnostic outside the volume
+    accounting."""
     p_Pa: float
     T_K: float
     phi: Optional[float]
     on_plateau: bool
     m_total_kg: float
     V_gas_m3: float
-    V_condensed_m3: float
+    V_condensed_diagnostic_m3: float
     n_gas_kmol: float
     Yg: float
     condensed_mass_fraction: Dict[str, float] = field(default_factory=dict)

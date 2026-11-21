@@ -4,6 +4,10 @@ All notable changes to GRIBS are documented in this file.
 
 ## [Unreleased]
 
+### Changed (energy mode)
+
+- Energy mode takes the volume of the condensed phases as 0, the convention of CEA (RP-1311 p.4), in the pressure recovery, the initial state, the plateau pressure, the closure residual `R_V` and the latent-heat check, so that it agrees with the convention of the nozzle closed form, `R_eff` and `gamma_s` (before, the recovery counted the condensed volume with the constant densities while those used 0; held item H-19 (b)). **The numbers of an energy run with a condensed phase change** (pressure, temperature, flow, thrust, `L_calc`, the initial mass); the size of the change has not been evaluated. A run without a condensed phase is unchanged. New: the column `condensed_volume_fraction` of `energy_time_history.csv` and `energy_model.condensed_volume_diagnostic` of `summary.json` (a diagnostic; the densities are used only for it). `energy_model.condensed.volume` accepts `neglected` and rejects `external_density`. The legacy model is unchanged. Energy mode remains experimental and verified on synthetic fixtures only.
+
 ### Documentation
 
 - `docs/G0/G0_APPROVAL_bc310dc_2026-11-20.txt`, `docs/G0/G0_APPROVAL_7854d6d_2026-11-20.txt` and `docs/G0/G0_REPRODUCTION_bc310dc_2026-11-20.txt`: the G0 approval records of revision `bc310dc` (the parent of the v0.7.0-alpha release commit) and of `7854d6d` (the v0.7.0-alpha release commit), and the G0 reproduction record of `bc310dc`, each with an English summary. The `7854d6d` approval rests on the `bc310dc` reproduction and on an inspection of the two-line difference (the release date); the measurement was not repeated at `7854d6d`. README "Validation status" and "G0 records" are updated to match, the statement that `2bd5ec5` is the only revision approved for G0 is corrected, and `3c0c98c` (v0.6.2-alpha), which was missing from the list of approved revisions at the top of the G0 entry, is added. Documentation only: no code or test file is changed, and this change is not itself covered by G0.

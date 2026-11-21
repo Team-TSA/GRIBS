@@ -30,7 +30,7 @@ ENERGY = {"initial_fill": {"temperature_K": 300.0, "composition": "main_propella
           "wall": {"adiabatic": True},
           "burn_surface": {"form": "a", "grain_far_temperature_K": 293.0,
                            "solid_enthalpy": {"reference_J_kg": -2.0e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}},
-          "condensed": {"volume": "external_density", "phases": [], "transitions": []},
+          "condensed": {"volume": "neglected", "phases": [], "transitions": []},
           "recovery": {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6,
                        "temperature_search_K": [200.0, 8000.0], "start_temperatures_K": [600.0, 3000.0]}}
 FRACTIONS = {"C": 0.3, "H": 0.7}

@@ -12,6 +12,7 @@ from gribs.config.loader import (
 )
 from gribs.energy.config_model import (
     BURN_SURFACE_FORMS, CONDENSED_PHASES, CONDENSED_VOLUME_CHOICES, INITIAL_FILL_COMPOSITIONS,
+    REMOVED_CONDENSED_VOLUME_VALUES,
     BurnSurface, CondensedData, CondensedPhaseSpec, EnergyModeSettings, InitialFill, PhaseTransitionSpec,
     RecoverySearch, RecoverySettings, SolidEnthalpy, WallHeat,
 )
@@ -120,6 +121,11 @@ def parse_energy_model(node: Any, path: str = "energy_model") -> EnergyModeSetti
             solid_species=str(_string(t, "solid_species", tp, allow_empty=False)),
             liquid_species=str(_string(t, "liquid_species", tp, allow_empty=False)),
             melting_temperature_K=float(_number(t, "melting_temperature_K", tp, exclusive_minimum=0.0))))
+    if cond.get("volume") in REMOVED_CONDENSED_VOLUME_VALUES:
+        raise ConfigurationError(
+            f"{path}.condensed.volume: {cond['volume']!r} is not supported: it was removed. The condensed volume is taken as 0 "
+            f"(V0, the convention of CEA, RP-1311 p.4) and the density is used only for the diagnostic of the condensed "
+            f"volume fraction; write \"volume\": \"neglected\"")
     condensed = CondensedData(
         volume=str(_choice(cond, "volume", f"{path}.condensed", CONDENSED_VOLUME_CHOICES)),
         phases=tuple(phases), transitions=tuple(transitions),

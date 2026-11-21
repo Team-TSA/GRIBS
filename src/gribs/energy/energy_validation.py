@@ -92,7 +92,7 @@ def _check_phase_data(condensed) -> None:
         if p.species not in in_transition and given:
             raise ConfigurationError(
                 f"{PHASE_DATA_CODE}: energy_model.condensed.phases: {given} of the phase {p.species!r} must not be given: the phase "
-                f"belongs to no declared transition, and no number uses these inputs (only density_kg_m3 is used, for the volume)")
+                f"belongs to no declared transition, and no number uses these inputs (only density_kg_m3 is used, for the diagnostic of the condensed volume fraction)")
     tol = condensed.latent_heat_check_tolerance_rel
     if condensed.transitions and tol is None:
         raise ConfigurationError(

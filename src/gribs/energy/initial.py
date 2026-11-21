@@ -89,8 +89,8 @@ def check_initial_fill(B_e0: Mapping[str, float], product_element_fractions: Map
 def initial_state_from_fill(T_fill_0: float, p_fill: float, element_fractions: Mapping[str, float], V_free: float,
                             provider: EquilibriumProvider, condensed: CondensedData) -> ChamberState:
     """The state at t = 0 from T_fill_0, the fill pressure and the composition (the supply form (a)): the TP equilibrium of
-    the composition gives the volume per kg of total, so M = V_free / (n Ru T / p + sum Y_j / rho_j), B_e(0) = M times the
-    element fractions and E_cv = M u.  A p0-only start is not possible (the temperature and the composition are required)."""
+    the composition gives the gas volume per kg of total (V0: the condensed volume is taken as 0), so M = V_free / (n Ru T / p),
+    B_e(0) = M times the element fractions and E_cv = M u.  A p0-only start is not possible (the temperature and the composition are required)."""
     for name, value in (("T_fill_0", T_fill_0), ("p_fill", p_fill), ("V_free", V_free)):
         if not (math.isfinite(value) and value > 0.0):
             raise InitialFillError(f"{name} must be positive and finite, got {value!r}")
@@ -99,10 +99,8 @@ def initial_state_from_fill(T_fill_0: float, p_fill: float, element_fractions: M
     if not st.converged:
         raise InitialFillError(f"the equilibrium of the initial fill did not converge at T = {T_fill_0:g} K, p = {p_fill:g} Pa")
     rho = {p.species: p.density_kg_m3 for p in condensed.phases}
-    v_condensed = 0.0
-    for species, y in st.condensed_mass_fraction.items():
+    for species in st.condensed_mass_fraction:
         if species not in rho:
             raise InitialFillError(f"no density for the condensed species {species!r} in energy_model.condensed")
-        v_condensed += y / rho[species]
-    M = V_free / (st.n_gas_per_kg * _RU * T_fill_0 / p_fill + v_condensed)
+    M = V_free / (st.n_gas_per_kg * _RU * T_fill_0 / p_fill)
     return ChamberState(E_cv=M * st.u_J_per_kg, B_e={e: M * f for e, f in fractions.items()})

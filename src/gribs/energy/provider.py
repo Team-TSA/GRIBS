@@ -3,8 +3,8 @@
 A provider answers a TP equilibrium at (T, p) for the element inventory B_e.  Quantities are per kg of TOTAL products
 (gas plus condensed): u_J_per_kg is the internal energy of the mixture, n_gas_per_kg = 1 / M_CEA [kmol-gas / kg-total]
 (so that p V_gas = m_total R_eff T with R_eff = Ru n_gas_per_kg), condensed_mass_fraction maps each condensed species to
-its mass fraction, gamma_s is the equilibrium isentropic exponent (> 1 when given).  The condensed-phase volume is NOT the provider's: it is computed from the constant densities of
-energy_model.condensed (CEA's v_c = 0 equilibrium is combined with an external rho_c).
+its mass fraction, gamma_s is the equilibrium isentropic exponent (> 1 when given).  The condensed-phase volume is taken as 0, as in CEA (RP-1311 p.4): V, n and the densities are
+those of the gas, the mass is that of the whole mixture; the constant densities of energy_model.condensed give a diagnostic only.
 
 The analytic provider (reference_constant) and the synthetic providers of the tests are for tests: a result obtained with
 them is not a result for a propellant.

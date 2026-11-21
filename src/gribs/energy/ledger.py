@@ -7,7 +7,7 @@ R_B  elements: sum_e B_e - M                               the element inventori
 R_E  energy:   E_cv - (E0 + Q + W_burn - H_out)            the energy of the contents against the accumulated energy terms
                (Q the wall heat, W_burn the net burn-surface term, H_out the energy carried out by the discharge; each
                accumulated by its own state variable, not by integrating E_cv)
-R_V  volume:   V_gas + V_condensed - V_free                the volumes of the recovered state fill the free volume
+R_V  volume:   V_gas - V_free                                the gas of the recovered state fills the free volume (V0: the condensed volume is 0)
 
 The residuals check that the integration is self-consistent (each accumulator against the state and the inventories); they
 are not a check that the physical model is right, and a model error that the integration carries consistently does not
@@ -45,10 +45,10 @@ def _scale(*values: float) -> float:
 
 def closure_residuals(*, M: float, M0: float, m_gen: float, m_out: float, B_e: Mapping[str, float],
                       E_cv: float, E0: float, Q_cum: float, W_burn_cum: float, H_out_cum: float,
-                      V_gas: float, V_condensed: float, V_free: float) -> ClosureResiduals:
+                      V_gas: float, V_free: float) -> ClosureResiduals:
     """The four closure residuals at one time (the quantities are the state of the run and its accumulators)."""
     values = dict(M=M, M0=M0, m_gen=m_gen, m_out=m_out, E_cv=E_cv, E0=E0, Q_cum=Q_cum, W_burn_cum=W_burn_cum,
-                  H_out_cum=H_out_cum, V_gas=V_gas, V_condensed=V_condensed, V_free=V_free)
+                  H_out_cum=H_out_cum, V_gas=V_gas, V_free=V_free)
     for name, value in values.items():
         if not math.isfinite(value):
             raise ClosureError(f"{name} must be finite, got {value!r}")
@@ -57,7 +57,7 @@ def closure_residuals(*, M: float, M0: float, m_gen: float, m_out: float, B_e: M
     R_M = M - (M0 + m_gen - m_out)
     R_B = math.fsum(B_e.values()) - M
     R_E = E_cv - (E0 + Q_cum + W_burn_cum - H_out_cum)
-    R_V = V_gas + V_condensed - V_free
+    R_V = V_gas - V_free
     s_M = _scale(M, M0, m_gen, m_out)
     s_E = _scale(E_cv, E0, Q_cum, W_burn_cum, H_out_cum)
     s_V = _scale(V_free)

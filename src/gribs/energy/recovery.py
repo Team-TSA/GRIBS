@@ -2,12 +2,17 @@
 
 Given the total energy E_cv of the contents, the free volume V_free and the element inventory B_e, find (p, T) and, on a
 plateau, the phase fraction.  Method (the contract leaves it to the implementation; this is "accept by inclusion of E"):
-for each T the pressure that fills the volume is found (the condensed volume uses constant densities), then the residual
-g(T) = M u(T, p(T)) - E_cv is solved in T from each start point.  A sign change of g with a small residual is an ordinary
+for each T the pressure that fills the volume is found (the volume of the condensed phases is taken as 0, the convention V0 of
+CEA, RP-1311 p.4: the gas fills V_free), then the residual
+g(T) = M u(T, p(T)) - E_cv is solved in T from each start point.  The root in p and the root in T are found by bracketing; that
+each is unique is an inference (not proved).  When a root is not found or the residual stays above its tolerance, the recovery
+stops with StateRecoveryError.  A sign change of g with a small residual is an ordinary
 root.  A sign change with a large residual is a jump of the energy: if a declared transition has its T_m there, the state
 is on the plateau, T = T_m and the phase fraction is the LINEAR APPROXIMATION (E_cv - E-)/(E+ - E-) (E-, E+ = the energy just
-below and just above T_m at the same V_free and B_e); it ignores the change of p along the plateau that the melting causes
-(of order 1e-4 .. 1e-3 in ln p), so a tolerance on the phase fraction must be larger than that.  A jump where no transition
+below and just above T_m at the same V_free and B_e).  In theory the pressure on the plateau does not depend on the phase
+fraction (the gas equilibrium does not) and the interpolation is exact when both ends are taken at the same T_m, p and B_e,
+with V0, pure non-mixing condensed phases; the ends here are the provider's states at T_m -+ d, so an error that is first order
+in d remains (MODEL_LIMITATIONS, energy mode, item 3).  A jump where no transition
 is declared, or no sign change in the searched range, is NoRootOutsidePlateauError.  The plateau is never rejected as
 "no root".  The contents are taken to be at rest (E_cv is the internal energy; the kinetic energy at the nozzle inlet is in
 H0, contract 2b-4.4).  There is no direct solve of V and U (UV): the report 181 reasons are in contract 2b-FIX-1.
@@ -87,6 +92,7 @@ class _Solver:
         return st
 
     def _v_condensed(self, st: TPState) -> float:
+        """The nominal volume M sum Y_j/rho_j of the condensed phases: a DIAGNOSTIC only (it is not part of any equation: V0)."""
         total = 0.0
         for species, y in st.condensed_mass_fraction.items():
             rho = self.rho.get(species)
@@ -100,14 +106,14 @@ class _Solver:
 
     def _volume_residual(self, T: float, p: float) -> float:
         st = self._tp(T, p)
-        return self._v_gas(st, T, p) + self._v_condensed(st) - self.V
+        return self._v_gas(st, T, p) - self.V
 
     def pressure(self, T: float) -> Tuple[float, TPState]:
-        """The pressure at which the gas and the condensed phases fill V_free at temperature T, and the state there."""
+        """The pressure at which the gas fills V_free at temperature T (V0: the condensed volume is 0), and the state there."""
         st0 = self._tp(T, 1.0e5)
-        # the root lies at or above the pressure that the gas alone would have (the condensed volume only raises it); the
-        # bracket starts at half of it, so that the root is inside the bracket and never on an end (no condensed phase:
-        # the root is exactly that pressure)
+        # the bracket starts at half of the pressure that the gas at p = 1e5 Pa would have; n(T, p) depends on p, so the root may
+        # lie on either side of the start value (no assumption that f is monotonic in p); lo is halved until f(lo) > 0 and hi is
+        # doubled until f(hi) <= 0, which covers both directions (an ideal gas: the root is exactly that pressure)
         lo = 0.5 * self.M * st0.n_gas_per_kg * _RU * T / self.V
         for _ in range(_MAX_DOUBLINGS):
             if self._volume_residual(T, lo) > 0.0:
@@ -121,12 +127,12 @@ class _Solver:
                 break
             lo, hi = hi, 2.0 * hi
         else:
-            raise StateRecoveryError(f"V_free is not larger than the condensed volume at T = {T:.10g} K")
+            raise StateRecoveryError(f"no pressure bracket (the gas volume stays above V_free) at T = {T:.10g} K")
         lp = brentq(lambda x: self._volume_residual(T, math.exp(x)), math.log(lo), math.log(hi),
                     xtol=1.0e-14, rtol=max(self.rec.root_tolerance, 1.0e-14))
         p = math.exp(lp)
         st = self._tp(T, p)
-        if abs(self._v_gas(st, T, p) + self._v_condensed(st) - self.V) > _VOLUME_RESIDUAL_TOL * self.V:
+        if abs(self._v_gas(st, T, p) - self.V) > _VOLUME_RESIDUAL_TOL * self.V:
             raise StateRecoveryError(f"the volume residual is above {_VOLUME_RESIDUAL_TOL:g} at T = {T:.10g} K")
         return p, st
 
@@ -162,7 +168,7 @@ class _Solver:
     def _state(self, p: float, T: float, st: TPState, phi: Optional[float], on_plateau: bool) -> RecoveredState:
         v_c = self._v_condensed(st)
         return RecoveredState(p_Pa=p, T_K=T, phi=phi, on_plateau=on_plateau, m_total_kg=self.M,
-                              V_gas_m3=self._v_gas(st, T, p), V_condensed_m3=v_c, n_gas_kmol=self.M * st.n_gas_per_kg,
+                              V_gas_m3=self._v_gas(st, T, p), V_condensed_diagnostic_m3=v_c, n_gas_kmol=self.M * st.n_gas_per_kg,
                               Yg=st.Yg, condensed_mass_fraction=dict(st.condensed_mass_fraction), gamma_s=st.gamma_s)
 
     def on_plateau(self, transition: PhaseTransitionSpec) -> RecoveredState:
@@ -183,11 +189,8 @@ class _Solver:
         # gamma_s on the plateau: the phase-fraction interpolation of the two sides (an approximation, like phi itself)
         gamma = None if sm.gamma_s is None or sp.gamma_s is None else (1.0 - phi) * sm.gamma_s + phi * sp.gamma_s
         interpolated = TPState(u_J_per_kg=self.E / self.M, n_gas_per_kg=n, Yg=yg, condensed_mass_fraction=cond, gamma_s=gamma)
-        v_c = self._v_condensed(interpolated)
-        if not self.V - v_c > 0.0:
-            raise StateRecoveryError("V_free is not larger than the condensed volume on the plateau")
         Tm = transition.melting_temperature_K
-        p = self.M * n * _RU * Tm / (self.V - v_c)
+        p = self.M * n * _RU * Tm / self.V
         return self._state(p, Tm, interpolated, phi, True)
 
     def solve_from(self, T0: float, T_lo: float, T_hi: float) -> RecoveredState:
@@ -216,12 +219,15 @@ def latent_heat_from_provider(transition: PhaseTransitionSpec, V_free: float, B_
                               provider: EquilibriumProvider, condensed: CondensedData, recovery: RecoverySettings, *,
                               d_relative: Optional[float] = None) -> float:
     """L_calc [J/kg of liquid] = (E+ - E-) / (M (y_liq(T_m + d) - y_liq(T_m - d))): the width of the provider's plateau per kg of
-    liquid, at the given V_free and B_e (E+-, y_liq at T_m +- d, d = d_relative T_m; the default d_relative is the one of
-    plateau_bounds, max(1e-9, 10 root_tolerance)).  It is the width between T_m - d and T_m + d, so it includes the sensible heat
-    of the mixture between them (about 2 c_mix d / dy_liq, c_mix the specific heat of the mixture) and the pressure dependence of
-    the gas energy that the change of the condensed volume at fixed V_free causes (Yg dU/dp (p+ - p-) / dy_liq); it is an
-    approximation of the L of the data (contract 164 2b-FIX-1 (d)-5), not an equation of the model.  Raises StateRecoveryError
-    when the liquid does not increase across T_m (dy_liq <= 0) or the provider fails."""
+    liquid, along a path at fixed V_free and B_e (E+-, y_liq at T_m +- d, d = d_relative T_m; the default d_relative is the one of
+    plateau_bounds, max(1e-9, 10 root_tolerance)).  Besides the latent heat of the declared transition it contains: (1) the
+    sensible heat of the mixture between T_m - d and T_m + d, reaction heat included (about 2 c_mix d / dy_liq, c_mix the specific
+    heat of the mixture); (2) the effect of the pressure being different at the two ends (p follows the V0 pressure at fixed
+    V_free); (3) the transfer of the transition species itself between the gas and the condensed phases (its heat of
+    vaporization or reaction heat); (4) the mismatch between the denominator dy_liq (the increase of the liquid) and the change
+    of the total condensed amount of that species.  It is an approximation of the L of the data (contract 164 2b-FIX-1 (d)-5),
+    not an equation of the model; it contains no condensed-volume term (V0).  The size of these terms has not been evaluated.
+    Raises StateRecoveryError when the liquid does not increase across T_m (dy_liq <= 0) or the provider fails."""
     solver = _Solver(0.0, V_free, B_e, provider, condensed, recovery)
     b = solver.plateau_bounds(transition, d_relative)
     liquid = transition.liquid_species

@@ -35,7 +35,7 @@ G1 = json.loads((ROOT / "cases" / "golden" / "g1_reference_constant.json").read_
 SOLID_H = {"reference_J_kg": -2.0e6, "reference_temperature_K": 293.0, "cp_J_kgK": 1300.0}
 SURFACE = {"form": "a", "grain_far_temperature_K": 293.0, "solid_enthalpy": SOLID_H}
 FILL = {"temperature_K": 300.0, "composition": "main_propellant_products", "element_tolerance": 1.0e-6}
-CONDENSED = {"volume": "external_density", "phases": [], "transitions": []}
+CONDENSED = {"volume": "neglected", "phases": [], "transitions": []}
 RECOVERY = {"phase_fraction_tolerance": 1.0e-6, "root_tolerance": 1.0e-10, "plateau_edge_tolerance": 1.0e-6, "temperature_search_K": [200.0, 8000.0], "start_temperatures_K": [600.0, 3000.0]}
 ENERGY = {"initial_fill": FILL, "wall": {"adiabatic": True}, "burn_surface": SURFACE, "condensed": CONDENSED,
           "recovery": RECOVERY}
@@ -254,9 +254,9 @@ def test_e14_burnout_and_the_blowdown_end_the_phases():
 @pytest.mark.fast
 def test_e15_a_closure_residual_above_the_tolerance_raises():
     good = dict(M=2.0, M0=1.0, m_gen=1.5, m_out=0.5, B_e={"C": 0.6, "H": 1.4}, E_cv=-5.0, E0=-4.0, Q_cum=0.5, W_burn_cum=2.0,
-                H_out_cum=3.5, V_gas=0.3, V_condensed=0.2, V_free=0.5)
+                H_out_cum=3.5, V_gas=0.5, V_free=0.5)
     check_closure(closure_residuals(**good), tolerance=1.0e-12)
-    for broken in (dict(m_out=0.6), dict(B_e={"C": 0.6, "H": 1.5}), dict(E_cv=-5.1), dict(V_gas=0.31)):
+    for broken in (dict(m_out=0.6), dict(B_e={"C": 0.6, "H": 1.5}), dict(E_cv=-5.1), dict(V_gas=0.51)):
         with pytest.raises(ClosureError):
             check_closure(closure_residuals(**{**good, **broken}), tolerance=1.0e-3)
     for bad in (0.0, -1.0, math.nan):

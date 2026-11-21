@@ -80,7 +80,7 @@ class Products:
                        condensed_mass_fraction={"OX(s)": 0.4}, converged=self.converged)
 
 
-CONDENSED = CondensedData("external_density", (CondensedPhaseSpec("OX(s)", "solid", 3990.0, 1300.0, -1.6e7, 298.15),), ())
+CONDENSED = CondensedData("neglected", (CondensedPhaseSpec("OX(s)", "solid", 3990.0, 1300.0, -1.6e7, 298.15),), ())
 
 
 @pytest.mark.fast
@@ -90,8 +90,8 @@ def test_i07_the_state_follows_from_the_fill_temperature_pressure_and_compositio
     M = state.mass_kg
     assert state.B_e["Al"] / M == pytest.approx(PRODUCTS["Al"], rel=1e-12)
     v_gas = M * (0.6 / 28.0) * R_UNIVERSAL * T / p
-    v_c = M * 0.4 / 3990.0
-    assert v_gas + v_c == pytest.approx(V, rel=1e-12)                  # the volume condition
+    assert v_gas == pytest.approx(V, rel=1e-12)                        # V0: the gas fills V_free (the condensed volume is 0)
+    assert M == pytest.approx(V * p / ((0.6 / 28.0) * R_UNIVERSAL * T), rel=1e-12)      # M = V p/(n Ru T)
     assert state.E_cv == pytest.approx(M * (-3.0e6), rel=1e-12)        # E_cv = M u with u at T_fill_0 = 300 K
     assert initial._RU == R_UNIVERSAL
     with pytest.raises(InitialFillError, match="did not converge"):
