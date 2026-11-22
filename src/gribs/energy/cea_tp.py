@@ -36,7 +36,7 @@ from gribs.energy.exceptions import StateRecoveryError
 from gribs.errors import ThermochemistryCacheError
 from gribs.energy.provider import TPState
 
-TP_CACHE_SCHEMA = "gribs-energy-tp-cache-3"        # 3: states of earlier schemas may come from a reused EqSolution (C18, report 198); they are not read
+TP_CACHE_SCHEMA = "gribs-energy-tp-cache-4"        # 4: the state holds the entropy (U-H25-5a); 3: states of earlier schemas may come from a reused EqSolution (C18, report 198); schemas other than this one are not read
 TP_CACHE_PREFIX = "thermo_cea_tp_"
 _KJ = 1000.0                      # EqSolution energy, enthalpy, cp and cv are kJ-based; J = 1000 * kJ
 _INVARIANT_TOL = 1.0e-10
@@ -55,6 +55,7 @@ class CEATPDetail:
     condensed_mass_fraction: Dict[str, float]
     cea_version: str
     gamma_s: float                  # EqSolution.gamma_s: equilibrium isentropic exponent (the legacy gamma_s), > 1
+    entropy_J_per_kgK: float        # EqSolution.entropy (kJ/(kg K) in CEA) x 1000; the basis (kg of total products) is an assumption
 
 
 def _canonical(obj) -> str:
@@ -107,7 +108,7 @@ class TPCache:
                   and doc["state_sha256"] == hashlib.sha256(_canonical(state).encode()).hexdigest())
             restored = TPState(u_J_per_kg=state["u_J_per_kg"], n_gas_per_kg=state["n_gas_per_kg"], Yg=state["Yg"],
                                condensed_mass_fraction=dict(state["condensed_mass_fraction"]), converged=True,
-                               gamma_s=state["gamma_s"])
+                               gamma_s=state["gamma_s"], entropy_J_per_kgK=state["entropy_J_per_kgK"])
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise StateRecoveryError(f"the TP cache file {path} is unreadable or malformed: {type(exc).__name__}: {exc}") from exc
         if not ok:
@@ -117,7 +118,8 @@ class TPCache:
 
     def store(self, identity: Mapping, T: float, p: float, state: TPState) -> None:
         body = {"u_J_per_kg": state.u_J_per_kg, "n_gas_per_kg": state.n_gas_per_kg, "Yg": state.Yg,
-                "condensed_mass_fraction": dict(state.condensed_mass_fraction), "gamma_s": state.gamma_s}
+                "condensed_mass_fraction": dict(state.condensed_mass_fraction), "gamma_s": state.gamma_s,
+                "entropy_J_per_kgK": state.entropy_J_per_kgK}
         doc = {"schema": TP_CACHE_SCHEMA, "key": self.key(identity, T, p), "identity": identity, "T": T, "p": p,
                "state": body, "state_sha256": hashlib.sha256(_canonical(body).encode()).hexdigest()}
         try:                                                       # as the legacy cache: the directory first
@@ -221,10 +223,11 @@ class CEATPProvider:
             n, M = float(sol.n), float(sol.M)
             energy, enthalpy = float(sol.energy) * _KJ, float(sol.enthalpy) * _KJ
             gamma = float(sol.gamma_s)
+            entropy = float(sol.entropy) * _KJ
         if not math.isfinite(gamma) or not gamma > 1.0:
             raise StateRecoveryError(f"CEA returned an isentropic exponent gamma_s = {gamma!r} (must be finite and > 1) at "
                                      f"T = {T:.9g} K, p = {p:.9g} Pa")
-        values = [n, M, energy, enthalpy, *mass_fractions.values()]
+        values = [n, M, energy, enthalpy, entropy, *mass_fractions.values()]
         if not all(math.isfinite(v) for v in values) or not (n > 0.0 and M > 0.0):
             raise StateRecoveryError(f"CEA returned a non-finite or non-positive value at T = {T:.9g} K, p = {p:.9g} Pa")
         if abs(n * M - 1.0) > _INVARIANT_TOL:
@@ -234,7 +237,8 @@ class CEATPProvider:
         condensed = {k: mass_fractions[k] for k in self._condensed_names if mass_fractions.get(k, 0.0) > 0.0}
         yg = math.fsum(mass_fractions[k] for k in self._gas_names)
         return CEATPDetail(T_K=float(T), p_Pa=float(p), u_J_per_kg=energy, h_J_per_kg=enthalpy, n_gas_per_kg=n, M_CEA=M,
-                           Yg=yg, condensed_mass_fraction=condensed, cea_version=str(self._cea.__version__), gamma_s=gamma)
+                           Yg=yg, condensed_mass_fraction=condensed, cea_version=str(self._cea.__version__), gamma_s=gamma,
+                           entropy_J_per_kgK=entropy)
 
     def tp(self, T: float, p: float, B_e: Mapping[str, float]) -> TPState:
         if self._cache is not None:
@@ -244,7 +248,8 @@ class CEATPProvider:
                 return hit
         d = self.tp_detail(T, p, B_e)
         state = TPState(u_J_per_kg=d.u_J_per_kg, n_gas_per_kg=d.n_gas_per_kg, Yg=d.Yg,
-                        condensed_mass_fraction=dict(d.condensed_mass_fraction), converged=True, gamma_s=d.gamma_s)
+                        condensed_mass_fraction=dict(d.condensed_mass_fraction), converged=True, gamma_s=d.gamma_s,
+                        entropy_J_per_kgK=d.entropy_J_per_kgK)
         if self._cache is not None:
             self._cache.store(self.cache_identity(), float(T), float(p), state)
         return state

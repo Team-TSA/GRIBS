@@ -23,6 +23,10 @@ class TPState:
     #: Equilibrium isentropic exponent of the mixture (CEA EqSolution.gamma_s, the definition of the legacy gamma_s); None when
     #: the provider does not give it (a run that needs it - the nozzle flow - then fails fast, C11).
     gamma_s: Optional[float] = None
+    #: Specific entropy of the mixture [J/(kg K)] per kg of TOTAL products, the value of CEA (EqSolution.entropy x 1000; the pressure
+    #: term is included).  None when the provider does not give it; the numerical isentrope (gribs.energy.isentrope, A-6 stage 2,
+    #: U-H25-5) then fails fast.  The basis (per kg of total products, like energy and enthalpy) is the assumption of this field.
+    entropy_J_per_kgK: Optional[float] = None
 
 
 class EquilibriumProvider(Protocol):
