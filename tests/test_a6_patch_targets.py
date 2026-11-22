@@ -98,6 +98,7 @@ MODULE_UNIT = {
     "gribs.energy.isentrope": 1,
     "gribs.energy.isentrope_flow": 1,
     "gribs.energy.nozzle_from_state": 4,
+    "gribs.energy.numerical_path": 4,
     "gribs.config": 2,
     "gribs.thermo": 3,
     "gribs.propellant": 4,

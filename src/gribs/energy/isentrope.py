@@ -1,7 +1,7 @@
 """The isentrope of the chamber contents through a phase-transition plateau (A-6 stage 2, U-H25-5 group A-D; reports 272, 273).
 
-Building blocks of a numerical isentropic expansion that does not assume a gamma_s constant along the path (H-25).  NOTHING in
-this module is called by the energy run yet: no other module imports it (the connection is a later group, stage I).
+Building blocks of a numerical isentropic expansion that does not assume a gamma_s constant along the path (H-25).  The energy
+run uses this module through gribs.energy.isentrope_flow and gribs.energy.numerical_path (group H-I).
 
 Quantities are per kg of TOTAL products, as in gribs.energy.provider.  The condensed volume is 0 (V0), so v = n R_u T / p with
 n = n_gas_per_kg and the enthalpy is h = u + n R_u T.  The provider must give the specific entropy (TPState.entropy_J_per_kgK);

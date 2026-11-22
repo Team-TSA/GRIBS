@@ -122,8 +122,8 @@ class EnergyOutcome:
                  f"  peak pressure [Pa]: {r['peak_pressure_Pa']:.9g} at t = {r['peak_pressure_time_s']:.9g} s",
                  f"  total impulse [N s]: {r['total_impulse_Ns']:.9g}; generated mass [kg]: {r['generated_mass_kg']:.9g}; "
                  f"discharged mass [kg]: {r['discharged_mass_kg']:.9g}",
-                 f"  gamma_s range (CEA-type equilibrium isentropic exponent of the provider): {e['gamma_s']['min']:.9g} .. "
-                 f"{e['gamma_s']['max']:.9g}",
+                 "  gamma_s range (CEA-type equilibrium isentropic exponent of the provider, states off a plateau): "
+                 + (f"{e['gamma_s']['min']:.9g} .. {e['gamma_s']['max']:.9g}" if e['gamma_s']['min'] is not None else "none (every state on a plateau)"),
                  f"  closure residuals (normalised, max over the history; tolerance {CLOSURE_TOLERANCE:g}): "
                  + ", ".join(f"{k} = {v:.3g}" for k, v in r["closure"]["max_normalised"].items()),
                  "  condensed volume fraction alpha (diagnostic, V0 convention): "
@@ -282,7 +282,7 @@ def _run_energy_case(loaded) -> EnergyOutcome:
     maxima_abs = {name: float(np.max(np.abs(history[name + unit]))) for name, unit in
                   (("R_M", "_kg"), ("R_B", "_kg"), ("R_E", "_J"), ("R_V", "_m3"))}
     closure_ok = all(math.isfinite(v) and v <= CLOSURE_TOLERANCE for v in maxima.values())
-    gamma_min, gamma_max = float(run["provenance"]["gamma_s_min"]), float(run["provenance"]["gamma_s_max"])
+    gamma_min, gamma_max = (None if run["provenance"][k] is None else float(run["provenance"][k]) for k in ("gamma_s_min", "gamma_s_max"))
     sol_last = run["sol_blow"] if run["sol_blow"] is not None else run["sol_burn"]
     burn_end = float(run["sol_burn"].t[-1])
     results = {
@@ -294,9 +294,10 @@ def _run_energy_case(loaded) -> EnergyOutcome:
         "total_impulse_Ns": float(sol_last.y[ei.IIMP, -1]), "nodes": int(t_all.size),
         "closure": {"tolerance_normalised": CLOSURE_TOLERANCE, "max_normalised": maxima, "max_absolute": maxima_abs,
                     "passed": closure_ok},
-        "warnings": [] if closure_ok else [{"code": CLOSURE_WARNING_CODE, "severity": "error",
-                                            "message": "a normalised closure residual of the energy run exceeds the tolerance",
-                                            "context": {"max_normalised": maxima, "tolerance": CLOSURE_TOLERANCE}}],
+        "warnings": ([] if closure_ok else [{"code": CLOSURE_WARNING_CODE, "severity": "error",
+                                             "message": "a normalised closure residual of the energy run exceeds the tolerance",
+                                             "context": {"max_normalised": maxima, "tolerance": CLOSURE_TOLERANCE}}])
+                    + list(run.get("warnings", [])),
     }
     energy_model = {
         "scope": SCOPE, "contract": "reports/164_P8_A6_STAGE2_CONTRACT.md", "burn_surface_form": cfg.energy.burn_surface.form,

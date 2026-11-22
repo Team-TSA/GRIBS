@@ -1,7 +1,7 @@
 """The flow along the isentrope of the chamber contents: throat, exit state, thrust (A-6 stage 2, U-H25-5 group E-G; reports 277, 278).
 
-Built on gribs.energy.isentrope (stages A-D).  NOTHING in this module is called by the energy run yet: no other module imports it
-(the connection is a later group, H-I).  Quantities are per kg of TOTAL products; the condensed volume is 0 (V0).
+Built on gribs.energy.isentrope (stages A-D).  The energy run calls it through gribs.energy.numerical_path (group H-I, which decides when
+the numerical flow replaces the closed form).  Quantities are per kg of TOTAL products; the condensed volume is 0 (V0).
 
 The mass flux G(p) = u / v = u p / (n R_u T) of the isentrope (u = sqrt(2 (h_0 - h)), the stagnation enthalpy h_0) is a function of
 the pressure alone once the stagnation state is fixed.  By continuity G A = mdot, so the area ratio at p is A / A_t = G* / G(p) with
@@ -404,6 +404,89 @@ def supersonic_limit(exp: Expansion, throat: Throat, *, n_grid: int, kink_dlnp: 
         return BranchLimit("smooth_minimum", p_m, G_m, throat.G_star / G_m)
     except _Failed as exc:
         return BranchLimit("state_error", message=str(exc))
+
+
+# ------------------------------------------------------------------------- stage H: continuation from the previous evaluation
+def find_throat_near(exp: Expansion, *, p_hint: float, width: float, ln_p_xtol: float, kink_dlnp: float) -> Optional[Throat]:
+    """The throat searched only in [p_hint exp(-width), p_hint exp(+width)] (ln p; clipped to [p_floor, p_0]), a continuation of the
+    previous evaluation (decision 117, K-H25-57 (2)).  Returns None, and the caller must use find_throat (the cold search), when the
+    interval does not bracket a maximum (G at either end is not below the maximum found), when the kink test cannot be made inside it,
+    or when a state of the interval cannot be recovered.  The classification is NOT compared here (the caller compares it with the
+    previous one).  The maximum is the one of the bracket, taken to be the first from p_0 because the bracket is around the previous
+    first maximum; this is an assumption of the continuation, and find_throat is the check (a test compares the two)."""
+    _check_positive("width", width)
+    _check_positive("kink_dlnp", kink_dlnp)
+    _check_positive("ln_p_xtol", ln_p_xtol)
+    if not (math.isfinite(p_hint) and exp.p_floor < p_hint < exp.p_0):
+        return None
+    x0, xf, xh0 = math.log(exp.p_0), math.log(exp.p_floor), math.log(p_hint)
+    lo, hi = max(xh0 - width, xf), min(xh0 + width, x0)
+    try:
+        G_lo, G_hi = exp._G(math.exp(lo)), exp._G(math.exp(hi))
+        if exp.has_plateau and math.isfinite(exp.p_high) and lo < math.log(exp.p_high) < hi:
+            x_h = math.log(exp.p_high)
+            if not (lo < x_h - kink_dlnp and x_h + kink_dlnp < hi):
+                return None
+            G_h = exp._G(exp.p_high)
+            if G_h > exp._G(math.exp(x_h + kink_dlnp)) and G_h > exp._G(math.exp(x_h - kink_dlnp)) and G_h > G_lo and G_h > G_hi:
+                st = exp.state_at(exp.p_high)
+                return Throat("kink_at_plateau_entry", G_h, exp.p_high, st, 0)
+        m = minimize_scalar(lambda x: -exp._G(math.exp(x)), bounds=(lo, hi), method="bounded", options={"xatol": ln_p_xtol})
+        x_m, G_m = m.x, -m.fun
+        if not (G_m > G_lo and G_m > G_hi):
+            return None
+        x_m, G_m = _polish_maximum(exp, x_m, G_m, lo, hi)
+        p_t = math.exp(x_m)
+        st = exp.state_at(p_t)
+    except _Failed:
+        return None
+    if st.status != "ok":
+        return None
+    return Throat(_throat_class(exp, p_t), G_m, p_t, st, 0)
+
+
+def exit_state_near(exp: Expansion, throat: Throat, *, eps: float, p_a: float, eta: float, A_t: float, p_exit_hint: Optional[float],
+                    width: float) -> Optional[ExitState]:
+    """The exit state by a continuation (decision 117, K-H25-57 (2)): the choke test from G(p_a) alone (choked when p_a <= p_t or
+    G* / G(p_a) < eps; this is the test of exit_state, p_a < p_sub, written with the monotone G on the subsonic branch; p_sub_Pa is
+    None) and the exit pressure as the root of G* / G = eps in [p_hint exp(-width), p_hint exp(+width)] below p_t.  Returns None, and the
+    caller must use exit_state (the cold scan), when the throat is not usable, the area ratio is 1 or p_a >= p_0 (those are cheap in
+    exit_state), the interval does not bracket the root, or a state could not be recovered.  The branch between p_t and the root is
+    taken to be monotone (no fold): a fold makes the root disappear from the interval or is found by exit_state."""
+    _check_positive("width", width)
+    for name, value in (("eps", eps), ("p_a", p_a), ("eta", eta), ("A_t", A_t)):
+        _check_positive(name, value)
+    if eps < 1.0 - _EPS_ONE:
+        raise StateRecoveryError(f"the area ratio must be at least 1, got {eps!r}")
+    if throat.classification in ("not_found", "state_error") or p_a >= exp.p_0 or eps <= 1.0 + _EPS_ONE:
+        return None
+    A_e = eps * A_t
+    try:
+        if p_a > throat.p_t_Pa:
+            st = exp.state_at(p_a)
+            if st.status != "ok":
+                return None
+            if throat.G_star / st.G >= eps:                             # not choked: p_e = p_a, mdot = G(p_a) A_e
+                mdot = st.G * A_e
+                return ExitState("unchoked_subsonic", False, p_a, st.u_m_per_s, st.T_K, mdot, eta * mdot * st.u_m_per_s, None, st)
+        if p_exit_hint is None or not (math.isfinite(p_exit_hint) and exp.p_floor < p_exit_hint < throat.p_t_Pa):
+            return None
+        xt, xh0 = math.log(throat.p_t_Pa), math.log(p_exit_hint)
+        xa, xb = max(xh0 - width, math.log(exp.p_floor)), min(xh0 + width, xt)
+
+        def f(x):
+            G = throat.G_star if x >= xt else exp._G(math.exp(x))
+            return (throat.G_star / G if G > 0.0 else math.inf) - eps
+        if not (f(xa) >= 0.0 >= f(xb)):
+            return None
+        p_e = _root_ratio(exp, throat.G_star, eps, xa, xb)
+        st = exp.state_at(p_e)
+        if st.status != "ok":
+            return None
+        mdot = throat.G_star * A_t
+        return ExitState("choked_supersonic", True, p_e, st.u_m_per_s, st.T_K, mdot, eta * mdot * st.u_m_per_s + (p_e - p_a) * A_e, None, st)
+    except (_Failed, ValueError):
+        return None
 
 
 # --------------------------------------------------------------------------------------------------- the speed of sound

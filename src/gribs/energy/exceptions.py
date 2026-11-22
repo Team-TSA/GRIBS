@@ -22,6 +22,15 @@ class LatentHeatMismatchError(StateRecoveryError):
     code = "E_ENERGY_LATENT_HEAT_MISMATCH"
 
 
+class ExitOutOfRangeError(StateRecoveryError):
+    """The numerical isentropic flow has no continuous solution at the area ratio of the nozzle: the mass flux G stops decreasing (the
+    fold of the supersonic branch, at the exit of a phase-transition plateau) before G* / G reaches the area ratio (A-6 stage 2, U-H25-5
+    group H-I; decision 109, K-H25-36, K-H25-61).  Raised from the right-hand side or an event function, so a run that meets the fold
+    at any time of the integration stops (it leaves no result); the command line ends with code 4 like any StateRecoveryError."""
+
+    code = "E_ENERGY_EXIT_OUT_OF_RANGE"
+
+
 class InitialFillError(GribsError):
     """The initial fill at t = 0 is rejected: the element basis does not cover an element, the weights are negative or not
     unique, the composition differs from the main-propellant products (an air fill, for example), or the equilibrium of

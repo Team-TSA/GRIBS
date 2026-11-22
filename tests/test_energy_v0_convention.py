@@ -17,6 +17,7 @@ The auxiliary residual r_h = (h - u - p V_free/M)/h is in test_energy_cea_tp.py 
 import dataclasses
 import functools
 import json
+import math
 from dataclasses import asdict
 from pathlib import Path
 
@@ -123,11 +124,21 @@ class PlateauProvider:
     T_FLAME, H_SURFACE = 3000.0, -2.0e6
     U0 = (H_SURFACE - YC * h_l(T_FLAME)) / YG - CV * (T_FLAME - 300.0) - R_G * T_FLAME
 
+    S_REF, P_REF = 6000.0, 1.0e6
+
+    @classmethod
+    def entropy(cls, T, p):
+        """The specific entropy per kg of TOTAL products (added for the numerical nozzle flow, decisions 116 and 117): the ideal gas
+        (constant cp, R ln p) plus the incompressible condensed phase (constant cp) with the jump L / T_m at T_m."""
+        s_gas = YG * ((cls.CV + cls.R_G) * math.log(T / 300.0) - cls.R_G * math.log(p / cls.P_REF))
+        s_cond = YC * (CP * math.log(T / TREF) + ((H_L_REF - H_S_REF) / T_M if T > T_M else 0.0))
+        return cls.S_REF + s_gas + s_cond
+
     def tp(self, T, p, B_e):
         liquid = T > T_M
         u = YG * (self.U0 + self.CV * (T - 300.0)) + YC * (h_l(T) if liquid else h_s(T))
         return TPState(u_J_per_kg=u, n_gas_per_kg=YG / 24.0, Yg=YG, condensed_mass_fraction={"OX(L)" if liquid else "OX(s)": YC},
-                       converged=True, gamma_s=self.GAMMA)
+                       converged=True, gamma_s=self.GAMMA, entropy_J_per_kgK=self.entropy(T, p))
 
 
 def _phase(species, kind, density, enthalpy):

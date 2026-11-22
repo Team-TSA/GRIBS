@@ -11,7 +11,10 @@ Each right-hand side recovers (p, T) from (E_cv, V_free, B_e) with energy/recove
   burning mass flow mdot_burn = rho_p A_b r,   rho_p = Config.rho_p (the one density of the solid; B-15: no energy_model key),
   outflow enthalpy  h = u + p V_free / M = E_cv / M + p V_free / M   (the thermodynamic density of the gas mixture is M / V_free:
                     it is taken from the STATE, never from the settings),
-  nozzle flow       nozzle_state_from_chamber (the chamber state is the stagnation state, the contents at rest; H0_out = h_cv, the stagnation enthalpy of the contents at rest, H-05),
+  nozzle flow       NumericalPath.nozzle: nozzle_state_from_chamber (the closed form; the chamber state is the stagnation state, the
+                    contents at rest; H0_out = h_cv, the stagnation enthalpy of the contents at rest, H-05), or, for the evaluations
+                    that cross or start on a phase-transition plateau of a declared transition, the numerical isentrope
+                    (energy/numerical_path.py; group H-I of U-H25-5),
   balance           first_law_rhs with the burn-surface net term of form (a) and h_s at T_grain_inf.
 The solid density rho_p and the gas density M / V_free are two different quantities (contract 164 section 1c): they are not
 compared, and each has one role, in a function of its own below.
@@ -19,7 +22,8 @@ compared, and each has one role, in a function of its own below.
 The equilibrium provider and the element fractions are EnergyRunInputs: given by the caller, or built from the configuration
 by energy/wiring.py (C11).  gamma_s of the nozzle flow is the equilibrium isentropic exponent of the provider's state (CEA
 EqSolution.gamma_s, the legacy definition); a state without a finite gamma_s > 1 stops the run, and the range of gamma_s met by
-a run is part of its provenance.  An igniter is rejected by the configuration check.
+a run is part of its provenance (gamma_s_min / gamma_s_max: the states off a plateau; on a plateau the gamma_s of the recovery is the
+phase-fraction interpolation of the two sides, an approximation that the numerical flow does not use: gamma_s_plateau_interpolated_*).  An igniter is rejected by the configuration check.
 """
 from __future__ import annotations
 
@@ -41,7 +45,8 @@ from gribs.energy.balance import BalanceTerms, Flow, burn_surface_term, first_la
     h_s_for_burn_surface
 from gribs.energy.initial import initial_state_from_fill
 from gribs.energy.ledger import closure_residuals
-from gribs.energy.nozzle_from_state import _choke_threshold_pressure, nozzle_state_from_chamber
+from gribs.energy.nozzle_from_state import _choke_threshold_pressure
+from gribs.energy.numerical_path import NumericalPath
 from gribs.energy.exceptions import StateRecoveryError
 from gribs.energy.recovery import latent_heat_check, recover_state
 from gribs.energy.state import RecoveredState
@@ -70,7 +75,9 @@ class _EnergyModel:
         self.h_s = h_s_for_burn_surface(self.e.burn_surface, products_enthalpy_basis=getattr(
             inputs.provider, "enthalpy_convention", "undeclared"))
         self._last = None
-        self.gamma_range = [math.inf, -math.inf]       # the range of gamma_s met by the run (provenance)
+        self.gamma_range = [math.inf, -math.inf]       # the range of gamma_s of the states off a plateau met by the run (provenance)
+        self.gamma_plateau_range = [math.inf, -math.inf]   # the same for the states on a plateau (the interpolation of the recovery)
+        self.numeric = NumericalPath(c, inputs)        # the closed form or the numerical flow (energy/numerical_path.py)
 
     def B_e(self, M: float) -> dict:
         return {k: M * v for k, v in self.inputs.element_fractions.items()}
@@ -89,10 +96,11 @@ class _EnergyModel:
         if g is None or not (math.isfinite(g) and g > 1.0):
             raise StateRecoveryError(f"the nozzle flow needs the equilibrium isentropic exponent gamma_s > 1 from the provider's "
                                      f"state, got {g!r} at T = {rec.T_K:.9g} K, p = {rec.p_Pa:.9g} Pa")
-        self.gamma_range = [min(self.gamma_range[0], g), max(self.gamma_range[1], g)]
+        rng = self.gamma_plateau_range if rec.on_plateau else self.gamma_range
+        rng[0], rng[1] = min(rng[0], g), max(rng[1], g)
         return g
 
-    def terms(self, y, burning: bool) -> dict:
+    def terms(self, y, burning: bool, t=None) -> dict:
         c, e = self.c, self.e
         M, E_cv = float(y[IM]), float(y[IE])
         if not (math.isfinite(M) and M > 0.0 and math.isfinite(E_cv)):
@@ -110,29 +118,38 @@ class _EnergyModel:
         mdot_burn = _burn_mass_flow(c, Ab, r)
         R_eff = R_UNIVERSAL * rec.n_gas_kmol / rec.m_total_kg
         gamma_s = self.gamma_of(rec)
-        nz = nozzle_state_from_chamber(p, T, R_eff, gamma_s, rec.Yg, At, self.Ae, c)
+        nz, margin = self.numeric.nozzle(rec=rec, p_stag=p, T_stag=T, R_eff=R_eff, gamma_s=gamma_s, Yg=rec.Yg, At=At, Ae=self.Ae, c=c,
+                                         B_e=self.B_e(M), key=(M, E_cv, V_free), t=t)
         mdot_out = nz["mdot_total"]
         H0_out = h0_out_from_chamber(_outflow_enthalpy(E_cv, M, p, V_free), 0.0)
         burn_net = burn_surface_term(mdot_burn, self.h_s, p, Ab, r, form=e.burn_surface.form)
         Q = 0.0 if e.wall.adiabatic else float(e.wall.heat_rate_W)
         dE = first_law_rhs(BalanceTerms(Qdot_in=Q, burn_surface_net=burn_net, outflows=(Flow(mdot_out, H0_out),)))
         return dict(rec=rec, gamma_s=gamma_s, p=p, T=T, x=x, At=At, Ab=Ab, r=r, V_free=V_free, mdot_burn=mdot_burn, nz=nz, mdot_out=mdot_out,
-                    H0_out=H0_out, burn_net=burn_net, Q=Q, dE=dE)
+                    H0_out=H0_out, burn_net=burn_net, Q=Q, dE=dE, choke_margin_numeric=margin)
 
     def rhs(self, burning: bool):
         c = self.c
 
         def rhs(t, y):
-            k = self.terms(y, burning)
+            k = self.terms(y, burning, t)
             dRt = c.ero_throat_c * (k["p"] / c.p_ref) ** c.ero_throat_m
             return np.array([k["mdot_burn"] - k["mdot_out"], k["dE"], k["r"], dRt, k["mdot_out"], k["nz"]["F"],
                              k["mdot_burn"], k["burn_net"], k["mdot_out"] * k["H0_out"], k["Q"]])
         return rhs
 
-    def choke_margin(self, y) -> float:
-        k = self.terms(y, False)
+    def choke_margin(self, y, t=None) -> float:
+        """> 0 when choked.  The closed form: p - p_thr [Pa].  When the numerical flow is used: eps - G* / G(p_a) (see NumericalPath)."""
+        k = self.terms(y, False, t)
+        if k["choke_margin_numeric"] is not None:
+            return k["choke_margin_numeric"]
         eps = self.Ae / k["At"]
         return k["p"] - _choke_threshold_pressure(self.c.p_a, eps, k["gamma_s"])
+
+
+def _finite_or_none(v: float):
+    """A range end that no state set (still +-inf) is None in the provenance (JSON has no infinity)."""
+    return v if math.isfinite(v) else None
 
 
 def _event(fn, terminal=True, direction=0.0):
@@ -208,9 +225,9 @@ def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None, *, wal
     atol = np.array([1.0e-12, 1.0e-3, c.atol_x, 1.0e-14, 1.0e-12, 1.0e-9, 1.0e-12, 1.0e-3, 1.0e-3, 1.0e-3])
 
     ev_burn = _event(lambda t, y: y[IX] - xw, True, +1.0)
-    ev_unch = _event(lambda t, y: model.choke_margin(y), c.unchoked_policy == "stop", -1.0)
-    ev_rech = _event(lambda t, y: model.choke_margin(y), False, +1.0)
-    ev_amb = _event(lambda t, y: model.terms(y, False)["p"] - c.p_a * 1.0005, True, -1.0)
+    ev_unch = _event(lambda t, y: model.choke_margin(y, t), c.unchoked_policy == "stop", -1.0)
+    ev_rech = _event(lambda t, y: model.choke_margin(y, t), False, +1.0)
+    ev_amb = _event(lambda t, y: model.terms(y, False, t)["p"] - c.p_a * 1.0005, True, -1.0)
     names = ["burnout", "unchoked", "rechoked", "ambient"]
 
     wall = _WallClock(wall_budget if wall_budget is not None else WallBudget.default())
@@ -232,8 +249,8 @@ def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None, *, wal
     if c.blowdown and stop1 == "burnout":
         y_bo = sol1.y[:, -1].copy()
         y_bo[IX] = xw
-        ev_amb2 = _event(lambda t, y: model.terms(y, False)["p"] - c.p_a * 1.0005, True, -1.0)
-        ev_unch2 = _event(lambda t, y: model.choke_margin(y), c.unchoked_policy == "stop", -1.0)
+        ev_amb2 = _event(lambda t, y: model.terms(y, False, t)["p"] - c.p_a * 1.0005, True, -1.0)
+        ev_unch2 = _event(lambda t, y: model.choke_margin(y, t), c.unchoked_policy == "stop", -1.0)
         f2, calls2 = _counted(model.rhs(False), wall)
         sol2 = solve_ivp(f2, (sol1.t[-1], sol1.t[-1] + c.blowdown_tmax), y_bo, method=c.method,
                          events=[ev_amb2, ev_unch2], dense_output=True, rtol=c.rtol, atol=atol, max_step=c.max_step_blow)
@@ -247,8 +264,12 @@ def run_model_energy(c: Config, inputs: Optional[EnergyRunInputs] = None, *, wal
                 integration_budget={"rhs_calls": calls1["calls"] + calls2["calls"]},
                 Ae=Ae, At0=At0, M0=M0, E0=E0, init_regime=init_regime, latent_heat_check=latent_records,
                 t_events={nm: [float(v) for v in te] for nm, te in zip(names, sol1.t_events)},
-                model=model, provenance=dict(inputs.provenance, gamma_s_min=model.gamma_range[0],
-                                             gamma_s_max=model.gamma_range[1]))
+                model=model, warnings=model.numeric.warnings(),
+                provenance=dict(inputs.provenance, gamma_s_min=_finite_or_none(model.gamma_range[0]),
+                                gamma_s_max=_finite_or_none(model.gamma_range[1]),
+                                gamma_s_plateau_interpolated_min=_finite_or_none(model.gamma_plateau_range[0]),
+                                gamma_s_plateau_interpolated_max=_finite_or_none(model.gamma_plateau_range[1]),
+                                **model.numeric.provenance()))
 
 
 def closure_history(run: dict) -> list:

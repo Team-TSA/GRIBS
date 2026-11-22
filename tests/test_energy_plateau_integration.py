@@ -47,6 +47,20 @@ def h_liquid(T):
 U_G0 = (H_SURFACE - YC * h_liquid(T_FLAME)) / YG - CV_G * (T_FLAME - 300.0) - R_G * T_FLAME   # h(T_flame) = h_surface, gas part
 
 
+S_REF, P_REF = 6000.0, 1.0e6                                             # the arbitrary origin of the entropy [J/(kg K)], [Pa]
+
+
+def entropy(T, p):
+    """The specific entropy per kg of TOTAL products of the synthetic data: the ideal gas (constant cp, p-dependence R ln p) plus the
+    incompressible condensed phase (constant cp) with the jump L / T_m at T_m (added for the numerical nozzle flow, decision 116 item 1
+    and 117: the entropy is needed only where the flow crosses the plateau; I2 and I7 of test_energy_numerical_path.py check that it is
+    consistent with the enthalpy of this provider)."""
+    cp_gas = CV_G + R_G
+    s_gas = YG * (cp_gas * math.log(T / 300.0) - R_G * math.log(p / P_REF))
+    s_cond = YC * (CP * math.log(T / TREF) + (LATENT / T_M if T > T_M else 0.0))
+    return S_REF + s_gas + s_cond
+
+
 class PlateauProvider:
     enthalpy_convention = ABSOLUTE_ENTHALPY_BASIS
 
@@ -54,7 +68,7 @@ class PlateauProvider:
         liquid = T > T_M
         u = YG * (U_G0 + CV_G * (T - 300.0)) + YC * (h_liquid(T) if liquid else h_solid(T))
         return TPState(u_J_per_kg=u, n_gas_per_kg=YG / MW, Yg=YG, condensed_mass_fraction={"OX(L)" if liquid else "OX(s)": YC},
-                       converged=True, gamma_s=GAMMA)
+                       converged=True, gamma_s=GAMMA, entropy_J_per_kgK=entropy(T, p))
 
 
 def phase_data(species, kind, density, enthalpy):
