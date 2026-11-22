@@ -96,6 +96,7 @@ MODULE_UNIT = {
     "gribs.energy.wiring": 3,
     "gribs.energy.cea_tp": 3,
     "gribs.energy.isentrope": 1,
+    "gribs.energy.isentrope_flow": 1,
     "gribs.energy.nozzle_from_state": 4,
     "gribs.config": 2,
     "gribs.thermo": 3,

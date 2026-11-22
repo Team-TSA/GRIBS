@@ -12,6 +12,7 @@ All notable changes to GRIBS are documented in this file.
 
 - Energy mode: the TP state of the provider (`TPState`) has an optional `entropy_J_per_kgK` (CEA `EqSolution.entropy`, J/(kg K), taken per kg of total products; the basis is an assumption that has not been confirmed numerically). The TP cache schema is now `gribs-energy-tp-cache-4`: cache files of the earlier schema are not read and the states are solved again once (CEA solves per run are unchanged). No value of an energy-mode run changes.
 - New module `gribs.energy.isentrope` (building blocks of a numerical isentrope through a phase-transition plateau: the plateau state by the entropy of the two ends at T_m, single-phase states and the plateau pressures by roots in s, and gamma_{s,T} from the change of the gas amount with pressure). Nothing imports it yet: the energy run does not call it (H-25 is not fixed by this change).
+- New module `gribs.energy.isentrope_flow` (the flow along that isentrope without a constant `gamma_s`: the throat as the first maximum of the mass flux `G = u / v`, including a kink at the entry of a phase-transition plateau; the exit state, the numerical choke test and the thrust of a nozzle of a given area ratio; detection of the fold of the supersonic branch, where no continuous isentropic solution exists; all numerical settings are required arguments). Nothing imports it yet: the energy run does not call it, flow separation is not computed by it, and H-25 is not fixed by this change.
 
 ### Documentation
 
