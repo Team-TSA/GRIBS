@@ -3,7 +3,7 @@
 """Phase-A probe #5: a Level-0 reference problem with an analytic solution.
 
 Configuration: constant properties (the module's own synthetic test table),
-r = 0 (no propellant generation), fixed free volume, converging nozzle.
+a_burn = 1.0e-12 and n_burn = 0 (tiny CONSTANT generation term), fixed free volume, converging nozzle.
 The chamber then obeys, exactly,
 
     dp/dt = -Psi * mdot_out / Vg,
