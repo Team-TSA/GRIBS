@@ -14,7 +14,7 @@ It also demonstrates two things about the current code that matter for Phase A:
     changes the interpolated properties and therefore the "converged" answer.
 
 Usage:  python3 convergence_sweep.py [config.json]
-Writes: convergence_sweep.csv  and  prints a Markdown table.
+Writes: convergence_sweep.json  and  prints a Markdown table.
 """
 from __future__ import annotations
 
