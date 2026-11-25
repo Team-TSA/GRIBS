@@ -21,19 +21,33 @@ DOCS = [
 ]
 
 HEADING = re.compile(r"^#{1,6} ")
+FENCE_OPEN = re.compile(r"^(`{3,}|~{3,})")
+FENCE_RUN = re.compile(r"^(`+|~+)")
 
 
 @pytest.mark.parametrize("rel", DOCS)
 def test_heading_preceded_by_blank_line(rel):
     lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
-    in_fence = False
+    fence = None  # (char, length) of the open fence, or None outside a fence
     bad = []
     for i, line in enumerate(lines):
         stripped = line.lstrip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            in_fence = not in_fence
+        if fence is None:
+            opener = FENCE_OPEN.match(stripped)
+            if opener:
+                fence = (opener.group(1)[0], len(opener.group(1)))
+                continue
+        else:
+            closer = FENCE_RUN.match(stripped)
+            if (
+                closer
+                and closer.group(1)[0] == fence[0]
+                and len(closer.group(1)) >= fence[1]
+                and stripped[closer.end():].strip() == ""
+            ):
+                fence = None
             continue
-        if in_fence or not HEADING.match(line):
+        if not HEADING.match(line):
             continue
         if i > 0 and lines[i - 1].strip() != "":
             bad.append(f"{rel}:{i + 1}: {line}")
