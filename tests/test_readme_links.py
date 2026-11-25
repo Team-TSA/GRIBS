@@ -120,3 +120,83 @@ def test_parentheses_in_destination_on_synthetic_input():
     assert list(_targets("[a](x(1).md)")) == ["x(1).md"]
     assert unescaped("[a](x\\).md)") == ["x).md"]
     assert unescaped("[a](x\\(.md)") == ["x(.md"]
+
+
+from test_markdown_table_columns import DOCS, FENCE_OPEN, FENCE_RUN  # noqa: E402
+
+_ANCHOR_LINK = re.compile(r"\]\(#([^)\s]*)\)")
+_HEADING = re.compile(r"^ {0,3}#{1,6}[ \t]+(.*?)[ \t]*$")
+_CODE_SPAN = re.compile(r"(`+)(.+?)\1")
+_INLINE_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+
+
+def _outside_fences(text):
+    """コードフェンスの外の (行番号, 行) を返す。"""
+    fence = None
+    for n, line in enumerate(text.split("\n"), 1):
+        stripped = line.strip()
+        if fence is None:
+            m = FENCE_OPEN.match(stripped) if len(line) - len(line.lstrip(" ")) < 4 else None
+            if m:
+                fence = m.group(1)
+                continue
+            yield n, line
+        else:
+            m = FENCE_RUN.match(stripped)
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and stripped == m.group(1):
+                fence = None
+
+
+def _slug(title):
+    title = _INLINE_LINK.sub(r"\1", title)
+    title = re.sub(r"\s+#+$", "", title).lower()
+    title = re.sub(r"[^\w\- ]", "", title)
+    return title.replace(" ", "-")
+
+
+def _anchors(text):
+    """見出しから GitHub の作り方でアンカーを作る。重なったら -1, -2 を付ける。"""
+    seen = {}
+    anchors = []
+    for _, line in _outside_fences(text):
+        m = _HEADING.match(line)
+        if not m:
+            continue
+        base = _slug(m.group(1))
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        anchors.append(base if count == 0 else f"{base}-{count}")
+    return anchors
+
+
+def _anchor_links(text):
+    """コードフェンスとインラインコードの外の ](#...) を (行番号, 行き先) で返す。"""
+    for n, line in _outside_fences(text):
+        line = _CODE_SPAN.sub("", line)
+        for m in _ANCHOR_LINK.finditer(line):
+            yield n, m.group(1)
+
+
+def test_in_document_anchor_links_match_headings():
+    root = Path(__file__).resolve().parent.parent
+    total = 0
+    bad = []
+    for rel in DOCS:
+        text = (root / rel).read_text(encoding="utf-8")
+        anchors = set(_anchors(text))
+        for n, dest in _anchor_links(text):
+            total += 1
+            if dest not in anchors:
+                bad.append(f"{rel}:{n}: #{dest}")
+    assert total >= 1, f"anchor links checked: {total}"
+    assert not bad, f"anchor links without a heading: {bad}"
+
+
+def test_heading_anchor_rule_on_synthetic_input():
+    assert _anchors("# Known Limitations\n") == ["known-limitations"]
+    assert _anchors("## Chamber property cache\n") == ["chamber-property-cache"]
+    assert _anchors("## Cache, writes (and) runs!\n") == ["cache-writes-and-runs"]
+    assert _anchors("## 検証 status\n") == ["検証-status"]
+    assert _anchors("## Dup\n\n## Dup\n\n## Dup\n") == ["dup", "dup-1", "dup-2"]
+    assert _anchors("```\n# Not heading\n```\n## Real\n") == ["real"]
+    assert list(_anchor_links("[a](#x) `[b](#y)` [c](#z)\n```\n[d](#w)\n```\n")) == [(1, "x"), (1, "z")]
