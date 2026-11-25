@@ -8,6 +8,14 @@ _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 _ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 
 
+def _scan_angle(text, start):
+    """`<` の位置 start から、閉じの `>` または改行（無ければ末尾）の位置を返す。"""
+    end = start + 1
+    while end < len(text) and text[end] not in ">\n":
+        end += 2 if text[end] == "\\" and text[end + 1 : end + 2] != "\n" else 1
+    return end
+
+
 def _unclosed(text):
     """`](<` で始まり、同じ行に閉じの `>` が無いものの行番号を返す。"""
     lines = []
@@ -17,9 +25,7 @@ def _unclosed(text):
             i += 1
         if not text.startswith("<", i):
             continue
-        end = i + 1
-        while end < len(text) and text[end] not in ">\n":
-            end += 2 if text[end] == "\\" and text[end + 1 : end + 2] != "\n" else 1
+        end = _scan_angle(text, i)
         if not (end < len(text) and text[end] == ">"):
             lines.append(text.count("\n", 0, i) + 1)
     return lines
@@ -32,9 +38,7 @@ def _targets(text):
         while i < len(text) and text[i] in " \t":
             i += 1
         if text.startswith("<", i):
-            end = i + 1
-            while end < len(text) and text[end] not in ">\n":
-                end += 2 if text[end] == "\\" and text[end + 1 : end + 2] != "\n" else 1
+            end = _scan_angle(text, i)
             if end < len(text) and text[end] == ">":
                 yield text[i + 1 : end]
             continue
