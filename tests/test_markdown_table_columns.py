@@ -169,3 +169,14 @@ def test_table_split_trailing_escaped_pipe_and_backtick_run_length():
     line_b = "| `a ``` | b` | c |"
     cells_b = _split_cells(line_b)
     assert cells_b == [" `a ``` | b` ", " c "], f"input={line_b!r} result={cells_b!r}"
+
+
+# MODEL_LIMITATIONS.md is intentionally not checked (human decision).
+DOCS_EXCLUDED = {"MODEL_LIMITATIONS.md"}
+
+
+def test_docs_cover_root_and_specification_markdown():
+    found = {p.name for p in ROOT.glob("*.md")}
+    found |= {f"Specification/{p.name}" for p in (ROOT / "Specification").glob("*.md")}
+    missing = sorted(found - DOCS_EXCLUDED - set(DOCS))
+    assert not missing, f"markdown files not in DOCS: {missing}"

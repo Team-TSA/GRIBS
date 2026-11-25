@@ -71,3 +71,14 @@ def test_fence_rule_on_synthetic_input():
     # (iv) outside fences
     doc = ["body", "# z", "", "# w"]
     assert _heading_violations(doc) == [(1, "# z")]
+
+
+# MODEL_LIMITATIONS.md is intentionally not checked (human decision).
+DOCS_EXCLUDED = {"MODEL_LIMITATIONS.md"}
+
+
+def test_docs_cover_root_and_specification_markdown():
+    found = {p.name for p in ROOT.glob("*.md")}
+    found |= {f"Specification/{p.name}" for p in (ROOT / "Specification").glob("*.md")}
+    missing = sorted(found - DOCS_EXCLUDED - set(DOCS))
+    assert not missing, f"markdown files not in DOCS: {missing}"
