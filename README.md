@@ -660,3 +660,11 @@ Citation metadata is provided in `CITATION.cff`.
 ## Contributing and support
 
 See `CONTRIBUTING.md` for contribution guidance. Use GitHub Issues for reproducible bug reports and feature proposals. See `SECURITY.md` for private security-reporting guidance.
+
+## Related documents
+
+- [MODEL_LIMITATIONS.md](MODEL_LIMITATIONS.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [Specification/README.md](Specification/README.md)
+- [SECURITY.md](SECURITY.md)
