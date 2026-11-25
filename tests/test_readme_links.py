@@ -19,7 +19,7 @@ def _unclosed(text):
             continue
         end = i + 1
         while end < len(text) and text[end] not in ">\n":
-            end += 2 if text[end] == "\\" else 1
+            end += 2 if text[end] == "\\" and text[end + 1 : end + 2] != "\n" else 1
         if not (end < len(text) and text[end] == ">"):
             lines.append(text.count("\n", 0, i) + 1)
     return lines
@@ -34,7 +34,7 @@ def _targets(text):
         if text.startswith("<", i):
             end = i + 1
             while end < len(text) and text[end] not in ">\n":
-                end += 2 if text[end] == "\\" else 1
+                end += 2 if text[end] == "\\" and text[end + 1 : end + 2] != "\n" else 1
             if end < len(text) and text[end] == ">":
                 yield text[i + 1 : end]
             continue
@@ -42,7 +42,7 @@ def _targets(text):
         end = i
         while end < len(text) and text[end] != "\n":
             ch = text[end]
-            if ch == "\\":
+            if ch == "\\" and text[end + 1 : end + 2] != "\n":
                 end += 2
                 continue
             if ch == "(":
@@ -83,3 +83,19 @@ def test_readme_relative_links_exist():
     assert not unclosed, f"unclosed angle brackets: {unclosed}"
     assert len(checked) >= 5, f"relative links checked: {len(checked)}"
     assert not missing, f"missing link targets: {missing}"
+
+
+def test_backslash_before_newline_does_not_join_lines():
+    text = "[a](x\\\n[b](y.md)\n"
+    targets = list(_targets(text))
+    assert all("\n" not in t for t in targets), targets
+    assert "y.md" in targets, targets
+
+    angle = "[a](<x\\\n[b](<y.md>)\n"
+    assert _unclosed(angle) == [1]
+    assert list(_targets(angle)) == ["y.md"]
+
+    escaped = list(_targets("[a](x\\(1\\).md)"))
+    assert [_ESCAPE.sub(r"\1", t) for t in escaped] == ["x(1).md"]
+
+    assert list(_targets("[a](x\\")) == ["x\\"]
