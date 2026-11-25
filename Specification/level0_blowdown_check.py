@@ -9,7 +9,8 @@ The chamber then obeys, exactly,
     dp/dt = -Psi * mdot_out / Vg,
     mdot_out = Cd*At*p*sqrt(g/(R*T0)) * (2/(g+1))^((g+1)/(2(g-1)))
 
-i.e. an exponential decay  p(t) = p0 * exp(-t/tau),
+i.e. an exponential decay  p(t) = p_inf + (p0 - p_inf)*exp(-t/tau),
+p_inf = rho_p*Ab*a/C  (asymptotic pressure),
 tau = Vg / (Psi*Cd*At*sqrt(g/(R*T0))*(2/(g+1))^((g+1)/(2(g-1)))).
 
 The script compares the integrator against this closed form.  It exists to show
