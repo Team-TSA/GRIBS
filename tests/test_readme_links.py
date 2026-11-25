@@ -111,3 +111,12 @@ def test_link_destination_does_not_span_lines():
         assert all("\n" not in t for t in targets), (text, targets)
 
     assert list(_targets("[a](x.md)\n[a](<x y.md>)\n")) == ["x.md", "x y.md"]
+
+
+def test_parentheses_in_destination_on_synthetic_input():
+    def unescaped(text):
+        return [_ESCAPE.sub(r"\1", t) for t in _targets(text)]
+
+    assert list(_targets("[a](x(1).md)")) == ["x(1).md"]
+    assert unescaped("[a](x\\).md)") == ["x).md"]
+    assert unescaped("[a](x\\(.md)") == ["x(.md"]
