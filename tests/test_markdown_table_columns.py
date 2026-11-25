@@ -158,3 +158,14 @@ def test_table_rule_on_synthetic_input():
     assert _tables(fenced) == []
     tilde = "~~~~\n| a |\n|---|\n| 1 | 2 |\n~~~\n| a |\n|---|\n| 1 | 2 |\n~~~~\n"
     assert _tables(tilde) == []
+
+
+def test_table_split_trailing_escaped_pipe_and_backtick_run_length():
+    # (a) a trailing \| is cell text, not an outer pipe
+    line_a = "| a | b \\|"
+    cells_a = _split_cells(line_a)
+    assert cells_a == [" a ", " b \\|"], f"input={line_a!r} result={cells_a!r}"
+    # (b) inline code closes only on a backtick run of the same length
+    line_b = "| `a ``` | b` | c |"
+    cells_b = _split_cells(line_b)
+    assert cells_b == [" `a ``` | b` ", " c "], f"input={line_b!r} result={cells_b!r}"
