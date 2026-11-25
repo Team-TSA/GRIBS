@@ -89,6 +89,7 @@ Details of each item are under "Changed".
 - `docs/G0/G0_APPROVAL_3c0c98c_2026-11-07.txt`: the G0 approval record of v0.6.2-alpha with an English summary.
 - `docs/G0/G0_APPROVAL_2bd5ec5_2026-11-19.txt`: the G0 approval record of revision `2bd5ec5` (A-6 stage 2) with an English summary. The opening paragraph of this `[Unreleased]` section, README "Validation status" and `CONTRIBUTING.md` (version-independent commands) are updated to match; no code or test file is changed.
 - README, CONTRIBUTING and RELEASE_CHECKLIST: the version, the program file name and the experimental status of energy mode; CONTRIBUTING lists `pytest -q` among the required checks.
+
 ### Notes
 
 - Warning-code vocabulary: `W_MIGRATION_MODEL_CHANGE` is the implemented code for a configuration migration that changes the physical model (the command line and `gribs.run_simulation` add it; a caller that runs `summarize()` itself uses `append_migration_model_change_warning`). `W_MASS_BASIS_CONFIG_MIGRATED` (improvement plan candidate) is not implemented and is covered by `W_MIGRATION_MODEL_CHANGE`; `W_DEPRECATED_MOLECULAR_WEIGHT_KEY` (review proposal) was not adopted: `gas_phase_M` is a frozen compatibility token accepted without a warning.
