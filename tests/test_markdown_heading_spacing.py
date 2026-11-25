@@ -25,9 +25,8 @@ FENCE_OPEN = re.compile(r"^(`{3,}|~{3,})")
 FENCE_RUN = re.compile(r"^(`+|~+)")
 
 
-@pytest.mark.parametrize("rel", DOCS)
-def test_heading_preceded_by_blank_line(rel):
-    lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+def _heading_violations(lines):
+    """Return (index, line) of headings directly after a non-blank line, outside fences."""
     fence = None  # (char, length) of the open fence, or None outside a fence
     bad = []
     for i, line in enumerate(lines):
@@ -50,5 +49,25 @@ def test_heading_preceded_by_blank_line(rel):
         if not HEADING.match(line):
             continue
         if i > 0 and lines[i - 1].strip() != "":
-            bad.append(f"{rel}:{i + 1}: {line}")
+            bad.append((i, line))
+    return bad
+
+
+@pytest.mark.parametrize("rel", DOCS)
+def test_heading_preceded_by_blank_line(rel):
+    lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+    bad = [f"{rel}:{i + 1}: {line}" for i, line in _heading_violations(lines)]
     assert bad == [], "heading without a blank line before it:\n" + "\n".join(bad)
+
+
+def test_fence_rule_on_synthetic_input():
+    # (i) fence closed by the same marker: heading inside is not counted
+    assert _heading_violations(["```", "text", "# x", "```"]) == []
+    # (ii) 4-backtick fence is not closed by 3 backticks; closed by 4
+    doc = ["````", "text", "```", "# x", "````", "body", "# y"]
+    assert _heading_violations(doc) == [(6, "# y")]
+    # (iii) backtick fence is not closed by a tilde line
+    assert _heading_violations(["```", "text", "~~~", "# x"]) == []
+    # (iv) outside fences
+    doc = ["body", "# z", "", "# w"]
+    assert _heading_violations(doc) == [(1, "# z")]
