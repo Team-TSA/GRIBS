@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from test_markdown_table_columns import DOCS, FENCE_OPEN, FENCE_RUN
+
 _LINK_OPEN = re.compile(r"!?\[[^\]]*\]\(")
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 _ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
@@ -121,8 +123,6 @@ def test_parentheses_in_destination_on_synthetic_input():
     assert unescaped("[a](x\\).md)") == ["x).md"]
     assert unescaped("[a](x\\(.md)") == ["x(.md"]
 
-
-from test_markdown_table_columns import DOCS, FENCE_OPEN, FENCE_RUN  # noqa: E402
 
 _ANCHOR_LINK = re.compile(r"\]\(#([^)\s]*)\)")
 _HEADING = re.compile(r"^ {0,3}#{1,6}[ \t]+(.*?)[ \t]*$")
