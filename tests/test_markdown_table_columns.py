@@ -174,6 +174,8 @@ def test_table_split_trailing_escaped_pipe_and_backtick_run_length():
 def test_table_split_backtick_run_length_two_or_more():
     # (i) a single backtick and | inside a 2-backtick span do not split or close it
     line_i = "| ``a ` | b`` | c |"
+    # 注記: (i) の assert は、_split_cells の閉じのバッククォートの数を開きと比べる検査を外しても失敗しない（報告 332 の試運転）。
+    # その検査を見分けるのは、下の (ii) の assert である。
     cells_i = _split_cells(line_i)
     assert cells_i == [" ``a ` | b`` ", " c "], f"input={line_i!r} result={cells_i!r}"
     # (ii) a 3-backtick run inside a 2-backtick span does not close it
