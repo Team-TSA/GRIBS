@@ -103,3 +103,11 @@ def test_backslash_before_newline_does_not_join_lines():
     assert [_ESCAPE.sub(r"\1", t) for t in escaped] == ["x(1).md"]
 
     assert list(_targets("[a](x\\")) == ["x\\"]
+
+
+def test_link_destination_does_not_span_lines():
+    for text in ("[a](x\ny.md)", "[a](x\\\ny.md)", "[a](<x\ny.md>)", "[a](<x\\\ny.md>)"):
+        targets = list(_targets(text))
+        assert all("\n" not in t for t in targets), (text, targets)
+
+    assert list(_targets("[a](x.md)\n[a](<x y.md>)\n")) == ["x.md", "x y.md"]
