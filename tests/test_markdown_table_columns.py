@@ -171,6 +171,18 @@ def test_table_split_trailing_escaped_pipe_and_backtick_run_length():
     assert cells_b == [" `a ``` | b` ", " c "], f"input={line_b!r} result={cells_b!r}"
 
 
+def test_table_split_backtick_run_length_two_or_more():
+    # (i) a single backtick and | inside a 2-backtick span do not split or close it
+    line_i = "| ``a ` | b`` | c |"
+    cells_i = _split_cells(line_i)
+    assert cells_i == [" ``a ` | b`` ", " c "], f"input={line_i!r} result={cells_i!r}"
+    # (ii) a 3-backtick run inside a 2-backtick span does not close it
+    # (a wrong early close at the 3-run leaves the later | outside code and splits the row)
+    line_ii = "| ``a ``` | b`` `| c` |"
+    cells_ii = _split_cells(line_ii)
+    assert cells_ii == [" ``a ``` | b`` `| c` "], f"input={line_ii!r} result={cells_ii!r}"
+
+
 # MODEL_LIMITATIONS.md is intentionally not checked (human decision).
 DOCS_EXCLUDED = {"MODEL_LIMITATIONS.md"}
 
