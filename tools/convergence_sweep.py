@@ -8,6 +8,11 @@ Specification/ to the current GRIBS v0.7.0-alpha implementation.
 It intentionally loads the current single-file GRIBS module dynamically.
 Migration into gribs/numerics/sweep.py belongs to the later package
 reorganization work.
+
+Writes (into --output-dir, default verification/a3-convergence/latest):
+    convergence_sweep.csv
+    convergence_sweep.md
+    convergence_sweep_metadata.json
 """
 
 from __future__ import annotations
