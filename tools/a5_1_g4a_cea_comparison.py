@@ -18,6 +18,7 @@ reference, and every point is within tolerance -- an invalid or empty reference 
 reported as an overall pass based on the remaining points.
 This produces EVIDENCE for G4a; it does not approve G4a.
 Usage: python tools/a5_1_g4a_cea_comparison.py <outdir> <case.json>...
+Writes: <outdir>/g4a_cea_comparison.json
 """
 import copy, hashlib, importlib.util, json, math, sys, tempfile
 from pathlib import Path
