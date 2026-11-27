@@ -344,3 +344,26 @@ def test_n17_the_gamma_range_is_none_when_no_state_is_off_a_plateau():
     # the provenance of a run whose declared states never left a plateau cannot be made cheaply; the helper is checked directly
     import gribs.simulation.energy_integrator as ei
     assert ei._finite_or_none(math.inf) is None and ei._finite_or_none(-math.inf) is None and ei._finite_or_none(1.2) == 1.2
+
+
+# ------------------------------------------------------------------------------------- Yg rounded at the entry (H-26)
+@pytest.mark.fast
+def test_round_gas_mass_fraction():
+    from gribs.energy.numerical_path import YG_ROUNDOFF_TOL, round_gas_mass_fraction
+    assert YG_ROUNDOFF_TOL == 1.0e-12
+    assert round_gas_mass_fraction(1.0000000000000002) == 1.0
+    assert round_gas_mass_fraction(1.0 + 1.0e-9) == 1.0 + 1.0e-9
+    assert round_gas_mass_fraction(0.85) == 0.85
+    assert round_gas_mass_fraction(0.0) == 0.0
+
+
+@pytest.mark.fast
+def test_nozzle_entry_rounds_yg_above_one_by_roundoff():
+    """Yg = 1 + 1 ulp reaches nozzle_state_from_chamber (p_stag > p_a, closed form, T_stag <= T_m) without ThermochemistryError."""
+    yg = 1.0000000000000002
+    c, path = numeric_path(None)
+    nz, margin = path.nozzle(rec=NOT_PLATEAU, p_stag=2.0e6, T_stag=1500.0, R_eff=R_GAS, gamma_s=1.4, Yg=yg, At=At0, Ae=4.0 * At0,
+                             c=c, B_e=B_E, key=("yg", 1), t=0.0)
+    assert nz["regime"] == "choked" and nz["gas_mass_fraction"] == 1.0 and margin is None
+    ref = closed(c, 1500.0, 2.0e6, 4.0)
+    assert nz["mdot"] == ref["mdot"] and nz["F"] == ref["F"]

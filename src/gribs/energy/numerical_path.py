@@ -44,6 +44,18 @@ from gribs.energy.nozzle_from_state import nozzle_state_from_chamber
 
 #: Universal gas constant [J/(kmol K)] (the value of gribs.constants.R_UNIVERSAL; recovery.py and isentrope.py have the same constant).
 _RU = 8314.51
+#: Largest excess of a gas mass fraction over 1 that is taken as floating-point round-off (a mass fraction is at most 1 by definition).
+YG_ROUNDOFF_TOL = 1.0e-12
+
+
+def round_gas_mass_fraction(yg: float) -> float:
+    """1 < yg <= 1 + YG_ROUNDOFF_TOL gives 1.0; every other value (above that, or <= 0) is returned unchanged, so the checks of
+    gribs.nozzle (0 < Yg <= 1) still act on it."""
+    if 1.0 < yg <= 1.0 + YG_ROUNDOFF_TOL:
+        return 1.0
+    return yg
+
+
 SEPARATION_WARNING_CODE = "W_ENERGY_SEPARATION_NOT_MODELLED"
 KINK_WARNING_CODE = "W_ENERGY_THROAT_AT_PLATEAU_ENTRY"
 
@@ -111,6 +123,7 @@ class NumericalPath:
     # ------------------------------------------------------------------------------------------------------ the call
     def nozzle(self, *, rec, p_stag: float, T_stag: float, R_eff: float, gamma_s: float, Yg: float, At: float, Ae: float, c, B_e,
                key, t: Optional[float] = None) -> Tuple[Dict[str, Any], Optional[float]]:
+        Yg = round_gas_mass_fraction(Yg)
         closed = nozzle_state_from_chamber(p_stag, T_stag, R_eff, gamma_s, Yg, At, Ae, c)
         if not self.declared or closed["regime"] == "no-flow":
             self._count(False, None, None)
