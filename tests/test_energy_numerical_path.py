@@ -154,6 +154,21 @@ def test_n05_without_a_declared_transition_the_closed_form_is_returned_unchanged
 
 
 @pytest.mark.fast
+def test_n05b_an_exit_below_p_floor_is_not_found_and_the_message_names_p_floor():
+    """The supersonic scan ends at p_floor = p_c * p_floor_ratio; the failure keeps the leading sentence of the not_found and names
+    p_floor, the last grid point (p, T, area ratio) and the requested area ratio.  Synthetic ideal gas (ASSUMED INPUT)."""
+    c, path = numeric_path(Gas(T_m=T_M), p_a=1.0e5)
+    p, eps = 5.0e6, 1.0e4
+    p_floor = p * DEFAULT_SETTINGS.p_floor_ratio
+    with pytest.raises(StateRecoveryError) as caught:
+        call(path, c, 3500.0, p, eps)
+    msg = str(caught.value)
+    assert "not_found: the supersonic branch does not reach the area ratio on the grid" in msg
+    assert f"p_floor = {p_floor!r} Pa" in msg and f"the requested area ratio is {eps!r}" in msg
+    assert "last grid point: p = " in msg and " K, area ratio = " in msg
+
+
+@pytest.mark.fast
 def test_n06_the_gate_follows_the_rule_in_each_region():
     c, path = numeric_path(Gas(T_m=T_M), p_a=1.0e5)
     p = 5.0e6
