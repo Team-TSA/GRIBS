@@ -166,6 +166,7 @@ def test_n05b_an_exit_below_p_floor_is_not_found_and_the_message_names_p_floor()
     assert "not_found: the supersonic branch does not reach the area ratio on the grid" in msg
     assert f"p_floor = {p_floor!r} Pa" in msg and f"the requested area ratio is {eps!r}" in msg
     assert "last grid point: p = " in msg and " K, area ratio = " in msg
+    assert msg.count("last grid point") == 1 and msg.count("the requested area ratio is") == 1      # no duplicate of the ExitState text
 
 
 @pytest.mark.fast

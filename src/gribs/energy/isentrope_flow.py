@@ -293,6 +293,7 @@ def _subsonic_pressure(exp: Expansion, throat: Throat, eps: float, n_grid: int) 
         if G > 0.0 and throat.G_star / G <= eps:
             return _root_ratio(exp, throat.G_star, eps, prev_x, x)
         prev_x = x
+    # practically unreachable: G* / G >= 1 at the throat and the scan from p_0 passes the throat pressure (report 390 s.4)
     raise _Failed("not_found: the subsonic branch does not reach the area ratio on the grid")
 
 
@@ -309,7 +310,14 @@ def _supersonic_pressure(exp: Expansion, throat: Throat, eps: float, n_grid: int
         if G > prev_G:
             return None, math.exp(prev_x)
         prev_x, prev_G = x, G
-    raise _Failed("not_found: the supersonic branch does not reach the area ratio on the grid")
+    note = f"; the grid ends at p_floor = {exp.p_floor!r} Pa, the requested area ratio is {eps!r}"
+    try:                                                    # informative only; the not_found itself is raised below
+        st = exp.state_at(exp.p_floor)
+        if st.status == "ok":
+            note += f"; last grid point: p = {exp.p_floor!r} Pa, T = {st.T_K!r} K, area ratio = {throat.G_star / exp._G(exp.p_floor)!r}"
+    except Exception:
+        pass
+    raise _Failed("not_found: the supersonic branch does not reach the area ratio on the grid" + note)
 
 
 def exit_state(exp: Expansion, throat: Throat, *, eps: float, p_a: float, eta: float, A_t: float, n_grid: int) -> ExitState:

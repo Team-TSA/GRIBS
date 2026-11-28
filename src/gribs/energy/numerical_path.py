@@ -261,20 +261,6 @@ class NumericalPath:
             self.stats["exit_cold"] += 1
         return th, ex
 
-    @staticmethod
-    def _grid_end_note(exp: Expansion, th, ex, eps: float) -> str:
-        """The text appended to a not_found of the exit stage: the grid of the supersonic scan ends at p_floor; its last point and the
-        requested area ratio.  (The cause cannot be told from the T_lo of the ladder, so no T_lo is named.)"""
-        note = f"; the grid ends at p_floor = {exp.p_floor!r} Pa, the requested area ratio is {eps!r}"
-        try:
-            st = exp.state_at(exp.p_floor)
-            if th.G_star is not None and st.status == "ok":
-                note += (f"; last grid point: p = {exp.p_floor!r} Pa, T = {st.T_K!r} K, "
-                         f"area ratio = {th.G_star / exp._G(exp.p_floor)!r}")
-        except Exception:                                   # the note is informative only; the failure itself is reported below
-            pass
-        return note
-
     def _numerical(self, rec, p_stag, T_stag, Yg, At, Ae, c, B_e, key, x, reason, exact: bool = False) -> _Record:
         exp = self._expansion(rec, p_stag, T_stag, B_e, key)
         th, ex = self._path(exp, p_stag, At, Ae, c)
@@ -286,8 +272,7 @@ class NumericalPath:
         if ex.classification not in ("choked_supersonic", "choked_sonic", "unchoked_subsonic", "no_flow") or th.classification in (
                 "not_found", "state_error"):
             raise StateRecoveryError(f"the numerical nozzle flow failed (throat: {th.classification} {th.message}; exit: "
-                                     f"{ex.classification} {ex.message}"
-                                     f"{self._grid_end_note(exp, th, ex, Ae / At) if ex.classification == 'not_found' else ''})")
+                                     f"{ex.classification} {ex.message})")      # a not_found message names p_floor and the last grid point
         if exact and not (exp.plateau == "present" and ex.p_e_Pa <= exp.p_high):       # <=: a throat that is the kink at p_high enters it
             return _Record(False, gate_x=x, gate_reason="the numerical path does not enter the plateau")
         # the hint of the next call, as ratios to p_0

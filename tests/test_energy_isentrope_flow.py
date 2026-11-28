@@ -368,6 +368,20 @@ def test_r03_a_grid_that_ends_before_the_area_ratio_is_not_found():
 
 
 @pytest.mark.fast
+def test_r03b_the_not_found_message_names_p_floor_the_requested_ratio_and_the_last_grid_point():
+    """Synthetic ideal gas (ASSUMED INPUT, no CEA)."""
+    _, exp = ideal_expansion(1.4, p_floor=2.0e6)
+    th = find_throat(exp, n_grid=N_GRID, kink_dlnp=KINK, ln_p_xtol=XTOL)
+    ex = exit_state(exp, th, eps=10.0, p_a=1.0e5, eta=1.0, A_t=1.0e-3, n_grid=N_GRID)
+    msg = ex.message
+    assert msg.startswith("not_found: the supersonic branch does not reach the area ratio on the grid")
+    assert f"p_floor = {exp.p_floor!r} Pa" in msg and "the requested area ratio is 10.0" in msg
+    last_ratio = th.G_star / exp._G(exp.p_floor)
+    assert f"last grid point: p = {exp.p_floor!r} Pa, T = " in msg and f"area ratio = {last_ratio!r}" in msg
+    assert last_ratio < 10.0 and msg.count("last grid point") == 1
+
+
+@pytest.mark.fast
 def test_r04_a_chamber_that_does_not_meet_the_plateau_in_the_range_is_classified_by_its_side():
     gas = Gas(T_m=T_M, report_gamma_s=1.4)
     s_0, h_0 = _stagnation(gas, 3000.0, 5.0e6)
