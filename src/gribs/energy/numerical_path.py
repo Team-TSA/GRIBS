@@ -98,7 +98,11 @@ class NumericalPath:
     """The dispatcher of one run (state: the counters, the last evaluation).  nozzle() returns (nz, margin): nz has the keys of
     nozzle_state_from_chamber; margin is None for the closed form (the caller computes p - p_thr) and, for the numerical flow, a
     number that is positive when the nozzle is choked: eps - G* / G(p_a) for p_a > p_t, (eps - 1) + ln(p_t / p_a) for p_a <= p_t
-    (continuous at p_a = p_t; the two have the same sign as p_sub - p_a)."""
+    (continuous at p_a = p_t; the two have the same sign as p_sub - p_a).
+
+    The first argument c is a gribs.config.Config that carries the attribute .energy (an energy-model configuration of
+    gribs.energy.config_model; gribs.config.loader sets it when the document has "energy_model"), not the energy configuration
+    itself: the constructor reads c.energy.condensed.transitions and c.energy.recovery.root_tolerance."""
 
     def __init__(self, c, inputs, settings: NumericalPathSettings = DEFAULT_SETTINGS):
         trs = c.energy.condensed.transitions
