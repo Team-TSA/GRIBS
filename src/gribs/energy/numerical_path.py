@@ -92,6 +92,26 @@ class _Record:
     separation_ratio: Optional[float] = None       # p_e / p_a when the separation warning condition holds
     gate_x: Optional[float] = None
     gate_reason: str = ""
+    #: diagnostic only (no number or message uses it): the first point of the supersonic side (largest p at or below the throat) whose
+    #: equilibrium state has a condensed species that the case does not declare with mass fraction > 0:
+    #: {"species": sorted names, "T_K", "p_Pa", "area_ratio": G* / G(p)}; None when there is none
+    undeclared_condensed: Optional[Dict[str, Any]] = None
+
+
+class _Watch:
+    """The provider seen by the Expansion: delegates tp() unchanged (one call per call) and remembers, per (T, p), the undeclared
+    condensed species with mass fraction > 0 of the returned state."""
+
+    def __init__(self, inner, declared):
+        self.inner, self.declared, self.found = inner, declared, {}
+
+    def tp(self, T, p, B_e):
+        st = self.inner.tp(T, p, B_e)
+        names = tuple(sorted(k for k, v in (getattr(st, "condensed_mass_fraction", None) or {}).items()
+                             if v > 0.0 and k not in self.declared))
+        if names:
+            self.found[(T, p)] = names
+        return st
 
 
 class NumericalPath:
@@ -108,6 +128,10 @@ class NumericalPath:
         trs = c.energy.condensed.transitions
         self.provider = inputs.provider
         self.declared = bool(trs)
+        cond = c.energy.condensed
+        self._declared_species = frozenset([ph.species for ph in cond.phases]
+                                           + [n for tr in trs for n in (tr.solid_species, tr.liquid_species)])
+        self._watch: Optional[_Watch] = None
         self.T_m = trs[0].melting_temperature_K if trs else None
         self.d_relative = default_d_relative(c.energy.recovery.root_tolerance)
         self.s = settings
@@ -206,7 +230,8 @@ class NumericalPath:
             h_0 = st.u_J_per_kg + st.n_gas_per_kg * _RU * T_stag
         p_floor = p_stag * self.s.p_floor_ratio
         T_lo = self._T_lo(s_0, p_stag, p_floor, B_e)
-        exp = Expansion(self.provider, B_e, s_0, h_0, p_stag, p_floor, (T_lo, max(self.s.T_upper_K, 1.01 * T_stag)), T_m=Tm, d_relative=d)
+        self._watch = _Watch(self.provider, self._declared_species)
+        exp = Expansion(self._watch, B_e, s_0, h_0, p_stag, p_floor, (T_lo, max(self.s.T_upper_K, 1.01 * T_stag)), T_m=Tm, d_relative=d)
         self.stats["exp_built"] += 1
         self._exp_key, self._exp = key, exp
         return exp
@@ -313,7 +338,21 @@ class NumericalPath:
         else:
             margin = eps - th.G_star / exp.state_at(c.p_a).G
         sep = pe / c.p_a if (ex.choked and c.use_separation and eps > 1.0 and pe < c.sep_ratio * c.p_a) else None
-        return _Record(True, nz, margin, th.classification, ex.classification, th.p_t_Pa, pe, sep, x, reason)
+        return _Record(True, nz, margin, th.classification, ex.classification, th.p_t_Pa, pe, sep, x, reason,
+                       undeclared_condensed=self._undeclared_condensed(exp, th))
+
+    def _undeclared_condensed(self, exp: Expansion, th: Throat) -> Optional[Dict[str, Any]]:
+        """From the states already computed (the cache of the Expansion and the TP states the watch saw; no provider call)."""
+        if self._watch is None or not self._watch.found or th.p_t_Pa is None or th.G_star is None:
+            return None
+        for p in sorted(exp._cache, reverse=True):
+            st = exp._cache[p]
+            if p > th.p_t_Pa or st.status != "ok" or st.region != "single_phase":
+                continue
+            names = self._watch.found.get((st.T_K, p))
+            if names:
+                return {"species": list(names), "T_K": st.T_K, "p_Pa": p, "area_ratio": th.G_star / st.G}
+        return None
 
     # ------------------------------------------------------------------------------------------------- the run's record
     def warnings(self) -> List[Dict[str, Any]]:

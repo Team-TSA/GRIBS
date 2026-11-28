@@ -467,3 +467,50 @@ def test_nozzle_entry_rounds_yg_above_one_by_roundoff():
     assert nz["regime"] == "choked" and nz["gas_mass_fraction"] == 1.0 and margin is None
     ref = closed(c, 1500.0, 2.0e6, 4.0)
     assert nz["mdot"] == ref["mdot"] and nz["F"] == ref["F"]
+
+
+class _Cold:
+    """A frozen ideal gas that reports the condensed species 'C(gr)' (mass fraction 0.01) at T below T_cut (synthetic backend)."""
+
+    def __init__(self, T_cut, species="C(gr)"):
+        self.inner, self.T_cut, self.species = Gas(gamma=1.2, report_gamma_s=1.2), T_cut, species
+
+    def tp(self, T, p, B_e):
+        st = self.inner.tp(T, p, B_e)
+        if self.T_cut is not None and T < self.T_cut:
+            st = dataclasses.replace(st, condensed_mass_fraction={self.species: 0.01})
+        return st
+
+
+def _undeclared_run(provider, eps=30.0):
+    settings = dataclasses.replace(DEFAULT_SETTINGS, p_floor_ratio=1.0e-5, T_ladder_K=(300.0, 400.0, 500.0) + _LADDER_REST)
+    c, path = numeric_path(provider, settings, p_a=1.0e3, Cd=1.0, eta_thrust=1.0)
+    r, _margin = call(path, c, 2909.0, 5.0e6, eps, gamma=1.2)
+    return path, r
+
+
+@pytest.mark.fast
+def test_n18_an_undeclared_condensed_species_is_recorded_at_its_first_point_without_changing_the_flow():
+    T_cut, eps = 1500.0, 30.0
+    path, r = _undeclared_run(_Cold(T_cut), eps)
+    d = path.last.undeclared_condensed
+    assert d is not None and d["species"] == ["C(gr)"]
+    assert d["T_K"] < T_cut and 1.0 <= d["area_ratio"] <= eps * (1.0 + 1.0e-6) and 0.0 < d["p_Pa"] < 5.0e6
+    cache = path._exp._cache
+    above = [p for p in cache if p > d["p_Pa"] and cache[p].status == "ok" and cache[p].region == "single_phase"
+             and p <= path.last.p_t]
+    assert above and cache[min(above)].T_K >= T_cut           # the previous point on the supersonic side is above the threshold
+    # (b) no condensed species: no record; (c) the flow is the same
+    path0, r0 = _undeclared_run(_Cold(None), eps)
+    assert path0.last.undeclared_condensed is None
+    gam = 1.2
+    assert r["regime"] == "choked" and r0["regime"] == "choked"
+    T_e = [2909.0 - x["ve"] ** 2 / (2.0 * gam / (gam - 1.0) * R_GAS) for x in (r, r0)]
+    assert r["pe"] == r0["pe"] and r["ve"] == r0["ve"] and T_e[0] == T_e[1]
+
+
+@pytest.mark.fast
+def test_n19_a_declared_species_is_not_recorded():
+    declared = make_config().energy.condensed.phases[0].species
+    path, _ = _undeclared_run(_Cold(1500.0, species=declared))
+    assert path.last.undeclared_condensed is None
