@@ -210,6 +210,49 @@ def test_n05d_the_message_shows_p_floor_ratio_as_set_not_as_p_floor_over_p_0():
     assert f"p_floor_ratio = {ratio!r};" in msg and f"p_floor_ratio = {(p * ratio) / p!r};" not in msg
 
 
+_LADDER_REST = DEFAULT_SETTINGS.T_ladder_K[1:]        # (800, 1000, ...)
+
+
+def _frozen_exit(ratio, ladder, eps):
+    """gamma = 1.2, T_c = 2909 K, p_c = 5 MPa, frozen ideal gas: returns (p_e / p_c, T_e from the enthalpy balance, analytic T_e)."""
+    gam, T_c, p_c = 1.2, 2909.0, 5.0e6
+    settings = dataclasses.replace(DEFAULT_SETTINGS, p_floor_ratio=ratio, T_ladder_K=ladder)
+    c, path = numeric_path(Gas(gamma=gam, report_gamma_s=gam), settings, p_a=1.0e3, Cd=1.0, eta_thrust=1.0)
+    r, _margin = call(path, c, T_c, p_c, eps, gamma=gam)
+    assert r["regime"] == "choked" and path.last.numeric
+    T_e = T_c - r["ve"] ** 2 / (2.0 * gam / (gam - 1.0) * R_GAS)
+    return r["pe"] / p_c, T_e, T_c * (r["pe"] / p_c) ** ((gam - 1.0) / gam)
+
+
+@pytest.mark.fast
+def test_n05e_a_ladder_starting_above_the_isentrope_temperature_at_p_floor_raises_state_recovery_error():
+    """T(p_floor) = T_c (p_floor / p_c)^((gamma - 1) / gamma) = 2909 * 10^(-5/6) = 427 K for gamma = 1.2, p_floor_ratio = 1e-5; a ladder
+    starting at 500 K > 427 K has s(500 K, p_floor) > s_0.  The error is raised at the first call of the flow (synthetic ideal gas)."""
+    settings = dataclasses.replace(DEFAULT_SETTINGS, p_floor_ratio=1.0e-5, T_ladder_K=(500.0,) + _LADDER_REST)
+    c, path = numeric_path(Gas(gamma=1.2, report_gamma_s=1.2), settings, p_a=1.0e3)
+    with pytest.raises(StateRecoveryError) as caught:
+        call(path, c, 2909.0, 5.0e6, 100.0, gamma=1.2)
+    msg = str(caught.value)
+    assert "p_floor" in msg and "T_ladder" in msg
+
+
+@pytest.mark.fast
+def test_n05f_a_ladder_starting_below_the_isentrope_temperature_at_p_floor_passes_and_matches_the_analytic_exit():
+    eps = 30.0                                          # the exit pressure is above p_floor (area ratio of p_floor is larger)
+    pr, T_e, T_an = _frozen_exit(1.0e-5, (300.0, 400.0, 500.0) + _LADDER_REST, eps)
+    assert pr > 1.0e-5 and rel(T_e, T_an) <= 1.0e-9
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("low", [(400.0, 500.0), (500.0,)])
+def test_n05g_the_exit_does_not_depend_on_the_lower_end_of_the_ladder_when_all_ladders_pass(low):
+    """p_floor_ratio = 1e-4: T(p_floor) = 0.2154 T_c = 627 K > 500 K, so every lower end 300, 400, 500 K passes with equal values."""
+    eps = 30.0
+    ref = _frozen_exit(1.0e-4, (300.0, 400.0, 500.0) + _LADDER_REST, eps)
+    got = _frozen_exit(1.0e-4, low + _LADDER_REST, eps)
+    assert rel(got[0], ref[0]) <= 1.0e-9 and rel(got[1], ref[1]) <= 1.0e-9
+
+
 @pytest.mark.fast
 def test_n06_the_gate_follows_the_rule_in_each_region():
     c, path = numeric_path(Gas(T_m=T_M), p_a=1.0e5)
