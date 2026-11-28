@@ -75,6 +75,22 @@ class NumericalPathSettings:
     T_upper_K: float = 4500.0           # the upper end of T_bracket (raised to 1.01 T_stag when that is above it)
     continuation: bool = True
 
+    def __post_init__(self):
+        # _T_lo treats T_ladder_K[0] as the lower end of the ladder, so the ladder must be strictly increasing (no sorting here)
+        t = self.T_ladder_K
+        try:
+            vals = tuple(t)
+        except TypeError:
+            raise ValueError(f"T_ladder_K must be a sequence of temperatures, got {t!r}")
+        if len(vals) < 2:
+            raise ValueError(f"T_ladder_K must have at least 2 points, got {t!r} ({len(vals)} point(s))")
+        if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in vals):
+            raise ValueError(f"T_ladder_K must be finite numbers, got {t!r}")
+        if not all(v > 0.0 for v in vals):
+            raise ValueError(f"T_ladder_K must be all positive, got {t!r}")
+        if not all(a < b for a, b in zip(vals, vals[1:])):
+            raise ValueError(f"T_ladder_K must be strictly increasing (no duplicates), got {t!r}")
+
 
 DEFAULT_SETTINGS = NumericalPathSettings()
 

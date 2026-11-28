@@ -77,6 +77,29 @@ def test_n01_the_default_settings_are_those_of_decision_117():
 
 
 @pytest.mark.fast
+@pytest.mark.parametrize("ladder,word", [
+    ((1800.0, 1500.0, 800.0), "strictly increasing"),
+    ((500.0, 800.0, 800.0, 1000.0), "strictly increasing"),
+    ((0.0, 500.0, 800.0), "positive"),
+    ((-300.0, 500.0), "positive"),
+    ((500.0, float("nan"), 800.0), "finite"),
+    ((500.0, float("inf")), "finite"),
+    ((500.0,), "at least 2 points"),
+    ((), "at least 2 points"),
+])
+def test_n01b_a_t_ladder_that_is_not_strictly_increasing_positive_finite_with_two_points_raises_value_error(ladder, word):
+    with pytest.raises(ValueError) as e:
+        dataclasses.replace(DEFAULT_SETTINGS, T_ladder_K=ladder)
+    assert word in str(e.value) and "T_ladder_K" in str(e.value)
+
+
+@pytest.mark.fast
+def test_n01c_the_default_and_an_extended_ladder_raise_nothing():
+    NumericalPathSettings()
+    assert LADDER_300.T_ladder_K[0] == 300.0
+
+
+@pytest.mark.fast
 def test_n02_d_relative_is_the_one_of_the_plateau_bounds_of_the_recovery():
     """The temperatures at which recovery.plateau_bounds calls the provider are T_m -+ d_relative T_m with the d_relative of the run."""
     c, path = numeric_path(Gas(T_m=T_M))
