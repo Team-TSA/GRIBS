@@ -170,6 +170,30 @@ def test_n05b_an_exit_below_p_floor_is_not_found_and_the_message_names_p_floor()
 
 
 @pytest.mark.fast
+def test_n05c_no_lower_end_of_t_bracket_names_p_floor_and_the_entropy_difference_at_the_lower_end():
+    """A gamma = 1.2 chamber on the plateau (T = T_m = 2000 K, phi = 0.4) with p_floor_ratio = 1e-7 and the default ladder (lowest point
+    500 K): cp ln(2000 / 500) + latent term = 8.3 R + 1.4 R < R ln(1e7) = 16.1 R, so the isentrope reaches p_floor below 500 K and
+    s(500 K, p_floor) > s_0.  The message keeps the leading sentence and adds p_floor, p_floor_ratio and s - s_0 (synthetic ideal gas,
+    ASSUMED INPUT)."""
+    settings = dataclasses.replace(DEFAULT_SETTINGS, p_floor_ratio=1.0e-7)
+    c, path = numeric_path(Gas(gamma=1.2, report_gamma_s=1.2, T_m=T_M), settings)
+    p = 5.0e6
+    p_floor = p * settings.p_floor_ratio
+    with pytest.raises(StateRecoveryError) as caught:
+        call(path, c, T_M, p, 4.0, rec=SimpleNamespace(on_plateau=True, phi=0.4), gamma=1.2)
+    msg = str(caught.value)
+    assert msg.startswith("no lower end of T_bracket in ")
+    assert "satisfies s(T, p_floor) < s_0 with a converged equilibrium at both pressures (s_0 = " in msg
+    assert f"p_floor = {p_floor!r} Pa" in msg and f"p_floor_ratio = {p_floor / p!r}" in msg
+    low = path.provider.tp(settings.T_ladder_K[0], p_floor, B_E).entropy_J_per_kgK
+    delta = path.d_relative * T_M
+    s_0 = 0.6 * path.provider.tp(T_M - delta, p, B_E).entropy_J_per_kgK + 0.4 * path.provider.tp(T_M + delta, p, B_E).entropy_J_per_kgK
+    assert low > s_0
+    assert f"s - s_0 = {low - s_0:.10g} J/(kg K)" in msg
+    assert "the isentrope reaches p_floor below T_ladder[0]" in msg
+
+
+@pytest.mark.fast
 def test_n06_the_gate_follows_the_rule_in_each_region():
     c, path = numeric_path(Gas(T_m=T_M), p_a=1.0e5)
     p = 5.0e6

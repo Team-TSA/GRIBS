@@ -227,15 +227,34 @@ class NumericalPath:
 
     def _T_lo(self, s_0: float, p_0: float, p_floor: float, B_e) -> float:
         """The smallest T of the ladder at which the provider converges at (T, p_0) and (T, p_floor) and s(T, p_floor) < s_0."""
+        notes = []                      # what each ladder point gave, from the calls already made
         for cand in self.s.T_ladder_K:
             try:
                 a, b = self.provider.tp(cand, p_0, B_e), self.provider.tp(cand, p_floor, B_e)
             except StateRecoveryError:
+                notes.append((cand, "raised", None))
                 continue
             if a.converged and b.converged and b.entropy_J_per_kgK is not None and b.entropy_J_per_kgK < s_0:
                 return cand
+            if not a.converged:
+                notes.append((cand, f"no convergence at p_0 = {p_0:.10g} Pa", None))
+            elif not b.converged:
+                notes.append((cand, f"no convergence at p_floor = {p_floor:.10g} Pa", None))
+            else:
+                notes.append((cand, "converged", b.entropy_J_per_kgK))
+        parts = []
+        for cand, why, sv in notes:
+            parts.append(f"T = {cand:.10g} K: s(T, p_floor) = {sv!r} J/(kg K), s - s_0 = {sv - s_0:.10g} J/(kg K)" if sv is not None
+                         else f"T = {cand:.10g} K: {why}")
+        low = notes[0] if notes else None
+        if low is not None and low[2] is not None:
+            tail = (f"; the isentrope reaches p_floor below T_ladder[0] = {low[0]:.10g} K (s(T_ladder[0], p_floor) - s_0 = "
+                    f"{low[2] - s_0:.10g} J/(kg K) > 0, (ds/dT)_p = c_p/T > 0); raise p_floor_ratio or extend T_ladder downward")
+        else:
+            tail = "; the equilibrium did not converge or raised at the lower end of T_ladder, so s(T_ladder[0], p_floor) is not available"
         raise StateRecoveryError(f"no lower end of T_bracket in {self.s.T_ladder_K} K satisfies s(T, p_floor) < s_0 with a converged "
-                                 f"equilibrium at both pressures (s_0 = {s_0!r} J/(kg K))")
+                                 f"equilibrium at both pressures (s_0 = {s_0!r} J/(kg K)); p_floor = {p_floor!r} Pa, "
+                                 f"p_floor_ratio = {p_floor / p_0!r}; per ladder point: " + "; ".join(parts) + tail)
 
     def _path(self, exp: Expansion, p_stag: float, At: float, Ae: float, c) -> Tuple[Throat, ExitState]:
         s = self.s
