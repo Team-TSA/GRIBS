@@ -254,7 +254,7 @@ class NumericalPath:
             tail = "; the equilibrium did not converge or raised at the lower end of T_ladder, so s(T_ladder[0], p_floor) is not available"
         raise StateRecoveryError(f"no lower end of T_bracket in {self.s.T_ladder_K} K satisfies s(T, p_floor) < s_0 with a converged "
                                  f"equilibrium at both pressures (s_0 = {s_0!r} J/(kg K)); p_floor = {p_floor!r} Pa, "
-                                 f"p_floor_ratio = {p_floor / p_0!r}; per ladder point: " + "; ".join(parts) + tail)
+                                 f"p_floor_ratio = {self.s.p_floor_ratio!r}; per ladder point: " + "; ".join(parts) + tail)
 
     def _path(self, exp: Expansion, p_stag: float, At: float, Ae: float, c) -> Tuple[Throat, ExitState]:
         s = self.s

@@ -191,6 +191,23 @@ def test_n05c_no_lower_end_of_t_bracket_names_p_floor_and_the_entropy_difference
     assert low > s_0
     assert f"s - s_0 = {low - s_0:.10g} J/(kg K)" in msg
     assert "the isentrope reaches p_floor below T_ladder[0]" in msg
+    assert "p_floor_ratio = 1e-07;" in msg and f"p_floor_ratio = {settings.p_floor_ratio!r};" in msg
+
+
+@pytest.mark.fast
+def test_n05d_the_message_shows_p_floor_ratio_as_set_not_as_p_floor_over_p_0():
+    """For a (p_0, p_floor_ratio) pair where (p_0 * ratio) / p_0 is not the set value in floating point, the message shows the set
+    value's repr.  Synthetic ideal gas (ASSUMED INPUT)."""
+    pairs = [(k * 1.0e5, r) for k in range(10, 400) for r in (1.0e-3, 1.0e-4, 1.0e-5, 1.0e-6, 1.0e-7, 3.0e-6, 2.0e-5) if (k * 1.0e5 * r) / (k * 1.0e5) != r]
+    assert pairs                                       # pairs whose computed quotient would show a different repr exist
+    p, ratio = pairs[0]
+    settings = dataclasses.replace(DEFAULT_SETTINGS, p_floor_ratio=ratio)
+    c, path = numeric_path(Gas(gamma=1.2, report_gamma_s=1.2, T_m=T_M), settings)
+    with pytest.raises(StateRecoveryError) as caught:
+        call(path, c, T_M, p, 4.0, rec=SimpleNamespace(on_plateau=True, phi=0.4), gamma=1.2)
+    msg = str(caught.value)
+    assert msg.startswith("no lower end of T_bracket in ")
+    assert f"p_floor_ratio = {ratio!r};" in msg and f"p_floor_ratio = {(p * ratio) / p!r};" not in msg
 
 
 @pytest.mark.fast
